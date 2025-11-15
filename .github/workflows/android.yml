@@ -23,8 +23,8 @@ jobs:
 
       - name: Make gradlew executable
         run: chmod +x gradlew
-        working-directory: MobileApplication
+        working-directory: mobile-app/MobileApplication
 
       - name: Build Debug
         run: ./gradlew assembleDebug
-        working-directory: MobileApplication
+        working-directory: mobile-app/MobileApplication
