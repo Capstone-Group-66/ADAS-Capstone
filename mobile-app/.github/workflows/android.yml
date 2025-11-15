@@ -5,6 +5,7 @@ on:
     branches: [ "**" ]     # run on ANY branch
   pull_request:
     branches: [ "**" ]     # run on ANY PR target
+  workflow_dispatch:       # enables manual run button
 
 jobs:
   build:
