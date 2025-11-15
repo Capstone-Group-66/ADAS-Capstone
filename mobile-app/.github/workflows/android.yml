@@ -2,9 +2,9 @@ name: Android CI
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "**" ]     # run on ANY branch
   pull_request:
-    branches: [ "main" ]
+    branches: [ "**" ]     # run on ANY PR target
 
 jobs:
   build:
