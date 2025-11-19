@@ -1,0 +1,30 @@
+name: Android CI
+
+on:
+  push:
+    branches: [ "**" ]     # run on ANY branch
+  pull_request:
+    branches: [ "**" ]     # run on ANY PR target
+  workflow_dispatch:       # enables manual run button
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+        working-directory: mobile-app/MobileApplication
+
+      - name: Build Debug
+        run: ./gradlew assembleDebug
+        working-directory: mobile-app/MobileApplication
