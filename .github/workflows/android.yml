@@ -28,3 +28,7 @@ jobs:
       - name: Build Debug
         run: ./gradlew assembleDebug
         working-directory: mobile-app/MobileApplication
+
+      - name: Run unit tests # run unit tests, assuming all mobile app test are set up to run with ./gradlew test
+        working-directory: mobile-app/MobileApplication
+        run: ./gradlew test

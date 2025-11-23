@@ -1,0 +1,24 @@
+name: Jetson Core CI
+
+on:
+  push:
+    paths:
+      - "jetson-core/**"
+      - ".github/workflows/ci-jetson.yml"
+  pull_request:
+    paths:
+      - "jetson-core/**"
+      - ".github/workflows/ci-jetson.yml"
+
+jobs:
+  jetson-ci:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Placeholder Jetson build & tests
+        run: |
+          echo "Jetson Core CI tests passed"
+          echo "Replace this with the real build/test commands later."
