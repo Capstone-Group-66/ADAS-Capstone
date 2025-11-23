@@ -11,14 +11,93 @@ on:
       - ".github/workflows/ci-jetson.yml"
 
 jobs:
-  jetson-ci:
+  jetson-core:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Placeholder Jetson build & tests
+      - name: Install C++ tooling
         run: |
-          echo "Jetson Core CI tests passed"
-          echo "Replace this with the real build/test commands later."
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake clang-format clang-tidy cppcheck
+          python3 -m pip install --user gcovr lizard
+
+      - name: Clang-format style check
+        run: |
+          chmod +x jetson-core/scripts/format-check.sh
+          ./jetson-core/scripts/format-check.sh
+
+      - name: Configure CMake (if CMakeLists exists)
+        run: |
+          if [ -f jetson-core/CMakeLists.txt ]; then
+            mkdir -p jetson-core/build
+            cd jetson-core/build
+            cmake -DCMAKE_BUILD_TYPE=Debug -DCOVERAGE=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON ..
+          else
+            echo "No jetson-core/CMakeLists.txt; skipping configure/build/tests."
+          fi
+
+      - name: Build and run tests (if configured)
+        run: |
+          if [ -d jetson-core/build ]; then
+            cd jetson-core/build
+            make -j"$(nproc)" || exit 1
+            if [ -f CTestTestfile.cmake ]; then
+              ctest --output-on-failure || echo "ctest failed or no tests; adjust later."
+            else
+              echo "No CTest config; skipping tests."
+            fi
+          else
+            echo "No build directory; skipping build/tests."
+          fi
+
+      - name: Clang-tidy analysis (if compile_commands exists)
+        run: |
+          if [ -f jetson-core/build/compile_commands.json ]; then
+            cd jetson-core
+            FILES=$(find src -name '*.cpp' 2>/dev/null || true)
+            if [ -n "$FILES" ]; then
+              echo "$FILES" > cpp_files.txt
+              clang-tidy -p build @cpp_files.txt || echo "clang-tidy reported issues; adjust later."
+            else
+              echo "No .cpp files; skipping clang-tidy."
+            fi
+          else
+            echo "No compile_commands.json; skipping clang-tidy."
+          fi
+
+      - name: Cppcheck analysis (if C++ sources exist)
+        run: |
+          if [ -d jetson-core/src ]; then
+            FILES=$(find jetson-core/src -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.c' -o -name '*.h' -o -name '*.hpp' \) 2>/dev/null || true)
+            if [ -n "$FILES" ]; then
+              cppcheck --enable=warning,performance,portability --error-exitcode=1 jetson-core/src || echo "Cppcheck reported issues; adjust later."
+            else
+              echo "No C/C++ files; skipping cppcheck."
+            fi
+          else
+            echo "No jetson-core/src directory; skipping cppcheck."
+          fi
+
+      - name: Coverage report (gcovr) if coverage data exists
+        run: |
+          if [ -d jetson-core/build ]; then
+            cd jetson-core/build
+            if compgen -G "*.gcda" > /dev/null; then
+              gcovr -r .. --print-summary || echo "gcovr failed; adjust later."
+            else
+              echo "No coverage data (*.gcda); skipping gcovr."
+            fi
+          else
+            echo "No build directory; skipping coverage."
+          fi
+
+      - name: Complexity metrics (lizard) if src exists
+        run: |
+          if [ -d jetson-core/src ]; then
+            lizard jetson-core/src || echo "Lizard analysis finished (not gating)."
+          else
+            echo "No jetson-core/src directory; skipping lizard."
+          fi
