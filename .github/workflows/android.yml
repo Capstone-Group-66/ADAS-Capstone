@@ -22,13 +22,29 @@ jobs:
           java-version: 17
 
       - name: Make gradlew executable
-        run: chmod +x gradlew
         working-directory: mobile-app/MobileApplication
+        run: chmod +x gradlew
+
+      - name: Kotlin lint (ktlint)
+        working-directory: mobile-app/MobileApplication
+        run: |
+          curl -sSfL https://github.com/pinterest/ktlint/releases/download/1.3.1/ktlint -o ktlint
+          chmod +x ktlint
+          ./ktlint "app/src/**/*.kt"
+
 
       - name: Build Debug
-        run: ./gradlew assembleDebug
         working-directory: mobile-app/MobileApplication
+        run: ./gradlew assembleDebug
 
-      - name: Run unit tests # run unit tests, assuming all mobile app test are set up to run with ./gradlew test
+      - name: Run unit tests
         working-directory: mobile-app/MobileApplication
         run: ./gradlew test
+
+      - name: Android Lint
+        working-directory: mobile-app/MobileApplication
+        run: ./gradlew lint
+
+      - name: Generate JaCoCo report
+        working-directory: mobile-app/MobileApplication
+        run: ./gradlew jacocoTestReport

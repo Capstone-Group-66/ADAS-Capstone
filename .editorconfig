@@ -1,0 +1,10 @@
+root = true
+
+[*.{kt,kts}]
+end_of_line = lf
+insert_final_newline = true
+ktlint_disabled_rules = filename,function-naming,property-naming
+disabled_rules = filename,function-naming,property-naming
+ktlint_standard_filename = disabled
+ktlint_standard_function-naming = disabled
+ktlint_standard_property-naming = disabled

@@ -4,17 +4,11 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AccountBox
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.Composable
@@ -61,15 +55,15 @@ fun TestAppApp() {
                     selected = false, // optional: can highlight current
                     onClick = {
                         // navigate via NavController
-                        when(destination) {
+                        when (destination) {
                             AppDestinations.HOME -> navController.navigate("home")
                             AppDestinations.DRIVE -> navController.navigate("drive")
                             AppDestinations.SETTINGS -> navController.navigate("settings")
                         }
-                    }
+                    },
                 )
             }
-        }
+        },
     ) {
         // add the navigation graph to the scaffold
         Navigation(navController = navController)
@@ -86,10 +80,13 @@ enum class AppDestinations(
 }
 
 @Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
+fun Greeting(
+    name: String,
+    modifier: Modifier = Modifier,
+) {
     Text(
         text = "Hello $name!",
-        modifier = modifier
+        modifier = modifier,
     )
 }
 

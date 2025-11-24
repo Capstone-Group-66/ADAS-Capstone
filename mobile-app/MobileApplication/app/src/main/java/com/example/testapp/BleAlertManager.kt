@@ -24,8 +24,9 @@ import java.nio.ByteOrder
  *
  * EVERYTHING IS JUST A SKELETON FOR NOW
  */
-class BleManager(private val context: Context) {
-
+class BleManager(
+    private val context: Context,
+) {
     // BLE Constants & UUID placeholders
     private val ADAS_SERVICE_UUID = java.util.UUID.fromString("0000xxxx-0000-1000-8000-00805f9b34fb")
     private val ADAS_ALERT_STREAM_UUID = java.util.UUID.fromString("0000xxxx-0000-1000-8000-00805f9b34fb")
@@ -45,7 +46,7 @@ class BleManager(private val context: Context) {
         val tickId: Int,
         var seqMax: Int,
         val fragments: MutableMap<Int, ByteArray> = mutableMapOf(),
-        var receivedCount: Int = 0
+        var receivedCount: Int = 0,
     )
 
     private var activeTick: InProgressTick? = null
@@ -53,13 +54,12 @@ class BleManager(private val context: Context) {
     // Ring buffer for reconnect resend (placeholders)
     private val reconnectRing = ArrayDeque<ByteArray>()
 
-
     // BLE Header Definition (4 bytes)
     // Matches struct BLEHeader in Jetson code.
     data class BLEHeader(
-        val tickId: Int,   // uint16
-        val seqNo: Int,    // uint8
-        val seqMax: Int    // uint8
+        val tickId: Int, // uint16
+        val seqNo: Int, // uint8
+        val seqMax: Int, // uint8
     ) {
         companion object {
             private const val HEADER_SIZE = 4
@@ -105,39 +105,48 @@ class BleManager(private val context: Context) {
     }
 
     // BLE GATT Callback (core of receiving alerts)
-    private val gattCallback = object : BluetoothGattCallback() {
+    private val gattCallback =
+        object : BluetoothGattCallback() {
+            // whenever the phone connects or disconnects from the Jetson
+            override fun onConnectionStateChange(
+                gatt: BluetoothGatt?,
+                status: Int,
+                newState: Int,
+            ) {
+                // TODO: handle reconnect logic
+            }
 
-        // whenever the phone connects or disconnects from the Jetson
-        override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
-            // TODO: handle reconnect logic
-        }
+            // whenever the BLE packet size changes, update slice size
+            override fun onMtuChanged(
+                gatt: BluetoothGatt?,
+                mtu: Int,
+                status: Int,
+            ) {
+                // Update slice_cap = ATT_MTU - 7
+                currentMtu = mtu
+                // TODO: trigger “recompute slice_cap next tick only”
+            }
 
-        // whenever the BLE packet size changes, update slice size
-        override fun onMtuChanged(gatt: BluetoothGatt?, mtu: Int, status: Int) {
-            // Update slice_cap = ATT_MTU - 7
-            currentMtu = mtu
-            // TODO: trigger “recompute slice_cap next tick only”
-        }
+            // once BLE services load, enable alert notifications
+            fun onServicesDiscovered(gatt: BluetoothGatt?) {
+                // TODO: Enable notifications for ADAS_ALERT_STREAM characteristic
+            }
 
-        // once BLE services load, enable alert notifications
-        fun onServicesDiscovered(gatt: BluetoothGatt?) {
-            // TODO: Enable notifications for ADAS_ALERT_STREAM characteristic
-        }
-
-        // whenever a fragment arrives from Jetson, process here
-        @RequiresApi(Build.VERSION_CODES.O)
-        override fun onCharacteristicChanged(
-            gatt: BluetoothGatt?,
-            characteristic: BluetoothGattCharacteristic?
-        ) {
-            if (characteristic?.uuid == ADAS_ALERT_STREAM_UUID) {
-                val raw = characteristic.value ?: return
-                handleIncomingFragment(raw)
+            // whenever a fragment arrives from Jetson, process here
+            @RequiresApi(Build.VERSION_CODES.O)
+            override fun onCharacteristicChanged(
+                gatt: BluetoothGatt?,
+                characteristic: BluetoothGattCharacteristic?,
+            ) {
+                if (characteristic?.uuid == ADAS_ALERT_STREAM_UUID) {
+                    val raw = characteristic.value ?: return
+                    handleIncomingFragment(raw)
+                }
             }
         }
-    }
 
     // Fragment Handler — central logic
+
     /**
      * Fragment Handler
      *
@@ -159,10 +168,11 @@ class BleManager(private val context: Context) {
 
         // Ensure activeTick exists and matches tick_id, else reset
         if (activeTick == null || activeTick?.tickId != header.tickId) {
-            activeTick = InProgressTick(
-                tickId = header.tickId,
-                seqMax = header.seqMax
-            )
+            activeTick =
+                InProgressTick(
+                    tickId = header.tickId,
+                    seqMax = header.seqMax,
+                )
         }
 
         val tick = activeTick ?: return
@@ -189,13 +199,15 @@ class BleManager(private val context: Context) {
     }
 
     // Called when one full tick CBOR buffer has been reassembled
-    private fun onFullTickPayloadReceived(tickId: Int, cborBuffer: ByteArray) {
+    private fun onFullTickPayloadReceived(
+        tickId: Int,
+        cborBuffer: ByteArray,
+    ) {
         // TODO:
         // - Decode CBOR TickPayload {tick_id, seq_max, n, alerts[]}
         // - Emit to UI or ViewModel
         // - Insert into reconnect ring (for resend if needed)
     }
-
 
     // Resend logic after reconnect
     private fun resendRingBuffer() {
