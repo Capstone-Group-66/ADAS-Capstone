@@ -57,9 +57,12 @@ class BleManager(
     // BLE Header Definition (4 bytes)
     // Matches struct BLEHeader in Jetson code.
     data class BLEHeader(
-        val tickId: Int, // uint16
-        val seqNo: Int, // uint8
-        val seqMax: Int, // uint8
+        val tickId: Int,
+        // uint16
+        val seqNo: Int,
+        // uint8
+        val seqMax: Int,
+        // uint8
     ) {
         companion object {
             private const val HEADER_SIZE = 4

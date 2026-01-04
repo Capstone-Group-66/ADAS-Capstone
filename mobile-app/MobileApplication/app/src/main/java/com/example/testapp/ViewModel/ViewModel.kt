@@ -1,4 +1,4 @@
-package com.example.testapp.ViewModel
+package com.example.testapp.viewmodel
 
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -19,8 +19,19 @@ class ViewModel : ViewModel() {
     val status4 = _status4.asStateFlow()
 
     // Example: methods that update values
-    fun setStatus1(value: Boolean) { _status1.value = value }
-    fun setStatus2(value: Boolean) { _status2.value = value }
-    fun setStatus3(value: Boolean) { _status3.value = value }
-    fun setStatus4(value: Boolean) { _status4.value = value }
+    fun setStatus1(value: Boolean) {
+        _status1.value = value
+    }
+
+    fun setStatus2(value: Boolean) {
+        _status2.value = value
+    }
+
+    fun setStatus3(value: Boolean) {
+        _status3.value = value
+    }
+
+    fun setStatus4(value: Boolean) {
+        _status4.value = value
+    }
 }

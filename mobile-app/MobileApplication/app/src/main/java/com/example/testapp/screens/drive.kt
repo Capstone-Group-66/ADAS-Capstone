@@ -26,14 +26,14 @@ fun Drive(viewModel: ViewModel) {
     val status3 = viewModel.status3.collectAsState()
     val status4 = viewModel.status4.collectAsState()
 
-    Column(Modifier.padding(8.dp)) {
+    Column(Modifier.padding(16.dp)) {
         Text("drive page")
 
         StatusRow(
             s1 = status1.value,
             s2 = status2.value,
             s3 = status3.value,
-            s4 = status4.value
+            s4 = status4.value,
         )
     }
 }
@@ -43,25 +43,26 @@ fun StatusBadge(isGood: Boolean) {
     val backgroundColor = if (isGood) Color(0xFF4CAF50) else Color(0xFFF44336)
 
     Box(
-        modifier = Modifier
-            .size(16.dp)
-            .background(backgroundColor, CircleShape)
+        modifier =
+            Modifier
+                .size(16.dp)
+                .background(backgroundColor, CircleShape),
     )
 }
 
 @Composable
 fun StatusItem(
     label: String,
-    isGood: Boolean
+    isGood: Boolean,
 ) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(3.dp)
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         StatusBadge(isGood = isGood)
         Text(
             text = label,
-            fontSize = 12.sp
+            fontSize = 12.sp,
         )
     }
 }
@@ -71,12 +72,12 @@ fun StatusRow(
     s1: Boolean,
     s2: Boolean,
     s3: Boolean,
-    s4: Boolean
+    s4: Boolean,
 ) {
     Row(
         modifier = Modifier.padding(16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         StatusItem("Rear Camera", s1)
         StatusItem("Side Radar", s2)

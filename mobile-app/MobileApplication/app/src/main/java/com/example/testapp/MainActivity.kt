@@ -52,7 +52,8 @@ fun TestAppApp() {
                 item(
                     icon = { Icon(destination.icon, contentDescription = destination.label) },
                     label = { Text(destination.label) },
-                    selected = false, // optional: can highlight current
+                    selected = false,
+                    // optional: can highlight current
                     onClick = {
                         // navigate via NavController
                         when (destination) {
