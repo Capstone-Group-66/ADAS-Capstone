@@ -5,10 +5,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import com.example.testapp.viewmodel.ViewModel
 import com.example.testapp.screens.Drive
 import com.example.testapp.screens.home
 import com.example.testapp.screens.settings
+import com.example.testapp.viewmodel.ViewModel
 
 @Composable
 fun Navigation(navController: NavHostController) {
