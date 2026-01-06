@@ -18,6 +18,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.testapp.viewmodel.ViewModel
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import com.example.testapp.R
+import androidx.compose.ui.res.painterResource
+
 
 @Composable
 fun Drive(viewModel: ViewModel) {
@@ -34,6 +40,26 @@ fun Drive(viewModel: ViewModel) {
             s2 = status2.value,
             s3 = status3.value,
             s4 = status4.value,
+        )
+    }
+
+    CenteredCar()
+
+}
+
+
+@Composable
+fun CenteredCar() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_car),
+            contentDescription = "Car",
+            modifier = Modifier
+                .size(400.dp)
+                .offset(y = 100.dp)
         )
     }
 }
