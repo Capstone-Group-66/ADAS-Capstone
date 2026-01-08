@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("jacoco")
+    id("org.jlleitschuh.gradle.ktlint")
 }
 
 android {
@@ -26,7 +27,7 @@ android {
             isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
-                "proguard-rules.pro"
+                "proguard-rules.pro",
             )
         }
     }
@@ -66,12 +67,12 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
 }
 
-//task to generate coverage for debug unit tests
+// task to generate coverage for debug unit tests
 tasks.register(
     "jacocoTestReport",
-    org.gradle.testing.jacoco.tasks.JacocoReport::class
+    org.gradle.testing.jacoco.tasks.JacocoReport::class,
 ) {
-    //run debug unit tests first
+    // run debug unit tests first
     dependsOn("testDebugUnitTest")
 
     reports {
@@ -79,25 +80,26 @@ tasks.register(
         html.required.set(true)
     }
 
-    val excludes = listOf(
-        "**/R.class",
-        "**/R$*.class",
-        "**/*\$Companion.class",
-        "**/BuildConfig.*",
-        "**/Manifest*.*",
-        "android/**/*.*"
-    )
+    val excludes =
+        listOf(
+            "**/R.class",
+            "**/R$*.class",
+            "**/*\$Companion.class",
+            "**/BuildConfig.*",
+            "**/Manifest*.*",
+            "android/**/*.*",
+        )
 
-    //where debug classes typically end up for Android app modules
+    // where debug classes typically end up for Android app modules
     classDirectories.setFrom(
-        fileTree("${buildDir}/intermediates/javac/debug/classes") {
+        fileTree("$buildDir/intermediates/javac/debug/classes") {
             exclude(excludes)
-        }
+        },
     )
 
     // Kotlin + Java sources
     sourceDirectories.setFrom(files("src/main/java", "src/main/kotlin"))
 
     // JaCoCo execution data from debug unit tests
-    executionData.setFrom(files("${buildDir}/jacoco/testDebugUnitTest.exec"))
+    executionData.setFrom(files("$buildDir/jacoco/testDebugUnitTest.exec"))
 }
