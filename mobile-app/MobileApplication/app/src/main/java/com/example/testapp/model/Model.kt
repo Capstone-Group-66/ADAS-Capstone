@@ -1,4 +1,5 @@
 package com.example.testapp.model
 
-class Model {
-}
+import com.example.testapp.BleManager
+
+class Model(private val bleManager: BleManager)
