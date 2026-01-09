@@ -21,6 +21,8 @@ import com.example.testapp.viewmodel.ViewModel
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.ColorFilter
 import com.example.testapp.R
 import androidx.compose.ui.res.painterResource
 
@@ -31,6 +33,8 @@ fun Drive(viewModel: ViewModel) {
     val status2 = viewModel.status2.collectAsState()
     val status3 = viewModel.status3.collectAsState()
     val status4 = viewModel.status4.collectAsState()
+    val sonarValue = viewModel.sonarValue.value
+
 
     Column(Modifier.padding(16.dp)) {
         Text("drive page")
@@ -44,6 +48,7 @@ fun Drive(viewModel: ViewModel) {
     }
 
     CenteredCar()
+    frontDetection(sonarValue)
 
 }
 
@@ -74,6 +79,25 @@ fun StatusBadge(isGood: Boolean) {
                 .size(16.dp)
                 .background(backgroundColor, CircleShape),
     )
+}
+
+@Composable
+fun frontDetection(detectionValue: Int) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_detection_re),
+            contentDescription = "detection",
+            // Will be changed to use detectionValue once the detection system is implemented
+            colorFilter = ColorFilter.tint(Color.Green),
+            modifier = Modifier
+                .offset(y = -130.dp)
+                .size(300.dp)
+                .rotate(-90f)
+        )
+    }
 }
 
 @Composable
@@ -111,3 +135,4 @@ fun StatusRow(
         StatusItem("Front Camera", s4)
     }
 }
+
