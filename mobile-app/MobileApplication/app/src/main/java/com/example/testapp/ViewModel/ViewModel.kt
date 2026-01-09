@@ -1,5 +1,7 @@
 package com.example.testapp.viewmodel
 
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -18,6 +20,9 @@ class ViewModel : ViewModel() {
     private val _status4 = MutableStateFlow(false)
     val status4 = _status4.asStateFlow()
 
+    var sonarValue = mutableStateOf(0)
+        private set
+
     // Example: methods that update values
     fun setStatus1(value: Boolean) {
         _status1.value = value
@@ -33,5 +38,9 @@ class ViewModel : ViewModel() {
 
     fun setStatus4(value: Boolean) {
         _status4.value = value
+    }
+
+    fun updateValue(value: Int) {
+        sonarValue.value = value
     }
 }

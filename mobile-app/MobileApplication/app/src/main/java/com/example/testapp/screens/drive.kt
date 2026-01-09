@@ -1,10 +1,13 @@
 package com.example.testapp.screens
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -13,10 +16,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.testapp.R
 import com.example.testapp.viewmodel.ViewModel
 
 @Composable
@@ -25,6 +32,7 @@ fun Drive(viewModel: ViewModel) {
     val status2 = viewModel.status2.collectAsState()
     val status3 = viewModel.status3.collectAsState()
     val status4 = viewModel.status4.collectAsState()
+    val sonarValue = viewModel.sonarValue.value
 
     Column(Modifier.padding(16.dp)) {
         Text("drive page")
@@ -34,6 +42,24 @@ fun Drive(viewModel: ViewModel) {
             s2 = status2.value,
             s3 = status3.value,
             s4 = status4.value,
+        )
+    }
+
+    CenteredCar()
+    frontDetection(sonarValue)
+}
+
+@Composable
+fun CenteredCar() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_car),
+            contentDescription = "Car",
+            modifier =
+                Modifier.size(400.dp).offset(y = 100.dp),
         )
     }
 }
@@ -48,6 +74,23 @@ fun StatusBadge(isGood: Boolean) {
                 .size(16.dp)
                 .background(backgroundColor, CircleShape),
     )
+}
+
+@Composable
+fun frontDetection(detectionValue: Int) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_detection_re),
+            contentDescription = "detection",
+            // Will be changed to use detectionValue once the detection system is implemented
+            colorFilter = ColorFilter.tint(Color.Green),
+            modifier =
+                Modifier.offset(y = -130.dp).size(300.dp).rotate(-90f),
+        )
+    }
 }
 
 @Composable
