@@ -4,5 +4,5 @@ data class SonarColors(
     val front: SignalColor,
     val rear: SignalColor,
     val left: SignalColor,
-    val right: SignalColor
+    val right: SignalColor,
 )

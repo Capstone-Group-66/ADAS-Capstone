@@ -9,5 +9,5 @@ data class VehicleAlert(
     val sonar: SonarColors,
     val telemetry: VehicleTelemetry,
     val detection: ObjectDetection,
-    val timestampMs: Long = System.currentTimeMillis()
+    val timestampMs: Long = System.currentTimeMillis(),
 )
