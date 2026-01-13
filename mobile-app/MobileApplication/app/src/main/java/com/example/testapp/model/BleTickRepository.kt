@@ -13,7 +13,8 @@ class BleTickRepository(
     scope: CoroutineScope,
 ) {
     val dashboardState: StateFlow<VehicleAlert> =
-        blePackets.map { TickDecoder.decode(it) }
+        blePackets
+            .map { TickDecoder.decode(it) }
             .runningFold(VehicleAlertReducer.initial()) { state, tick ->
                 VehicleAlertReducer.reduce(state, tick) ?: state
             }
