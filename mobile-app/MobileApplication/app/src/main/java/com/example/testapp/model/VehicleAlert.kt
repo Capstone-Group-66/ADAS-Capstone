@@ -45,7 +45,11 @@ data class BlindSpotStatus(
 sealed class ObjectDetection {
     data object None : ObjectDetection()
 
-    data class Car(val confidence: Int? = null) : ObjectDetection()
+    data class Car(
+        val confidence: Int? = null,
+    ) : ObjectDetection()
 
-    data class Person(val confidence: Int? = null) : ObjectDetection()
+    data class Person(
+        val confidence: Int? = null,
+    ) : ObjectDetection()
 }
