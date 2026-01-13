@@ -12,14 +12,14 @@ class BleTickRepository(
     blePackets: Flow<ByteArray>,
     scope: CoroutineScope,
 ) {
-    val dashboardState: StateFlow<VehicleAlert> = blePackets
-        .map { TickDecoder.decode(it) }
-        .runningFold(VehicleAlertReducer.initial()) { state, tick ->
-            VehicleAlertReducer.reduce(state, tick) ?: state
-        }
-        .stateIn(
-            scope = scope,
-            started = SharingStarted.WhileSubscribed(5_000),
-            initialValue = VehicleAlertReducer.initial(),
-        )
+    val dashboardState: StateFlow<VehicleAlert> =
+        blePackets.map { TickDecoder.decode(it) }
+            .runningFold(VehicleAlertReducer.initial()) { state, tick ->
+                VehicleAlertReducer.reduce(state, tick) ?: state
+            }
+            .stateIn(
+                scope = scope,
+                started = SharingStarted.WhileSubscribed(5_000),
+                initialValue = VehicleAlertReducer.initial(),
+            )
 }
