@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
@@ -24,29 +25,33 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.testapp.R
+import com.example.testapp.updateUIstate
 import com.example.testapp.viewmodel.ViewModel
 
 @Composable
 fun Drive(viewModel: ViewModel) {
-    val status1 = viewModel.status1.collectAsState()
-    val status2 = viewModel.status2.collectAsState()
-    val status3 = viewModel.status3.collectAsState()
-    val status4 = viewModel.status4.collectAsState()
-    val sonarValue = viewModel.sonarValue.value
+
+    val state by viewModel.driveState.collectAsState()
+
+    DriveContent(state = state)
+}
+
+@Composable
+fun DriveContent(state: updateUIstate) {
 
     Column(Modifier.padding(16.dp)) {
         Text("drive page")
 
         StatusRow(
-            s1 = status1.value,
-            s2 = status2.value,
-            s3 = status3.value,
-            s4 = status4.value,
+            s1 = state.status1,
+            s2 = state.status2,
+            s3 = state.status3,
+            s4 = state.status4,
         )
     }
 
     CenteredCar()
-    frontDetection(sonarValue)
+    FrontDetection(state.sonarValue)
 }
 
 @Composable
@@ -77,7 +82,7 @@ fun StatusBadge(isGood: Boolean) {
 }
 
 @Composable
-fun frontDetection(detectionValue: Int) {
+fun FrontDetection(detectionValue: Int) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
