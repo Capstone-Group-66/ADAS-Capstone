@@ -23,22 +23,19 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.testapp.R
-import com.example.testapp.updateUIstate
+import com.example.testapp.UpdateUIstate
 import com.example.testapp.viewmodel.ViewModel
 
 @Composable
 fun Drive(viewModel: ViewModel) {
-
     val state by viewModel.driveState.collectAsState()
 
     DriveContent(state = state)
 }
 
 @Composable
-fun DriveContent(state: updateUIstate) {
-
+fun DriveContent(state: UpdateUIstate) {
     Column(Modifier.padding(16.dp)) {
         Text("drive page")
 

@@ -1,6 +1,6 @@
 package com.example.testapp
 
-data class updateUIstate (
+data class UpdateUIstate(
     val status1: Boolean,
     val status2: Boolean,
     val status3: Boolean,

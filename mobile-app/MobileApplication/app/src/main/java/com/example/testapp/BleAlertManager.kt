@@ -9,8 +9,6 @@ import android.content.Context
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
-import com.example.testapp.model.VehicleAlert
-import kotlinx.coroutines.flow.SharedFlow
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
