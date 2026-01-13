@@ -17,8 +17,7 @@ class BleTickRepository(
             .map { TickDecoder.decode(it) }
             .runningFold(VehicleAlertReducer.initial()) { state, tick ->
                 VehicleAlertReducer.reduce(state, tick) ?: state
-            }
-            .stateIn(
+            }.stateIn(
                 scope = scope,
                 started = SharingStarted.WhileSubscribed(5_000),
                 initialValue = VehicleAlertReducer.initial(),
