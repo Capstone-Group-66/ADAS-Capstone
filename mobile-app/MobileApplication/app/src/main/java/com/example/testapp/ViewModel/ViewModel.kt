@@ -22,8 +22,7 @@ class ViewModel(
                     status4 = vehicleAlert.cameras.frontOk,
                     sonarValue = vehicleAlert.sonar.front.ordinal,
                 )
-            }
-            .stateIn(
+            }.stateIn(
                 scope = viewModelScope,
                 started = SharingStarted.WhileSubscribed(5_000),
                 initialValue =
