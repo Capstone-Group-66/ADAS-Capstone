@@ -65,6 +65,7 @@ add_executable(jetson_core
 target_link_libraries(jetson_core
     ${OpenCV_LIBS}
     Threads::Threads
+    stdc++fs
 )
 
 if(yaml-cpp_FOUND)
@@ -84,6 +85,7 @@ add_executable(device_wizard
 target_link_libraries(device_wizard
     ${OpenCV_LIBS}
     Threads::Threads
+    stdc++fs
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
