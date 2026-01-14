@@ -16,20 +16,13 @@
 
 namespace adas {
 
-void DeviceWizard::runRegistration(const std::string &output_path,
-                                   bool show_preview) {
-    std::cout
-        << "==============================================================\n";
-    std::cout
-        << "          ADAS Device Registration Wizard                     \n";
-    std::cout
-        << "==============================================================\n";
-    std::cout
-        << "  This tool maps USB cameras to their mount positions.        \n";
-    std::cout
-        << "  Note: RearCam and Rear Radars come via Pi4 network.        \n";
-    std::cout
-        << "==============================================================\n\n";
+void DeviceWizard::runRegistration(const std::string &output_path, bool show_preview) {
+    std::cout << "==============================================================\n";
+    std::cout << "          ADAS Device Registration Wizard                     \n";
+    std::cout << "==============================================================\n";
+    std::cout << "  This tool maps USB cameras to their mount positions.        \n";
+    std::cout << "  Note: RearCam and Rear Radars come via Pi4 network.        \n";
+    std::cout << "==============================================================\n\n";
 
     // Enumerate devices
     auto video_devices = enumerateVideoDevices();
@@ -73,8 +66,8 @@ void DeviceWizard::runRegistration(const std::string &output_path,
         if (mount.has_value()) {
             mappings[mount.value()] = device_path;
             already_assigned.push_back(mount.value());
-            std::cout << "  [ASSIGNED] " << device_path << " -> "
-                      << mountToString(mount.value()) << "\n";
+            std::cout << "  [ASSIGNED] " << device_path << " -> " << mountToString(mount.value())
+                      << "\n";
         } else {
             std::cout << "  [SKIPPED]\n";
         }
@@ -104,9 +97,8 @@ void DeviceWizard::runRegistration(const std::string &output_path,
     }
 }
 
-void DeviceWizard::saveDirectMapping(
-    const std::string &output_path,
-    const std::map<Mount, std::string> &mappings) {
+void DeviceWizard::saveDirectMapping(const std::string &output_path,
+                                     const std::map<Mount, std::string> &mappings) {
     HardwareMap hw_map;
     hw_map.schema_version = "1.0";
     hw_map.generated_at = getCurrentTimestamp();
@@ -182,8 +174,7 @@ bool DeviceWizard::testVideoDevice(const std::string &device_path) {
     return success && !frame.empty();
 }
 
-void DeviceWizard::showPreview(const std::string &device_path,
-                               int duration_sec) {
+void DeviceWizard::showPreview(const std::string &device_path, int duration_sec) {
 #ifdef __linux__
     cv::VideoCapture cap(device_path, cv::CAP_V4L2);
 #else
@@ -215,8 +206,7 @@ void DeviceWizard::showPreview(const std::string &device_path,
 
         // Check duration
         auto elapsed = std::chrono::steady_clock::now() - start;
-        if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() >=
-            duration_sec) {
+        if (std::chrono::duration_cast<std::chrono::seconds>(elapsed).count() >= duration_sec) {
             break;
         }
 
@@ -241,9 +231,8 @@ DeviceWizard::promptMountAssignment(const std::string &device_path,
     std::vector<Mount> available;
 
     for (Mount m : direct_mounts) {
-        bool assigned =
-            std::find(already_assigned.begin(), already_assigned.end(), m) !=
-            already_assigned.end();
+        bool assigned = std::find(already_assigned.begin(), already_assigned.end(), m) !=
+                        already_assigned.end();
         if (!assigned) {
             available.push_back(m);
             std::cout << "    " << option << ") " << mountToString(m) << "\n";
@@ -269,34 +258,28 @@ std::vector<Mount> DeviceWizard::getDirectCameraMounts() {
 }
 
 void DeviceWizard::printSummary(const std::map<Mount, std::string> &mappings) {
-    std::cout
-        << "==============================================================\n";
-    std::cout
-        << "                    ASSIGNMENT SUMMARY                        \n";
-    std::cout
-        << "==============================================================\n";
+    std::cout << "==============================================================\n";
+    std::cout << "                    ASSIGNMENT SUMMARY                        \n";
+    std::cout << "==============================================================\n";
 
     for (const auto &[mount, path] : mappings) {
-        std::cout << "  " << std::left << std::setw(15) << mountToString(mount)
-                  << " -> " << std::setw(20) << path << "\n";
+        std::cout << "  " << std::left << std::setw(15) << mountToString(mount) << " -> "
+                  << std::setw(20) << path << "\n";
     }
 
     // Show unassigned
     auto direct_mounts = getDirectCameraMounts();
     for (Mount m : direct_mounts) {
         if (mappings.find(m) == mappings.end()) {
-            std::cout << "  " << std::left << std::setw(15) << mountToString(m)
-                      << " -> " << std::setw(20) << "(not assigned)"
+            std::cout << "  " << std::left << std::setw(15) << mountToString(m) << " -> "
+                      << std::setw(20) << "(not assigned)"
                       << "\n";
         }
     }
 
-    std::cout
-        << "==============================================================\n";
-    std::cout
-        << "  Note: RearCam + RearRadars come via Pi4 (NetworkIngest)    \n";
-    std::cout
-        << "==============================================================\n";
+    std::cout << "==============================================================\n";
+    std::cout << "  Note: RearCam + RearRadars come via Pi4 (NetworkIngest)    \n";
+    std::cout << "==============================================================\n";
 }
 
 std::string DeviceWizard::getCurrentTimestamp() {

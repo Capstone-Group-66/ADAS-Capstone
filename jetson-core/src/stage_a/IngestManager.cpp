@@ -20,16 +20,11 @@ void IngestManager::start() {
     }
 
     std::cout << "\n";
-    std::cout
-        << "==============================================================\n";
-    std::cout
-        << "               STAGE A: INGEST & TIMESTAMP                    \n";
-    std::cout
-        << "==============================================================\n";
-    std::cout
-        << "  Starting all sensor ingest threads...                       \n";
-    std::cout
-        << "==============================================================\n";
+    std::cout << "==============================================================\n";
+    std::cout << "               STAGE A: INGEST & TIMESTAMP                    \n";
+    std::cout << "==============================================================\n";
+    std::cout << "  Starting all sensor ingest threads...                       \n";
+    std::cout << "==============================================================\n";
     std::cout << "\n";
 
     running_.store(true, std::memory_order_relaxed);
@@ -80,8 +75,8 @@ void IngestManager::launchDirectCameras() {
     // FrontCam
     auto it = hw_map_.mappings.find(Mount::FrontCam);
     if (it != hw_map_.mappings.end()) {
-        cam_front_ = std::make_unique<CameraIngest>(
-            Mount::FrontCam, it->second, cam_front_queue_, config_.cameras);
+        cam_front_ = std::make_unique<CameraIngest>(Mount::FrontCam, it->second, cam_front_queue_,
+                                                    config_.cameras);
         cam_front_->start();
     } else {
         std::cerr << "[IngestManager] WARNING: FrontCam not in hardware_map\n";
@@ -90,8 +85,8 @@ void IngestManager::launchDirectCameras() {
     // SideCamL
     it = hw_map_.mappings.find(Mount::SideCamL);
     if (it != hw_map_.mappings.end()) {
-        cam_side_l_ = std::make_unique<CameraIngest>(
-            Mount::SideCamL, it->second, cam_side_l_queue_, config_.cameras);
+        cam_side_l_ = std::make_unique<CameraIngest>(Mount::SideCamL, it->second, cam_side_l_queue_,
+                                                     config_.cameras);
         cam_side_l_->start();
     } else {
         std::cerr << "[IngestManager] WARNING: SideCamL not in hardware_map\n";
@@ -100,8 +95,8 @@ void IngestManager::launchDirectCameras() {
     // SideCamR
     it = hw_map_.mappings.find(Mount::SideCamR);
     if (it != hw_map_.mappings.end()) {
-        cam_side_r_ = std::make_unique<CameraIngest>(
-            Mount::SideCamR, it->second, cam_side_r_queue_, config_.cameras);
+        cam_side_r_ = std::make_unique<CameraIngest>(Mount::SideCamR, it->second, cam_side_r_queue_,
+                                                     config_.cameras);
         cam_side_r_->start();
     } else {
         std::cerr << "[IngestManager] WARNING: SideCamR not in hardware_map\n";
@@ -119,10 +114,8 @@ void IngestManager::launchNetworkIngest() {
 void IngestManager::launchFrontRadar() {
     std::cout << "[IngestManager] Launching front radar ingest...\n";
 
-    radar_front_ = std::make_unique<RadarIngest>(Mount::FrontRadar,
-                                                 config_.front_radar.port,
-                                                 radar_front_queue_,
-                                                 config_.front_radar);
+    radar_front_ = std::make_unique<RadarIngest>(Mount::FrontRadar, config_.front_radar.port,
+                                                 radar_front_queue_, config_.front_radar);
     radar_front_->start();
 }
 

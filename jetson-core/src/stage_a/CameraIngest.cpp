@@ -13,8 +13,7 @@
 namespace adas {
 
 CameraIngest::CameraIngest(Mount mount, const std::string &device_path,
-                           SPSCQueue<CameraFrameData, 8> &queue,
-                           const CameraConfig &config)
+                           SPSCQueue<CameraFrameData, 8> &queue, const CameraConfig &config)
     : mount_(mount), device_path_(device_path), queue_(queue), config_(config) {
     frame_times_.fill(0);
 }
@@ -41,21 +40,20 @@ void CameraIngest::stop() {
 }
 
 void CameraIngest::run() {
-    std::cout << "[CameraIngest] Starting " << mountToString(mount_) << " on "
-              << device_path_ << std::endl;
+    std::cout << "[CameraIngest] Starting " << mountToString(mount_) << " on " << device_path_
+              << std::endl;
 
     // Open and configure camera
     if (!configureCamera()) {
-        std::cerr << "[CameraIngest] Failed to configure " << mountToString(mount_)
-                  << std::endl;
+        std::cerr << "[CameraIngest] Failed to configure " << mountToString(mount_) << std::endl;
         healthy_.store(false, std::memory_order_relaxed);
         running_.store(false, std::memory_order_relaxed);
         return;
     }
 
     healthy_.store(true, std::memory_order_relaxed);
-    std::cout << "[CameraIngest] " << mountToString(mount_)
-              << " configured successfully" << std::endl;
+    std::cout << "[CameraIngest] " << mountToString(mount_) << " configured successfully"
+              << std::endl;
 
     // Warmup: discard first few frames (camera auto-exposure settling)
     for (int i = 0; i < 10 && running_.load(std::memory_order_relaxed); ++i) {
@@ -71,8 +69,7 @@ void CameraIngest::run() {
         }
     }
 
-    std::cout << "[CameraIngest] " << mountToString(mount_) << " stopped"
-              << std::endl;
+    std::cout << "[CameraIngest] " << mountToString(mount_) << " stopped" << std::endl;
 }
 
 bool CameraIngest::configureCamera() {
@@ -118,9 +115,8 @@ bool CameraIngest::configureCamera() {
                      static_cast<char>((actual_fourcc >> 16) & 0xFF),
                      static_cast<char>((actual_fourcc >> 24) & 0xFF), '\0'};
 
-    std::cout << "[CameraIngest] " << mountToString(mount_)
-              << " config: " << actual_width << "x" << actual_height << " @ "
-              << actual_fps << " FPS, codec=" << codec << std::endl;
+    std::cout << "[CameraIngest] " << mountToString(mount_) << " config: " << actual_width << "x"
+              << actual_height << " @ " << actual_fps << " FPS, codec=" << codec << std::endl;
 
     // Warn if not MJPEG (bandwidth issues likely)
     if (config_.use_mjpeg && std::string(codec) != "MJPG") {
@@ -201,8 +197,7 @@ CameraIngest::Stats CameraIngest::getStats() const {
     }
 
     if (!deltas.empty()) {
-        stats.fps_avg =
-            std::accumulate(deltas.begin(), deltas.end(), 0.0) / deltas.size();
+        stats.fps_avg = std::accumulate(deltas.begin(), deltas.end(), 0.0) / deltas.size();
         stats.fps_min = *std::min_element(deltas.begin(), deltas.end());
         stats.fps_max = *std::max_element(deltas.begin(), deltas.end());
     }

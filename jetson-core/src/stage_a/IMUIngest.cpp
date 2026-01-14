@@ -32,8 +32,7 @@ void IMUIngest::stop() {
 
 void IMUIngest::run() {
     std::cout << "[IMUIngest] Starting (SCAFFOLD MODE - hardware pending)\n";
-    std::cout << "[IMUIngest] Config: bus=" << config_.bus
-              << ", rate=" << config_.rate_hz << " Hz"
+    std::cout << "[IMUIngest] Config: bus=" << config_.bus << ", rate=" << config_.rate_hz << " Hz"
               << ", uart=" << (config_.use_uart ? "true" : "false") << std::endl;
 
     // SCAFFOLD: Try to initialize, expect failure until hardware arrives
@@ -70,14 +69,12 @@ void IMUIngest::run() {
 
         // Calculate rate every 5 seconds
         if (Clock::elapsed_ms(last_rate_time) >= 5000) {
-            double elapsed_sec =
-                Clock::ns_to_sec(Clock::now_ns() - last_rate_time);
+            double elapsed_sec = Clock::ns_to_sec(Clock::now_ns() - last_rate_time);
             double hz = static_cast<double>(samples_in_window) / elapsed_sec;
             rate_hz_.store(hz, std::memory_order_relaxed);
 
             std::cout << "[IMUIngest] rate: " << hz << " Hz"
-                      << (hz >= 100.0 ? " [PASS]" : " [WARN: below 100Hz]")
-                      << std::endl;
+                      << (hz >= 100.0 ? " [PASS]" : " [WARN: below 100Hz]") << std::endl;
 
             samples_in_window = 0;
             last_rate_time = Clock::now_ns();

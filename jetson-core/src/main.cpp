@@ -15,8 +15,7 @@ std::unique_ptr<adas::IngestManager> g_manager;
 std::atomic<bool> g_shutdown_requested{false};
 
 void signalHandler(int signum) {
-    std::cout << "\n[Main] Received signal " << signum
-              << ", initiating shutdown...\n";
+    std::cout << "\n[Main] Received signal " << signum << ", initiating shutdown...\n";
     g_shutdown_requested.store(true, std::memory_order_relaxed);
 }
 
@@ -83,13 +82,11 @@ int main(int argc, char *argv[]) {
 
         // Load hardware mapping
         std::cout << "[Main] Loading hardware map from: " << hw_map_path << "\n";
-        adas::HardwareMap hw_map =
-            adas::ConfigLoader::loadHardwareMap(hw_map_path);
+        adas::HardwareMap hw_map = adas::ConfigLoader::loadHardwareMap(hw_map_path);
 
         std::cout << "[Main] Mapped devices:\n";
         for (const auto &[mount, path] : hw_map.mappings) {
-            std::cout << "  " << adas::mountToString(mount) << " -> " << path
-                      << "\n";
+            std::cout << "  " << adas::mountToString(mount) << " -> " << path << "\n";
         }
 
         // Create and start IngestManager

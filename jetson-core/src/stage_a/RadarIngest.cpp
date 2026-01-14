@@ -14,8 +14,7 @@
 
 namespace adas {
 
-RadarIngest::RadarIngest(Mount mount, const std::string &port,
-                         SPSCQueue<RadarTargets, 8> &queue,
+RadarIngest::RadarIngest(Mount mount, const std::string &port, SPSCQueue<RadarTargets, 8> &queue,
                          const RadarConfig &config)
     : mount_(mount), port_(port), queue_(queue), config_(config) {}
 
@@ -46,8 +45,8 @@ void RadarIngest::stop() {
 }
 
 void RadarIngest::run() {
-    std::cout << "[RadarIngest] Starting " << mountToString(mount_) << " on "
-              << port_ << " at " << config_.baud_rate << " baud" << std::endl;
+    std::cout << "[RadarIngest] Starting " << mountToString(mount_) << " on " << port_ << " at "
+              << config_.baud_rate << " baud" << std::endl;
 
 #ifdef __linux__
     if (!setupSerialPort()) {
@@ -75,8 +74,7 @@ void RadarIngest::run() {
 
         // Parse and push to queue
         if (!buffer.empty()) {
-            RadarTargets targets =
-                parseFrame(buffer.data(), buffer.size(), t_ingest);
+            RadarTargets targets = parseFrame(buffer.data(), buffer.size(), t_ingest);
             queue_.try_push(std::move(targets));
 
             frames_received_.fetch_add(1, std::memory_order_relaxed);
@@ -86,13 +84,12 @@ void RadarIngest::run() {
 
         // Calculate rate every 5 seconds (matching radar_freq_test.cpp)
         if (Clock::elapsed_ms(last_rate_time_) >= 5000) {
-            double elapsed_sec =
-                Clock::ns_to_sec(Clock::now_ns() - last_rate_time_);
+            double elapsed_sec = Clock::ns_to_sec(Clock::now_ns() - last_rate_time_);
             double hz = static_cast<double>(frames_in_window_) / elapsed_sec;
             rate_hz_.store(hz, std::memory_order_relaxed);
 
-            std::cout << "[RadarIngest] " << mountToString(mount_)
-                      << " rate: " << hz << " Hz" << std::endl;
+            std::cout << "[RadarIngest] " << mountToString(mount_) << " rate: " << hz << " Hz"
+                      << std::endl;
 
             // Check against 20Hz target (from radar_freq_test.cpp)
             if (hz >= 18.0 && hz <= 22.0) {
@@ -165,9 +162,9 @@ bool RadarIngest::setupSerialPort() {
     tty.c_cflag &= ~PARENB; // No parity
     tty.c_cflag &= ~CSTOPB; // 1 stop bit
     tty.c_cflag &= ~CSIZE;
-    tty.c_cflag |= CS8;             // 8 bits
-    tty.c_cflag &= ~CRTSCTS;        // No flow control
-    tty.c_cflag |= CREAD | CLOCAL;  // Enable read, ignore carrier
+    tty.c_cflag |= CS8;            // 8 bits
+    tty.c_cflag &= ~CRTSCTS;       // No flow control
+    tty.c_cflag |= CREAD | CLOCAL; // Enable read, ignore carrier
 
     // Raw mode
     tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
@@ -188,8 +185,8 @@ bool RadarIngest::setupSerialPort() {
     // Flush buffers
     tcflush(fd_, TCIOFLUSH);
 
-    std::cout << "[RadarIngest] Serial port configured: " << port_ << " @ "
-              << config_.baud_rate << " baud\n";
+    std::cout << "[RadarIngest] Serial port configured: " << port_ << " @ " << config_.baud_rate
+              << " baud\n";
     return true;
 #else
     return false;
@@ -228,8 +225,7 @@ bool RadarIngest::readFrame(std::vector<uint8_t> &buffer) {
 #endif
 }
 
-RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
-                                     uint64_t t_ingest) {
+RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len, uint64_t t_ingest) {
     RadarTargets targets;
 
     // Build header
@@ -254,8 +250,7 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
 
         // Extract number
         size_t num_start = pos;
-        while (pos < str.size() && (std::isdigit(str[pos]) || str[pos] == '.' ||
-                                    str[pos] == '-')) {
+        while (pos < str.size() && (std::isdigit(str[pos]) || str[pos] == '.' || str[pos] == '-')) {
             ++pos;
         }
 
@@ -270,13 +265,12 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
                     speed_pos += 8;
                     size_t speed_end = speed_pos;
                     while (speed_end < str.size() &&
-                           (std::isdigit(str[speed_end]) ||
-                            str[speed_end] == '.' || str[speed_end] == '-')) {
+                           (std::isdigit(str[speed_end]) || str[speed_end] == '.' ||
+                            str[speed_end] == '-')) {
                         ++speed_end;
                     }
                     if (speed_end > speed_pos) {
-                        speed = std::stof(
-                            str.substr(speed_pos, speed_end - speed_pos));
+                        speed = std::stof(str.substr(speed_pos, speed_end - speed_pos));
                     }
                 }
 

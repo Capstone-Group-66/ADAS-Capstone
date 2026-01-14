@@ -147,24 +147,21 @@ HardwareMap ConfigLoader::loadHardwareMap(const std::string &path) {
                 size_t quote1 = line.find('"', start);
                 size_t quote2 = line.find('"', quote1 + 1);
                 if (quote1 != std::string::npos && quote2 != std::string::npos) {
-                    map.mappings[Mount::FrontCam] =
-                        line.substr(quote1 + 1, quote2 - quote1 - 1);
+                    map.mappings[Mount::FrontCam] = line.substr(quote1 + 1, quote2 - quote1 - 1);
                 }
             } else if (line.find("\"SideCamL\"") != std::string::npos) {
                 size_t start = line.find_last_of(':');
                 size_t quote1 = line.find('"', start);
                 size_t quote2 = line.find('"', quote1 + 1);
                 if (quote1 != std::string::npos && quote2 != std::string::npos) {
-                    map.mappings[Mount::SideCamL] =
-                        line.substr(quote1 + 1, quote2 - quote1 - 1);
+                    map.mappings[Mount::SideCamL] = line.substr(quote1 + 1, quote2 - quote1 - 1);
                 }
             } else if (line.find("\"SideCamR\"") != std::string::npos) {
                 size_t start = line.find_last_of(':');
                 size_t quote1 = line.find('"', start);
                 size_t quote2 = line.find('"', quote1 + 1);
                 if (quote1 != std::string::npos && quote2 != std::string::npos) {
-                    map.mappings[Mount::SideCamR] =
-                        line.substr(quote1 + 1, quote2 - quote1 - 1);
+                    map.mappings[Mount::SideCamR] = line.substr(quote1 + 1, quote2 - quote1 - 1);
                 }
             } else if (line.find('}') != std::string::npos) {
                 inMappings = false;
@@ -179,8 +176,7 @@ bool ConfigLoader::hardwareMapExists(const std::string &path) {
     return std::filesystem::exists(path);
 }
 
-void ConfigLoader::saveHardwareMap(const std::string &path,
-                                   const HardwareMap &map) {
+void ConfigLoader::saveHardwareMap(const std::string &path, const HardwareMap &map) {
     std::ofstream file(path);
     if (!file.is_open()) {
         throw std::runtime_error("Cannot create file: " + path);
@@ -204,12 +200,8 @@ void ConfigLoader::saveHardwareMap(const std::string &path,
     file << "}\n";
 }
 
-std::string ConfigLoader::getDefaultConfigPath() {
-    return "config/componentConfig.yaml";
-}
+std::string ConfigLoader::getDefaultConfigPath() { return "config/componentConfig.yaml"; }
 
-std::string ConfigLoader::getDefaultHardwareMapPath() {
-    return "config/hardware_map.json";
-}
+std::string ConfigLoader::getDefaultHardwareMapPath() { return "config/hardware_map.json"; }
 
 } // namespace adas
