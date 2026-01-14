@@ -1,0 +1,76 @@
+schema_version: "1.0"
+vehicle: Civic_2012
+
+# ══════════════════════════════════════════════════════════════════════════════
+#                         TIME SYNCHRONIZATION (FR6)
+# ══════════════════════════════════════════════════════════════════════════════
+time:
+  fusion_hz: 20
+  max_skew_ms: 5
+  buffer_ms: 150
+  late_drop_ms: 100
+  warmup_ticks: 40
+
+# ══════════════════════════════════════════════════════════════════════════════
+#                         NETWORK INGEST (Pi4 Rear Sector)
+# ══════════════════════════════════════════════════════════════════════════════
+network:
+  port: 9000
+  latency_correction_ms: 25    # Configurable offset for timestamp correction
+  reconnect_timeout_ms: 5000
+
+# ══════════════════════════════════════════════════════════════════════════════
+#                         CAMERA SETTINGS (Direct USB)
+# ══════════════════════════════════════════════════════════════════════════════
+cameras:
+  width: 1280
+  height: 720
+  target_fps: 30
+  use_mjpeg: true
+
+# ══════════════════════════════════════════════════════════════════════════════
+#                         FRONT RADAR (OPS243-A)
+# ══════════════════════════════════════════════════════════════════════════════
+front_radar:
+  port: "/dev/ttyACM0"
+  baud_rate: 921600
+  poll_timeout_ms: 50
+
+# ══════════════════════════════════════════════════════════════════════════════
+#                         IMU (BNO085) - SCAFFOLD
+# ══════════════════════════════════════════════════════════════════════════════
+imu:
+  bus: "/dev/i2c-1"
+  rate_hz: 100
+  use_uart: false
+
+# ══════════════════════════════════════════════════════════════════════════════
+#                         MOUNT EXTRINSICS (Ego Frame)
+# ══════════════════════════════════════════════════════════════════════════════
+# Position [x, y, z] in meters relative to vehicle center
+# Orientation [roll, pitch, yaw] in degrees
+mounts:
+  FrontCam:
+    xyz_m: [0.85, 0.00, 1.35]
+    rpy_deg: [0, -3.0, 0]
+  SideCamL:
+    xyz_m: [0.30, 0.80, 1.10]
+    rpy_deg: [0, 0.0, 5]
+  SideCamR:
+    xyz_m: [0.30, -0.80, 1.10]
+    rpy_deg: [0, 0.0, -5]
+  RearCam:
+    xyz_m: [-1.10, 0.00, 1.10]
+    rpy_deg: [0, 3.0, 0]
+  FrontRadar:
+    xyz_m: [0.90, 0.00, 0.50]
+    rpy_deg: [0, 0.0, 0]
+  RearCornerRadarL:
+    xyz_m: [-0.90, 0.65, 0.50]
+    rpy_deg: [0, 0.0, 12]
+  RearCornerRadarR:
+    xyz_m: [-0.90, -0.65, 0.50]
+    rpy_deg: [0, 0.0, -12]
+  IMU:
+    xyz_m: [0.00, 0.00, 0.55]
+    rpy_deg: [0, 0.0, 0]
