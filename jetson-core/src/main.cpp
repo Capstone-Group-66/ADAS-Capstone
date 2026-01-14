@@ -15,30 +15,30 @@ std::unique_ptr<adas::IngestManager> g_manager;
 std::atomic<bool> g_shutdown_requested{false};
 
 void signalHandler(int signum) {
-    std::cout << "\n[Main] Received signal " << signum << ", initiating shutdown...\n";
+    std::cout << "\n[Main] Received signal " << signum
+              << ", initiating shutdown...\n";
     g_shutdown_requested.store(true, std::memory_order_relaxed);
 }
 
 void printBanner() {
     std::cout << R"(
-    ╔═══════════════════════════════════════════════════════════════════════╗
-    ║                                                                       ║
-    ║     █████╗ ██████╗  █████╗ ███████╗    ██████╗ ██╗██████╗ ███████╗   ║
-    ║    ██╔══██╗██╔══██╗██╔══██╗██╔════╝    ██╔══██╗██║██╔══██╗██╔════╝   ║
-    ║    ███████║██║  ██║███████║███████╗    ██████╔╝██║██████╔╝█████╗     ║
-    ║    ██╔══██║██║  ██║██╔══██║╚════██║    ██╔═══╝ ██║██╔═══╝ ██╔══╝     ║
-    ║    ██║  ██║██████╔╝██║  ██║███████║    ██║     ██║██║     ███████╗   ║
-    ║    ╚═╝  ╚═╝╚═════╝ ╚═╝  ╚═╝╚══════╝    ╚═╝     ╚═╝╚═╝     ╚══════╝   ║
-    ║                                                                       ║
-    ║                Stage A: Ingest & Timestamp Pipeline                   ║
-    ║                                                                       ║
-    ╚═══════════════════════════════════════════════════════════════════════╝
+    ===========================================================================
+                                                                       
+         AAAAA  DDDD    AAAAA  SSSSS      PPPP   III  PPPP   EEEEE     
+        AA   AA DD  DD AA   AA SS        PP  PP  III PP  PP EE         
+        AAAAAAA DD   DD AAAAAAA SSSSS    PPPPPP  III PPPPPP EEEEE      
+        AA   AA DD  DD AA   AA     SS    PP      III PP     EE         
+        AA   AA DDDD   AA   AA SSSSS     PP      III PP     EEEEE      
+                                                                       
+                Stage A: Ingest & Timestamp Pipeline                   
+                                                                       
+    ===========================================================================
     )" << std::endl;
 }
 
-}  // namespace
+} // namespace
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
     printBanner();
 
     // Setup signal handlers
@@ -83,11 +83,13 @@ int main(int argc, char* argv[]) {
 
         // Load hardware mapping
         std::cout << "[Main] Loading hardware map from: " << hw_map_path << "\n";
-        adas::HardwareMap hw_map = adas::ConfigLoader::loadHardwareMap(hw_map_path);
+        adas::HardwareMap hw_map =
+            adas::ConfigLoader::loadHardwareMap(hw_map_path);
 
         std::cout << "[Main] Mapped devices:\n";
-        for (const auto& [mount, path] : hw_map.mappings) {
-            std::cout << "  " << adas::mountToString(mount) << " → " << path << "\n";
+        for (const auto &[mount, path] : hw_map.mappings) {
+            std::cout << "  " << adas::mountToString(mount) << " -> " << path
+                      << "\n";
         }
 
         // Create and start IngestManager
@@ -114,7 +116,7 @@ int main(int argc, char* argv[]) {
         std::cout << "[Main] Shutdown complete.\n";
         return 0;
 
-    } catch (const std::exception& e) {
+    } catch (const std::exception &e) {
         std::cerr << "[Main] Fatal error: " << e.what() << "\n";
         return 1;
     }

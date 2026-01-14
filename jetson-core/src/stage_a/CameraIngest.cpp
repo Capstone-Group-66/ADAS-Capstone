@@ -3,28 +3,27 @@
 // Based on test_scripts/cameraintake.py patterns
 #include "adas/stage_a/CameraIngest.hpp"
 
-#include <opencv2/videoio.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/videoio.hpp>
 
-#include <iostream>
 #include <algorithm>
+#include <iostream>
 #include <numeric>
 
 namespace adas {
 
-CameraIngest::CameraIngest(Mount mount, const std::string& device_path,
-                           SPSCQueue<CameraFrameData, 8>& queue, const CameraConfig& config)
+CameraIngest::CameraIngest(Mount mount, const std::string &device_path,
+                           SPSCQueue<CameraFrameData, 8> &queue,
+                           const CameraConfig &config)
     : mount_(mount), device_path_(device_path), queue_(queue), config_(config) {
     frame_times_.fill(0);
 }
 
-CameraIngest::~CameraIngest() {
-    stop();
-}
+CameraIngest::~CameraIngest() { stop(); }
 
 void CameraIngest::start() {
     if (running_.load(std::memory_order_relaxed)) {
-        return;  // Already running
+        return; // Already running
     }
 
     running_.store(true, std::memory_order_relaxed);
@@ -42,19 +41,21 @@ void CameraIngest::stop() {
 }
 
 void CameraIngest::run() {
-    std::cout << "[CameraIngest] Starting " << mountToString(mount_) 
-              << " on " << device_path_ << std::endl;
+    std::cout << "[CameraIngest] Starting " << mountToString(mount_) << " on "
+              << device_path_ << std::endl;
 
     // Open and configure camera
     if (!configureCamera()) {
-        std::cerr << "[CameraIngest] Failed to configure " << mountToString(mount_) << std::endl;
+        std::cerr << "[CameraIngest] Failed to configure " << mountToString(mount_)
+                  << std::endl;
         healthy_.store(false, std::memory_order_relaxed);
         running_.store(false, std::memory_order_relaxed);
         return;
     }
 
     healthy_.store(true, std::memory_order_relaxed);
-    std::cout << "[CameraIngest] " << mountToString(mount_) << " configured successfully" << std::endl;
+    std::cout << "[CameraIngest] " << mountToString(mount_)
+              << " configured successfully" << std::endl;
 
     // Warmup: discard first few frames (camera auto-exposure settling)
     for (int i = 0; i < 10 && running_.load(std::memory_order_relaxed); ++i) {
@@ -70,11 +71,12 @@ void CameraIngest::run() {
         }
     }
 
-    std::cout << "[CameraIngest] " << mountToString(mount_) << " stopped" << std::endl;
+    std::cout << "[CameraIngest] " << mountToString(mount_) << " stopped"
+              << std::endl;
 }
 
 bool CameraIngest::configureCamera() {
-    // Open with V4L2 backend (Linux) or default (other platforms)
+// Open with V4L2 backend (Linux) or default (other platforms)
 #ifdef __linux__
     cap_ = std::make_unique<cv::VideoCapture>(device_path_, cv::CAP_V4L2);
 #else
@@ -111,21 +113,18 @@ bool CameraIngest::configureCamera() {
     double actual_fps = cap_->get(cv::CAP_PROP_FPS);
     int actual_fourcc = static_cast<int>(cap_->get(cv::CAP_PROP_FOURCC));
 
-    char codec[5] = {
-        static_cast<char>(actual_fourcc & 0xFF),
-        static_cast<char>((actual_fourcc >> 8) & 0xFF),
-        static_cast<char>((actual_fourcc >> 16) & 0xFF),
-        static_cast<char>((actual_fourcc >> 24) & 0xFF),
-        '\0'
-    };
+    char codec[5] = {static_cast<char>(actual_fourcc & 0xFF),
+                     static_cast<char>((actual_fourcc >> 8) & 0xFF),
+                     static_cast<char>((actual_fourcc >> 16) & 0xFF),
+                     static_cast<char>((actual_fourcc >> 24) & 0xFF), '\0'};
 
-    std::cout << "[CameraIngest] " << mountToString(mount_) << " config: "
-              << actual_width << "x" << actual_height << " @ " << actual_fps 
-              << " FPS, codec=" << codec << std::endl;
+    std::cout << "[CameraIngest] " << mountToString(mount_)
+              << " config: " << actual_width << "x" << actual_height << " @ "
+              << actual_fps << " FPS, codec=" << codec << std::endl;
 
     // Warn if not MJPEG (bandwidth issues likely)
     if (config_.use_mjpeg && std::string(codec) != "MJPG") {
-        std::cerr << "[CameraIngest] WARNING: " << mountToString(mount_) 
+        std::cerr << "[CameraIngest] WARNING: " << mountToString(mount_)
                   << " rejected MJPEG, using " << codec << std::endl;
     }
 
@@ -134,7 +133,7 @@ bool CameraIngest::configureCamera() {
 
 bool CameraIngest::captureFrame() {
     cv::Mat frame;
-    
+
     if (!cap_->read(frame)) {
         healthy_.store(false, std::memory_order_relaxed);
         return false;
@@ -168,7 +167,7 @@ bool CameraIngest::captureFrame() {
     // Push to queue
     if (!queue_.try_push(std::move(frame_data))) {
         // Queue full - frame dropped (counter in queue tracks this)
-        return true;  // Still "successful" capture
+        return true; // Still "successful" capture
     }
 
     // Track frame times for FPS calculation
@@ -192,7 +191,7 @@ CameraIngest::Stats CameraIngest::getStats() const {
         size_t curr = (frame_time_idx_ + i) % FPS_WINDOW;
         size_t prev = (frame_time_idx_ + i - 1) % FPS_WINDOW;
 
-        if (frame_times_[curr] > 0 && frame_times_[prev] > 0 && 
+        if (frame_times_[curr] > 0 && frame_times_[prev] > 0 &&
             frame_times_[curr] > frame_times_[prev]) {
             double delta_sec = Clock::ns_to_sec(frame_times_[curr] - frame_times_[prev]);
             if (delta_sec > 0) {
@@ -202,7 +201,8 @@ CameraIngest::Stats CameraIngest::getStats() const {
     }
 
     if (!deltas.empty()) {
-        stats.fps_avg = std::accumulate(deltas.begin(), deltas.end(), 0.0) / deltas.size();
+        stats.fps_avg =
+            std::accumulate(deltas.begin(), deltas.end(), 0.0) / deltas.size();
         stats.fps_min = *std::min_element(deltas.begin(), deltas.end());
         stats.fps_max = *std::max_element(deltas.begin(), deltas.end());
     }
@@ -210,4 +210,4 @@ CameraIngest::Stats CameraIngest::getStats() const {
     return stats;
 }
 
-}  // namespace adas
+} // namespace adas

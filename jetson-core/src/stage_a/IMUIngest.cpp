@@ -3,17 +3,15 @@
 // Implementation deferred per user directive
 #include "adas/stage_a/IMUIngest.hpp"
 
-#include <iostream>
 #include <cmath>
+#include <iostream>
 
 namespace adas {
 
-IMUIngest::IMUIngest(SPSCQueue<ImuSample, 32>& queue, const IMUConfig& config)
+IMUIngest::IMUIngest(SPSCQueue<ImuSample, 32> &queue, const IMUConfig &config)
     : queue_(queue), config_(config) {}
 
-IMUIngest::~IMUIngest() {
-    stop();
-}
+IMUIngest::~IMUIngest() { stop(); }
 
 void IMUIngest::start() {
     if (running_.load(std::memory_order_relaxed)) {
@@ -34,7 +32,7 @@ void IMUIngest::stop() {
 
 void IMUIngest::run() {
     std::cout << "[IMUIngest] Starting (SCAFFOLD MODE - hardware pending)\n";
-    std::cout << "[IMUIngest] Config: bus=" << config_.bus 
+    std::cout << "[IMUIngest] Config: bus=" << config_.bus
               << ", rate=" << config_.rate_hz << " Hz"
               << ", uart=" << (config_.use_uart ? "true" : "false") << std::endl;
 
@@ -72,12 +70,14 @@ void IMUIngest::run() {
 
         // Calculate rate every 5 seconds
         if (Clock::elapsed_ms(last_rate_time) >= 5000) {
-            double elapsed_sec = Clock::ns_to_sec(Clock::now_ns() - last_rate_time);
+            double elapsed_sec =
+                Clock::ns_to_sec(Clock::now_ns() - last_rate_time);
             double hz = static_cast<double>(samples_in_window) / elapsed_sec;
             rate_hz_.store(hz, std::memory_order_relaxed);
 
             std::cout << "[IMUIngest] rate: " << hz << " Hz"
-                      << (hz >= 100.0 ? " [PASS]" : " [WARN: below 100Hz]") << std::endl;
+                      << (hz >= 100.0 ? " [PASS]" : " [WARN: below 100Hz]")
+                      << std::endl;
 
             samples_in_window = 0;
             last_rate_time = Clock::now_ns();
@@ -95,9 +95,9 @@ void IMUIngest::run() {
 }
 
 bool IMUIngest::initBNO085() {
-    // ═══════════════════════════════════════════════════════════════════════════
+    // =========================================================================
     // SCAFFOLD: BNO085 INITIALIZATION - TO BE IMPLEMENTED WHEN HARDWARE ARRIVES
-    // ═══════════════════════════════════════════════════════════════════════════
+    // =========================================================================
     //
     // Implementation notes (for when hardware arrives):
     //
@@ -118,33 +118,33 @@ bool IMUIngest::initBNO085() {
     //    - Set report interval (10ms for 100Hz)
     //
     // 4. Expected data:
-    //    - Accelerometer: ax, ay, az in m/s²
+    //    - Accelerometer: ax, ay, az in m/s^2
     //    - Gyroscope: wx, wy, wz in rad/s
     //    - (Optional) Rotation vector for orientation
     //
-    // ═══════════════════════════════════════════════════════════════════════════
+    // =========================================================================
 
     std::cerr << "[IMUIngest] initBNO085() - NOT IMPLEMENTED (hardware pending)\n";
-    return false;  // Always fail until implemented
+    return false; // Always fail until implemented
 }
 
 ImuSample IMUIngest::readSample() {
-    // ═══════════════════════════════════════════════════════════════════════════
+    // =========================================================================
     // SCAFFOLD: BNO085 DATA READ - TO BE IMPLEMENTED WHEN HARDWARE ARRIVES
-    // ═══════════════════════════════════════════════════════════════════════════
+    // =========================================================================
     //
     // This should:
     // 1. Read accelerometer/gyroscope data from sensor
-    // 2. Convert to proper units (m/s², rad/s)
+    // 2. Convert to proper units (m/s^2, rad/s)
     // 3. Apply timestamp
     //
-    // ═══════════════════════════════════════════════════════════════════════════
+    // =========================================================================
 
     uint64_t t_ingest = Clock::now_ns();
     uint32_t s = seq_.fetch_add(1, std::memory_order_relaxed);
 
     ImuSample sample;
-    sample.h = Header(t_ingest, Mount::IMU, s, false);  // healthy=false (stub data)
+    sample.h = Header(t_ingest, Mount::IMU, s, false); // healthy=false (stub data)
     sample.acc_mps2 = {0.0f, 0.0f, 0.0f};
     sample.gyro_rps = {0.0f, 0.0f, 0.0f};
 
@@ -158,4 +158,4 @@ IMUIngest::Stats IMUIngest::getStats() const {
     return s;
 }
 
-}  // namespace adas
+} // namespace adas

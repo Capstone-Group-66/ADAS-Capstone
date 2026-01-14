@@ -2,26 +2,24 @@
 // Serial radar reader implementation based on radar_freq_test.cpp
 #include "adas/stage_a/RadarIngest.hpp"
 
-#include <iostream>
 #include <cstring>
+#include <iostream>
 
 #ifdef __linux__
 #include <fcntl.h>
+#include <sys/select.h>
 #include <termios.h>
 #include <unistd.h>
-#include <sys/select.h>
 #endif
 
 namespace adas {
 
-RadarIngest::RadarIngest(Mount mount, const std::string& port,
-                         SPSCQueue<RadarTargets, 8>& queue,
-                         const RadarConfig& config)
+RadarIngest::RadarIngest(Mount mount, const std::string &port,
+                         SPSCQueue<RadarTargets, 8> &queue,
+                         const RadarConfig &config)
     : mount_(mount), port_(port), queue_(queue), config_(config) {}
 
-RadarIngest::~RadarIngest() {
-    stop();
-}
+RadarIngest::~RadarIngest() { stop(); }
 
 void RadarIngest::start() {
     if (running_.load(std::memory_order_relaxed)) {
@@ -48,8 +46,8 @@ void RadarIngest::stop() {
 }
 
 void RadarIngest::run() {
-    std::cout << "[RadarIngest] Starting " << mountToString(mount_) 
-              << " on " << port_ << " at " << config_.baud_rate << " baud" << std::endl;
+    std::cout << "[RadarIngest] Starting " << mountToString(mount_) << " on "
+              << port_ << " at " << config_.baud_rate << " baud" << std::endl;
 
 #ifdef __linux__
     if (!setupSerialPort()) {
@@ -77,7 +75,8 @@ void RadarIngest::run() {
 
         // Parse and push to queue
         if (!buffer.empty()) {
-            RadarTargets targets = parseFrame(buffer.data(), buffer.size(), t_ingest);
+            RadarTargets targets =
+                parseFrame(buffer.data(), buffer.size(), t_ingest);
             queue_.try_push(std::move(targets));
 
             frames_received_.fetch_add(1, std::memory_order_relaxed);
@@ -87,11 +86,12 @@ void RadarIngest::run() {
 
         // Calculate rate every 5 seconds (matching radar_freq_test.cpp)
         if (Clock::elapsed_ms(last_rate_time_) >= 5000) {
-            double elapsed_sec = Clock::ns_to_sec(Clock::now_ns() - last_rate_time_);
+            double elapsed_sec =
+                Clock::ns_to_sec(Clock::now_ns() - last_rate_time_);
             double hz = static_cast<double>(frames_in_window_) / elapsed_sec;
             rate_hz_.store(hz, std::memory_order_relaxed);
 
-            std::cout << "[RadarIngest] " << mountToString(mount_) 
+            std::cout << "[RadarIngest] " << mountToString(mount_)
                       << " rate: " << hz << " Hz" << std::endl;
 
             // Check against 20Hz target (from radar_freq_test.cpp)
@@ -131,7 +131,7 @@ bool RadarIngest::setupSerialPort() {
     }
 
     // Configure termios
-    struct termios tty{};
+    struct termios tty {};
     if (tcgetattr(fd_, &tty) != 0) {
         perror("[RadarIngest] tcgetattr");
         close(fd_);
@@ -142,24 +142,32 @@ bool RadarIngest::setupSerialPort() {
     // Set baud rate (921600)
     speed_t baud = B921600;
     switch (config_.baud_rate) {
-        case 115200: baud = B115200; break;
-        case 230400: baud = B230400; break;
-        case 460800: baud = B460800; break;
-        case 921600: baud = B921600; break;
-        default:
-            std::cerr << "[RadarIngest] Unsupported baud rate, using 921600\n";
-            baud = B921600;
+    case 115200:
+        baud = B115200;
+        break;
+    case 230400:
+        baud = B230400;
+        break;
+    case 460800:
+        baud = B460800;
+        break;
+    case 921600:
+        baud = B921600;
+        break;
+    default:
+        std::cerr << "[RadarIngest] Unsupported baud rate, using 921600\n";
+        baud = B921600;
     }
     cfsetispeed(&tty, baud);
     cfsetospeed(&tty, baud);
 
     // 8N1, no flow control (from radar_freq_test.cpp)
-    tty.c_cflag &= ~PARENB;        // No parity
-    tty.c_cflag &= ~CSTOPB;        // 1 stop bit
+    tty.c_cflag &= ~PARENB; // No parity
+    tty.c_cflag &= ~CSTOPB; // 1 stop bit
     tty.c_cflag &= ~CSIZE;
-    tty.c_cflag |= CS8;            // 8 bits
-    tty.c_cflag &= ~CRTSCTS;       // No flow control
-    tty.c_cflag |= CREAD | CLOCAL; // Enable read, ignore carrier
+    tty.c_cflag |= CS8;             // 8 bits
+    tty.c_cflag &= ~CRTSCTS;        // No flow control
+    tty.c_cflag |= CREAD | CLOCAL;  // Enable read, ignore carrier
 
     // Raw mode
     tty.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
@@ -180,15 +188,15 @@ bool RadarIngest::setupSerialPort() {
     // Flush buffers
     tcflush(fd_, TCIOFLUSH);
 
-    std::cout << "[RadarIngest] Serial port configured: " << port_ 
-              << " @ " << config_.baud_rate << " baud\n";
+    std::cout << "[RadarIngest] Serial port configured: " << port_ << " @ "
+              << config_.baud_rate << " baud\n";
     return true;
 #else
     return false;
 #endif
 }
 
-bool RadarIngest::readFrame(std::vector<uint8_t>& buffer) {
+bool RadarIngest::readFrame(std::vector<uint8_t> &buffer) {
 #ifdef __linux__
     buffer.clear();
 
@@ -203,7 +211,7 @@ bool RadarIngest::readFrame(std::vector<uint8_t>& buffer) {
 
     int ret = select(fd_ + 1, &read_fds, nullptr, nullptr, &tv);
     if (ret <= 0) {
-        return false;  // Timeout or error
+        return false; // Timeout or error
     }
 
     // Read available data
@@ -220,7 +228,8 @@ bool RadarIngest::readFrame(std::vector<uint8_t>& buffer) {
 #endif
 }
 
-RadarTargets RadarIngest::parseFrame(const uint8_t* data, size_t len, uint64_t t_ingest) {
+RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
+                                     uint64_t t_ingest) {
     RadarTargets targets;
 
     // Build header
@@ -236,7 +245,7 @@ RadarTargets RadarIngest::parseFrame(const uint8_t* data, size_t len, uint64_t t
     //
     // Look for "range": and "speed": patterns
 
-    std::string str(reinterpret_cast<const char*>(data), len);
+    std::string str(reinterpret_cast<const char *>(data), len);
 
     // Simple extraction - find range values
     size_t pos = 0;
@@ -245,7 +254,8 @@ RadarTargets RadarIngest::parseFrame(const uint8_t* data, size_t len, uint64_t t
 
         // Extract number
         size_t num_start = pos;
-        while (pos < str.size() && (std::isdigit(str[pos]) || str[pos] == '.' || str[pos] == '-')) {
+        while (pos < str.size() && (std::isdigit(str[pos]) || str[pos] == '.' ||
+                                    str[pos] == '-')) {
             ++pos;
         }
 
@@ -259,19 +269,21 @@ RadarTargets RadarIngest::parseFrame(const uint8_t* data, size_t len, uint64_t t
                 if (speed_pos != std::string::npos && speed_pos < pos + 50) {
                     speed_pos += 8;
                     size_t speed_end = speed_pos;
-                    while (speed_end < str.size() && 
-                           (std::isdigit(str[speed_end]) || str[speed_end] == '.' || str[speed_end] == '-')) {
+                    while (speed_end < str.size() &&
+                           (std::isdigit(str[speed_end]) ||
+                            str[speed_end] == '.' || str[speed_end] == '-')) {
                         ++speed_end;
                     }
                     if (speed_end > speed_pos) {
-                        speed = std::stof(str.substr(speed_pos, speed_end - speed_pos));
+                        speed = std::stof(
+                            str.substr(speed_pos, speed_end - speed_pos));
                     }
                 }
 
                 RadarTarget target;
                 target.range_m = range;
                 target.radial_vel_mps = speed;
-                target.azimuth_rad = 0.0f;  // OPS243-A doesn't provide azimuth
+                target.azimuth_rad = 0.0f; // OPS243-A doesn't provide azimuth
                 target.rcs_db = 0.0f;
                 target.sigma_r = 0.1f;
                 target.sigma_v = 0.05f;
@@ -301,4 +313,4 @@ RadarIngest::Stats RadarIngest::getStats() const {
     return s;
 }
 
-}  // namespace adas
+} // namespace adas

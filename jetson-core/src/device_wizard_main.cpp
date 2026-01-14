@@ -4,7 +4,7 @@
 
 #include <iostream>
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
     std::string output_path = "config/hardware_map.json";
     bool show_preview = true;
 

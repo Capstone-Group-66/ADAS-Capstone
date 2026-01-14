@@ -3,18 +3,16 @@
 #include "adas/stage_a/IngestManager.hpp"
 #include "adas/stage_a/DeviceWizard.hpp"
 
+#include <iomanip>
 #include <iostream>
 #include <sstream>
-#include <iomanip>
 
 namespace adas {
 
-IngestManager::IngestManager(const Config& config, const HardwareMap& hw_map)
+IngestManager::IngestManager(const Config &config, const HardwareMap &hw_map)
     : config_(config), hw_map_(hw_map) {}
 
-IngestManager::~IngestManager() {
-    stop();
-}
+IngestManager::~IngestManager() { stop(); }
 
 void IngestManager::start() {
     if (running_.load(std::memory_order_relaxed)) {
@@ -22,11 +20,16 @@ void IngestManager::start() {
     }
 
     std::cout << "\n";
-    std::cout << "╔══════════════════════════════════════════════════════════════╗\n";
-    std::cout << "║               STAGE A: INGEST & TIMESTAMP                    ║\n";
-    std::cout << "╠══════════════════════════════════════════════════════════════╣\n";
-    std::cout << "║  Starting all sensor ingest threads...                       ║\n";
-    std::cout << "╚══════════════════════════════════════════════════════════════╝\n";
+    std::cout
+        << "==============================================================\n";
+    std::cout
+        << "               STAGE A: INGEST & TIMESTAMP                    \n";
+    std::cout
+        << "==============================================================\n";
+    std::cout
+        << "  Starting all sensor ingest threads...                       \n";
+    std::cout
+        << "==============================================================\n";
     std::cout << "\n";
 
     running_.store(true, std::memory_order_relaxed);
@@ -35,7 +38,7 @@ void IngestManager::start() {
     launchDirectCameras();
     launchFrontRadar();
     launchNetworkIngest();
-    launchIMU();  // Will run in stub mode until hardware arrives
+    launchIMU(); // Will run in stub mode until hardware arrives
 
     std::cout << "\n[IngestManager] All ingest threads started\n";
 }
@@ -49,12 +52,24 @@ void IngestManager::stop() {
     running_.store(false, std::memory_order_relaxed);
 
     // Stop in reverse order
-    if (imu_) imu_->stop();
-    if (network_) network_->stop();
-    if (radar_front_) radar_front_->stop();
-    if (cam_side_r_) cam_side_r_->stop();
-    if (cam_side_l_) cam_side_l_->stop();
-    if (cam_front_) cam_front_->stop();
+    if (imu_) {
+        imu_->stop();
+    }
+    if (network_) {
+        network_->stop();
+    }
+    if (radar_front_) {
+        radar_front_->stop();
+    }
+    if (cam_side_r_) {
+        cam_side_r_->stop();
+    }
+    if (cam_side_l_) {
+        cam_side_l_->stop();
+    }
+    if (cam_front_) {
+        cam_front_->stop();
+    }
 
     std::cout << "[IngestManager] All threads stopped (FR93 graceful shutdown)\n";
 }
@@ -96,22 +111,18 @@ void IngestManager::launchDirectCameras() {
 void IngestManager::launchNetworkIngest() {
     std::cout << "[IngestManager] Launching network ingest (Pi4 rear sector)...\n";
 
-    network_ = std::make_unique<NetworkIngest>(
-        cam_rear_queue_,
-        radar_rear_l_queue_,
-        radar_rear_r_queue_,
-        config_.network);
+    network_ = std::make_unique<NetworkIngest>(cam_rear_queue_, radar_rear_l_queue_,
+                                               radar_rear_r_queue_, config_.network);
     network_->start();
 }
 
 void IngestManager::launchFrontRadar() {
     std::cout << "[IngestManager] Launching front radar ingest...\n";
 
-    radar_front_ = std::make_unique<RadarIngest>(
-        Mount::FrontRadar,
-        config_.front_radar.port,
-        radar_front_queue_,
-        config_.front_radar);
+    radar_front_ = std::make_unique<RadarIngest>(Mount::FrontRadar,
+                                                 config_.front_radar.port,
+                                                 radar_front_queue_,
+                                                 config_.front_radar);
     radar_front_->start();
 }
 
@@ -122,24 +133,31 @@ void IngestManager::launchIMU() {
     imu_->start();
 }
 
-SPSCQueue<CameraFrameData, 8>& IngestManager::getCameraQueue(Mount mount) {
+SPSCQueue<CameraFrameData, 8> &IngestManager::getCameraQueue(Mount mount) {
     switch (mount) {
-        case Mount::FrontCam: return cam_front_queue_;
-        case Mount::SideCamL: return cam_side_l_queue_;
-        case Mount::SideCamR: return cam_side_r_queue_;
-        case Mount::RearCam: return cam_rear_queue_;
-        default:
-            throw std::out_of_range("Invalid camera mount");
+    case Mount::FrontCam:
+        return cam_front_queue_;
+    case Mount::SideCamL:
+        return cam_side_l_queue_;
+    case Mount::SideCamR:
+        return cam_side_r_queue_;
+    case Mount::RearCam:
+        return cam_rear_queue_;
+    default:
+        throw std::out_of_range("Invalid camera mount");
     }
 }
 
-SPSCQueue<RadarTargets, 8>& IngestManager::getRadarQueue(Mount mount) {
+SPSCQueue<RadarTargets, 8> &IngestManager::getRadarQueue(Mount mount) {
     switch (mount) {
-        case Mount::FrontRadar: return radar_front_queue_;
-        case Mount::RearCornerRadarL: return radar_rear_l_queue_;
-        case Mount::RearCornerRadarR: return radar_rear_r_queue_;
-        default:
-            throw std::out_of_range("Invalid radar mount");
+    case Mount::FrontRadar:
+        return radar_front_queue_;
+    case Mount::RearCornerRadarL:
+        return radar_rear_l_queue_;
+    case Mount::RearCornerRadarR:
+        return radar_rear_r_queue_;
+    default:
+        throw std::out_of_range("Invalid radar mount");
     }
 }
 
@@ -153,19 +171,25 @@ IngestManager::HealthStatus IngestManager::getHealth() const {
         bool h = cam_front_->isHealthy();
         status.sensor_health[Mount::FrontCam] = h;
         status.total_drops += cam_front_queue_.drops();
-        if (!h) status.all_healthy = false;
+        if (!h) {
+            status.all_healthy = false;
+        }
     }
     if (cam_side_l_) {
         bool h = cam_side_l_->isHealthy();
         status.sensor_health[Mount::SideCamL] = h;
         status.total_drops += cam_side_l_queue_.drops();
-        if (!h) status.all_healthy = false;
+        if (!h) {
+            status.all_healthy = false;
+        }
     }
     if (cam_side_r_) {
         bool h = cam_side_r_->isHealthy();
         status.sensor_health[Mount::SideCamR] = h;
         status.total_drops += cam_side_r_queue_.drops();
-        if (!h) status.all_healthy = false;
+        if (!h) {
+            status.all_healthy = false;
+        }
     }
 
     // Check network (rear sector)
@@ -177,7 +201,9 @@ IngestManager::HealthStatus IngestManager::getHealth() const {
         status.total_drops += cam_rear_queue_.drops();
         status.total_drops += radar_rear_l_queue_.drops();
         status.total_drops += radar_rear_r_queue_.drops();
-        if (!h) status.all_healthy = false;
+        if (!h) {
+            status.all_healthy = false;
+        }
     }
 
     // Check front radar
@@ -185,7 +211,9 @@ IngestManager::HealthStatus IngestManager::getHealth() const {
         bool h = radar_front_->isHealthy();
         status.sensor_health[Mount::FrontRadar] = h;
         status.total_drops += radar_front_queue_.drops();
-        if (!h) status.all_healthy = false;
+        if (!h) {
+            status.all_healthy = false;
+        }
     }
 
     // Check IMU (expected to be unhealthy until hardware arrives)
@@ -199,10 +227,12 @@ IngestManager::HealthStatus IngestManager::getHealth() const {
     std::ostringstream ss;
     int healthy_count = 0;
     int total_count = 0;
-    for (const auto& [mount, h] : status.sensor_health) {
-        if (mount != Mount::IMU) {  // Exclude IMU from count
+    for (const auto &[mount, h] : status.sensor_health) {
+        if (mount != Mount::IMU) { // Exclude IMU from count
             ++total_count;
-            if (h) ++healthy_count;
+            if (h) {
+                ++healthy_count;
+            }
         }
     }
     ss << healthy_count << "/" << total_count << " sensors healthy";
@@ -218,19 +248,18 @@ void IngestManager::printStatus() const {
     auto status = getHealth();
 
     std::cout << "\n";
-    std::cout << "┌────────────────────────────────────────────────────────────────┐\n";
-    std::cout << "│                    STAGE A STATUS                              │\n";
-    std::cout << "├────────────────────────────────────────────────────────────────┤\n";
+    std::cout << "----------------------------------------------------------------\n";
+    std::cout << "                    STAGE A STATUS                              \n";
+    std::cout << "----------------------------------------------------------------\n";
 
-    for (const auto& [mount, healthy] : status.sensor_health) {
-        std::cout << "│  " << std::left << std::setw(20) << mountToString(mount)
-                  << (healthy ? "✓ HEALTHY" : "✗ UNHEALTHY")
-                  << std::setw(20) << "" << " │\n";
+    for (const auto &[mount, healthy] : status.sensor_health) {
+        std::cout << "  " << std::left << std::setw(20) << mountToString(mount)
+                  << (healthy ? "[OK] HEALTHY" : "[XX] UNHEALTHY") << "\n";
     }
 
-    std::cout << "├────────────────────────────────────────────────────────────────┤\n";
-    std::cout << "│  " << std::left << std::setw(45) << status.summary << "│\n";
-    std::cout << "└────────────────────────────────────────────────────────────────┘\n";
+    std::cout << "----------------------------------------------------------------\n";
+    std::cout << "  " << std::left << std::setw(45) << status.summary << "\n";
+    std::cout << "----------------------------------------------------------------\n";
 }
 
-}  // namespace adas
+} // namespace adas

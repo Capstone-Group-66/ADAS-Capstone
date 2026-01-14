@@ -4,16 +4,16 @@
 
 #include <opencv2/imgcodecs.hpp>
 
-#include <iostream>
 #include <cstring>
+#include <iostream>
 
 #ifdef __linux__
 #include <arpa/inet.h>
+#include <fcntl.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <fcntl.h>
-#include <poll.h>
 #else
 // Windows socket stubs for development
 #define SOCKET int
@@ -23,19 +23,15 @@
 
 namespace adas {
 
-NetworkIngest::NetworkIngest(SPSCQueue<CameraFrameData, 8>& cam_queue,
-                             SPSCQueue<RadarTargets, 8>& radar_l_queue,
-                             SPSCQueue<RadarTargets, 8>& radar_r_queue,
-                             const NetworkConfig& config)
-    : cam_queue_(cam_queue),
-      radar_l_queue_(radar_l_queue),
-      radar_r_queue_(radar_r_queue),
-      config_(config),
+NetworkIngest::NetworkIngest(SPSCQueue<CameraFrameData, 8> &cam_queue,
+                             SPSCQueue<RadarTargets, 8> &radar_l_queue,
+                             SPSCQueue<RadarTargets, 8> &radar_r_queue,
+                             const NetworkConfig &config)
+    : cam_queue_(cam_queue), radar_l_queue_(radar_l_queue),
+      radar_r_queue_(radar_r_queue), config_(config),
       latency_offset_ns_(Clock::ms_to_ns(config.latency_correction_ms)) {}
 
-NetworkIngest::~NetworkIngest() {
-    stop();
-}
+NetworkIngest::~NetworkIngest() { stop(); }
 
 void NetworkIngest::start() {
     if (running_.load(std::memory_order_relaxed)) {
@@ -59,15 +55,18 @@ void NetworkIngest::stop() {
 
 void NetworkIngest::run() {
     std::cout << "[NetworkIngest] Starting on port " << config_.port << std::endl;
-    std::cout << "[NetworkIngest] Latency correction: " << config_.latency_correction_ms << " ms" << std::endl;
+    std::cout << "[NetworkIngest] Latency correction: "
+              << config_.latency_correction_ms << " ms" << std::endl;
 
 #ifdef __linux__
     while (running_.load(std::memory_order_relaxed)) {
         // Create server socket if needed
         if (server_fd_ < 0) {
             if (!createServerSocket()) {
-                std::cerr << "[NetworkIngest] Failed to create server socket, retrying...\n";
-                std::this_thread::sleep_for(std::chrono::milliseconds(config_.reconnect_timeout_ms));
+                std::cerr
+                    << "[NetworkIngest] Failed to create server socket, retrying...\n";
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(config_.reconnect_timeout_ms));
                 continue;
             }
         }
@@ -76,7 +75,7 @@ void NetworkIngest::run() {
         if (client_fd_ < 0) {
             std::cout << "[NetworkIngest] Waiting for Pi4 connection...\n";
             if (!acceptConnection()) {
-                continue;  // Timeout or error, loop again
+                continue; // Timeout or error, loop again
             }
             connected_.store(true, std::memory_order_relaxed);
             reconnects_.fetch_add(1, std::memory_order_relaxed);
@@ -85,7 +84,7 @@ void NetworkIngest::run() {
 
         // Read packet header
         NetPacketHeader header;
-        if (!readExact(reinterpret_cast<uint8_t*>(&header), sizeof(header))) {
+        if (!readExact(reinterpret_cast<uint8_t *>(&header), sizeof(header))) {
             std::cerr << "[NetworkIngest] Failed to read header, reconnecting...\n";
             closeClient();
             connected_.store(false, std::memory_order_relaxed);
@@ -98,7 +97,8 @@ void NetworkIngest::run() {
 
         // Validate magic word
         if (header.magic != NET_MAGIC_WORD) {
-            std::cerr << "[NetworkIngest] Invalid magic word: 0x" << std::hex << header.magic << std::dec << "\n";
+            std::cerr << "[NetworkIngest] Invalid magic word: 0x" << std::hex
+                      << header.magic << std::dec << "\n";
             errors_.fetch_add(1, std::memory_order_relaxed);
             // Try to resync by reading 1 byte at a time until we find magic
             continue;
@@ -117,7 +117,8 @@ void NetworkIngest::run() {
 
         // Update stats
         packets_received_.fetch_add(1, std::memory_order_relaxed);
-        bytes_received_.fetch_add(sizeof(header) + header.payload_size, std::memory_order_relaxed);
+        bytes_received_.fetch_add(sizeof(header) + header.payload_size,
+                                  std::memory_order_relaxed);
         healthy_.store(true, std::memory_order_relaxed);
 
         // Process packet
@@ -146,12 +147,13 @@ bool NetworkIngest::createServerSocket() {
     setsockopt(server_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     // Bind
-    struct sockaddr_in addr{};
+    struct sockaddr_in addr {};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons(config_.port);
 
-    if (bind(server_fd_, reinterpret_cast<struct sockaddr*>(&addr), sizeof(addr)) < 0) {
+    if (bind(server_fd_, reinterpret_cast<struct sockaddr *>(&addr),
+             sizeof(addr)) < 0) {
         perror("[NetworkIngest] bind");
         close(server_fd_);
         server_fd_ = -1;
@@ -176,18 +178,20 @@ bool NetworkIngest::createServerSocket() {
 bool NetworkIngest::acceptConnection() {
 #ifdef __linux__
     // Use poll for timeout
-    struct pollfd pfd{};
+    struct pollfd pfd {};
     pfd.fd = server_fd_;
     pfd.events = POLLIN;
 
-    int ret = poll(&pfd, 1, 1000);  // 1 second timeout
+    int ret = poll(&pfd, 1, 1000); // 1 second timeout
     if (ret <= 0) {
-        return false;  // Timeout or error
+        return false; // Timeout or error
     }
 
-    struct sockaddr_in client_addr{};
+    struct sockaddr_in client_addr {};
     socklen_t addr_len = sizeof(client_addr);
-    client_fd_ = accept(server_fd_, reinterpret_cast<struct sockaddr*>(&client_addr), &addr_len);
+    client_fd_ = accept(server_fd_,
+                        reinterpret_cast<struct sockaddr *>(&client_addr),
+                        &addr_len);
 
     if (client_fd_ < 0) {
         perror("[NetworkIngest] accept");
@@ -206,7 +210,7 @@ bool NetworkIngest::acceptConnection() {
 #endif
 }
 
-bool NetworkIngest::readExact(uint8_t* buffer, size_t length) {
+bool NetworkIngest::readExact(uint8_t *buffer, size_t length) {
 #ifdef __linux__
     size_t total_read = 0;
     while (total_read < length && running_.load(std::memory_order_relaxed)) {
@@ -222,51 +226,54 @@ bool NetworkIngest::readExact(uint8_t* buffer, size_t length) {
 #endif
 }
 
-void NetworkIngest::handlePacket(const NetPacketHeader& header,
-                                  const std::vector<uint8_t>& payload,
-                                  uint64_t t_arrival) {
+void NetworkIngest::handlePacket(const NetPacketHeader &header,
+                                 const std::vector<uint8_t> &payload,
+                                 uint64_t t_arrival) {
     // Apply timestamp correction: shift back by known latency
     uint64_t t_ingest = t_arrival - latency_offset_ns_;
 
     NetPacketType type = static_cast<NetPacketType>(header.type);
 
     switch (type) {
-        case NetPacketType::RearCamera: {
-            CameraFrameData frame = decodeCameraPacket(payload.data(), payload.size(), t_ingest);
-            cam_queue_.try_push(std::move(frame));
-            cam_frames_.fetch_add(1, std::memory_order_relaxed);
-            break;
-        }
+    case NetPacketType::RearCamera: {
+        CameraFrameData frame =
+            decodeCameraPacket(payload.data(), payload.size(), t_ingest);
+        cam_queue_.try_push(std::move(frame));
+        cam_frames_.fetch_add(1, std::memory_order_relaxed);
+        break;
+    }
 
-        case NetPacketType::RearRadarL: {
-            RadarTargets targets = parseRadarPacket(payload.data(), payload.size(),
-                                                     Mount::RearCornerRadarL, t_ingest);
-            radar_l_queue_.try_push(std::move(targets));
-            radar_l_frames_.fetch_add(1, std::memory_order_relaxed);
-            break;
-        }
+    case NetPacketType::RearRadarL: {
+        RadarTargets targets = parseRadarPacket(
+            payload.data(), payload.size(), Mount::RearCornerRadarL, t_ingest);
+        radar_l_queue_.try_push(std::move(targets));
+        radar_l_frames_.fetch_add(1, std::memory_order_relaxed);
+        break;
+    }
 
-        case NetPacketType::RearRadarR: {
-            RadarTargets targets = parseRadarPacket(payload.data(), payload.size(),
-                                                     Mount::RearCornerRadarR, t_ingest);
-            radar_r_queue_.try_push(std::move(targets));
-            radar_r_frames_.fetch_add(1, std::memory_order_relaxed);
-            break;
-        }
+    case NetPacketType::RearRadarR: {
+        RadarTargets targets = parseRadarPacket(
+            payload.data(), payload.size(), Mount::RearCornerRadarR, t_ingest);
+        radar_r_queue_.try_push(std::move(targets));
+        radar_r_frames_.fetch_add(1, std::memory_order_relaxed);
+        break;
+    }
 
-        case NetPacketType::Heartbeat:
-            // Just keep-alive, no action needed
-            break;
+    case NetPacketType::Heartbeat:
+        // Just keep-alive, no action needed
+        break;
 
-        default:
-            std::cerr << "[NetworkIngest] Unknown packet type: " << static_cast<int>(header.type) << "\n";
-            errors_.fetch_add(1, std::memory_order_relaxed);
-            break;
+    default:
+        std::cerr << "[NetworkIngest] Unknown packet type: "
+                  << static_cast<int>(header.type) << "\n";
+        errors_.fetch_add(1, std::memory_order_relaxed);
+        break;
     }
 }
 
-CameraFrameData NetworkIngest::decodeCameraPacket(const uint8_t* payload, size_t size,
-                                                   uint64_t t_ingest) {
+CameraFrameData NetworkIngest::decodeCameraPacket(const uint8_t *payload,
+                                                  size_t size,
+                                                  uint64_t t_ingest) {
     CameraFrameData frame_data;
 
     // Build header
@@ -296,14 +303,14 @@ CameraFrameData NetworkIngest::decodeCameraPacket(const uint8_t* payload, size_t
     return frame_data;
 }
 
-RadarTargets NetworkIngest::parseRadarPacket(const uint8_t* payload, size_t size,
-                                              Mount mount, uint64_t t_ingest) {
+RadarTargets NetworkIngest::parseRadarPacket(const uint8_t *payload, size_t size,
+                                             Mount mount, uint64_t t_ingest) {
     RadarTargets targets;
 
     // Build header
-    uint32_t seq = (mount == Mount::RearCornerRadarL) 
-                   ? radar_l_seq_.fetch_add(1, std::memory_order_relaxed)
-                   : radar_r_seq_.fetch_add(1, std::memory_order_relaxed);
+    uint32_t seq = (mount == Mount::RearCornerRadarL)
+                       ? radar_l_seq_.fetch_add(1, std::memory_order_relaxed)
+                       : radar_r_seq_.fetch_add(1, std::memory_order_relaxed);
     targets.h = Header(t_ingest, mount, seq, true);
 
     // DFRobot C4001 mmWave sensor format (simplified):
@@ -320,7 +327,7 @@ RadarTargets NetworkIngest::parseRadarPacket(const uint8_t* payload, size_t size
         if (presence > 0 && range_cm > 0) {
             RadarTarget target;
             target.range_m = static_cast<float>(range_cm) / 100.0f;
-            target.azimuth_rad = 0.0f;  // C4001 doesn't provide azimuth
+            target.azimuth_rad = 0.0f;     // C4001 doesn't provide azimuth
             target.radial_vel_mps = 0.0f;  // C4001 doesn't provide velocity
             target.rcs_db = 0.0f;
             target.sigma_r = 0.1f;  // ~10cm accuracy
@@ -364,4 +371,4 @@ NetworkIngest::Stats NetworkIngest::getStats() const {
     return s;
 }
 
-}  // namespace adas
+} // namespace adas
