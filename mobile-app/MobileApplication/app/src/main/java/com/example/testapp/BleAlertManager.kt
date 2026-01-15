@@ -208,7 +208,7 @@ class BleManager(
     ) {
         // TODO:
         // - Decode CBOR TickPayload {tick_id, seq_max, n, alerts[]}
-        // - Emit to UI or ViewModel
+        // - Emit to UI or VehicleStatusViewModel
         // - Insert into reconnect ring (for resend if needed)
     }
 

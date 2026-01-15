@@ -8,7 +8,7 @@ import androidx.navigation.compose.composable
 import com.example.testapp.screens.Drive
 import com.example.testapp.screens.home
 import com.example.testapp.screens.settings
-import com.example.testapp.viewmodel.ViewModel
+import com.example.testapp.viewmodel.VehicleStatusViewModel
 
 @Composable
 fun Navigation(navController: NavHostController) {
@@ -18,12 +18,12 @@ fun Navigation(navController: NavHostController) {
     ) {
         composable("home") { home() }
         composable("drive") { backStackEntry ->
-            val sharedVM: ViewModel = viewModel(backStackEntry)
+            val sharedVM: VehicleStatusViewModel = viewModel(backStackEntry)
             Drive(sharedVM)
         }
 
         composable("settings") { backStackEntry ->
-            val sharedVM: ViewModel = viewModel(backStackEntry)
+            val sharedVM: VehicleStatusViewModel = viewModel(backStackEntry)
             settings(sharedVM)
         }
     }

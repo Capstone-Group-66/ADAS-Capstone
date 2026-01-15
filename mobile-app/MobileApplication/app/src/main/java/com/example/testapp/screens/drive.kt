@@ -25,11 +25,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.testapp.R
 import com.example.testapp.UpdateUIstate
-import com.example.testapp.viewmodel.ViewModel
+import com.example.testapp.viewmodel.VehicleStatusViewModel
 
 @Composable
-fun Drive(viewModel: ViewModel) {
-    val state by viewModel.driveState.collectAsState()
+fun Drive(vehicleStatusViewModel: VehicleStatusViewModel) {
+    val state by vehicleStatusViewModel.driveState.collectAsState()
 
     DriveContent(state = state)
 }

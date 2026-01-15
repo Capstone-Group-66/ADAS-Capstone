@@ -8,11 +8,11 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.flow.stateIn
 
-class BleTickRepository(
+open class BleTickRepository(
     blePackets: Flow<ByteArray>,
     scope: CoroutineScope,
 ) {
-    val dashboardState: StateFlow<VehicleAlert> =
+    open val dashboardState: StateFlow<VehicleAlert> =
         blePackets
             .map { TickDecoder.decode(it) }
             .runningFold(VehicleAlertReducer.initial()) { state, tick ->
