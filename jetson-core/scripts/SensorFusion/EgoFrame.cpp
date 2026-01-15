@@ -3,15 +3,34 @@
 
 using namespace cv;
 
-int stateDim = 5; //x, y, vx, vy, w
-int measDim = 4; //x, y, vx, vy (assumes w dosent change)
-	
-class LinearKalanFilter{
+class EgoFrame{
 public:
+	int stateDim = 5; //x, y, vx, vy, yaw
+	int measDim = 4; //x, y, vx, vy (no change in yaw)
+	//int measDim = 5; //x, y, vx, vy, yaw
 	
 	KalmanFilter kf = KalmanFilter();
-
-	LinearKalanFilter (Mat initialState) {
+	
+	/**
+	 * Empty constructor
+	 */
+	EgoFrame (){}
+	
+	/**
+	 * Constructor for EgoFrame
+	 */
+	EgoFrame (Mat initialState) {
+		init(initialState);
+	}
+	
+	/**
+	 * init function
+	 * 
+	 * Mat initialState: cv::Mat matrix that is the initial state of the EgoFrame
+	 * initialState should be a (5,1) matrix contining x, y, vx, vy, yaw
+	 * 
+	 */
+	void init(Mat initialState){
 		kf.init(stateDim, measDim, 0, CV_32F);
 		
 		float dt = 0.05; //Elapsed time
@@ -29,14 +48,20 @@ public:
 			0, 0, 1, 0, 0,
 			0, 0, 0, 1, 0);
 		
+		// If yaw exists
+		// kf.measurementMatrix = (Mat_<float>(measDim,stateDim) <<
+		// 	1, 0, 0, 0, 0,
+		// 	0, 1, 0, 0, 0,
+		// 	0, 0, 1, 0, 0,
+		// 	0, 0, 0, 1, 0,
+		// 	0, 0, 0, 0, 1);
+		
 		kf.statePost = initialState;
 	}
 	
 	//Makes prediction of the next state of object
 	Mat getPrediction(){
-		Mat prediction = kf.predict();
-		std::cout << "Predicated: " << std::endl << prediction << std::endl;
-		return prediction;
+		return kf.predict();
 	}
 	
 	Mat update(Mat measurement, float dt){		
@@ -51,9 +76,7 @@ public:
 			0, 0, 1, 0, 0,
 			0, 0, 0, 1, 0,
 			0, 0, 0, 0, 1);
-
-		Mat estimated = kf.correct(measurement);
-		std::cout << "Estimated: " << std::endl << estimated << std::endl << std::endl;
-		return estimated;
+		
+		return kf.correct(measurement)
 	}
 };
