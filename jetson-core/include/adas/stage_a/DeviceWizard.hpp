@@ -2,10 +2,11 @@
 // Interactive device mapping CLI for non-deterministic USB enumeration
 #pragma once
 
-#include "adas/common/Types.hpp"
 #include "adas/common/Config.hpp"
+#include "adas/common/Types.hpp"
 
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -15,18 +16,18 @@ namespace adas {
 /// Resolves the issue of non-deterministic USB device enumeration on Linux
 /// Run this tool before starting the pipeline to generate hardware_map.json
 class DeviceWizard {
-public:
+  public:
     /// Run full interactive registration process
     /// @param output_path Path to save hardware_map.json
     /// @param show_preview If true, show camera preview window (requires display)
-    static void runRegistration(const std::string& output_path, bool show_preview = true);
+    static void runRegistration(const std::string &output_path, bool show_preview = true);
 
     /// Run non-interactive registration with provided mappings
     /// Used for automated testing or scripted setups
     /// @param output_path Path to save hardware_map.json
     /// @param mappings Pre-defined mount to device path mappings
-    static void saveDirectMapping(const std::string& output_path,
-                                  const std::map<Mount, std::string>& mappings);
+    static void saveDirectMapping(const std::string &output_path,
+                                  const std::map<Mount, std::string> &mappings);
 
     /// Enumerate all /dev/video* devices
     /// @return List of available video device paths
@@ -39,30 +40,29 @@ public:
     /// Test if a video device can be opened
     /// @param device_path Path to video device
     /// @return true if device opens successfully
-    static bool testVideoDevice(const std::string& device_path);
+    static bool testVideoDevice(const std::string &device_path);
 
     /// Show preview window for a video device
     /// @param device_path Path to video device
     /// @param duration_sec How long to show preview
-    static void showPreview(const std::string& device_path, int duration_sec = 3);
+    static void showPreview(const std::string &device_path, int duration_sec = 3);
 
     /// Get current timestamp in ISO 8601 format
     static std::string getCurrentTimestamp();
 
-private:
+  private:
     /// Prompt user to assign a mount to a device
     /// @param device_path Device being assigned
     /// @param already_assigned Mounts that have already been assigned
     /// @return Selected mount, or nullopt if skipped
-    static std::optional<Mount> promptMountAssignment(
-        const std::string& device_path,
-        const std::vector<Mount>& already_assigned);
+    static std::optional<Mount> promptMountAssignment(const std::string &device_path,
+                                                      const std::vector<Mount> &already_assigned);
 
     /// Get list of camera mounts that need to be assigned
     static std::vector<Mount> getDirectCameraMounts();
 
     /// Print assignment summary
-    static void printSummary(const std::map<Mount, std::string>& mappings);
+    static void printSummary(const std::map<Mount, std::string> &mappings);
 };
 
-}  // namespace adas
+} // namespace adas
