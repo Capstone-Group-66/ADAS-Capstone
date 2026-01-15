@@ -14,10 +14,10 @@ class FakeBleTickRepository(
         blePackets = emptyFlow(),
         scope = CoroutineScope(Dispatchers.Unconfined),
     ) {
-    private val _state = MutableStateFlow(initial)
-    override val dashboardState: StateFlow<VehicleAlert> = _state
+    private val stateFlow = MutableStateFlow(initial)
+    override val dashboardState: StateFlow<VehicleAlert> = stateFlow
 
     fun emit(alert: VehicleAlert) {
-        _state.value = alert
+        stateFlow.value = alert
     }
 }
