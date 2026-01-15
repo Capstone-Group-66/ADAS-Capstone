@@ -25,7 +25,7 @@ endif()
 # ══════════════════════════════════════════════════════════════════════════════
 #                              DEPENDENCIES
 # ══════════════════════════════════════════════════════════════════════════════
-find_package(OpenCV REQUIRED COMPONENTS core videoio imgcodecs highgui)
+find_package(OpenCV REQUIRED COMPONENTS core videoio imgcodecs highgui calib3d imgproc)
 find_package(Threads REQUIRED)
 
 # Optional: yaml-cpp for enhanced config parsing
@@ -46,6 +46,7 @@ set(COMMON_SOURCES
 
 set(STAGE_A_SOURCES
     src/stage_a/CameraIngest.cpp
+    src/stage_a/CameraCalibrator.cpp
     src/stage_a/DeviceWizard.cpp
     src/stage_a/NetworkIngest.cpp
     src/stage_a/RadarIngest.cpp
@@ -80,6 +81,7 @@ add_executable(device_wizard
     src/device_wizard_main.cpp
     src/common/Config.cpp
     src/stage_a/DeviceWizard.cpp
+    src/stage_a/CameraCalibrator.cpp
 )
 
 target_link_libraries(device_wizard
