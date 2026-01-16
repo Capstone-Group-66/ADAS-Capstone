@@ -28,8 +28,12 @@ class BleManager(
     private val context: Context,
 ) {
     // BLE Constants & UUID placeholders
-    private val ADAS_SERVICE_UUID = java.util.UUID.fromString("0000xxxx-0000-1000-8000-00805f9b34fb")
-    private val ADAS_ALERT_STREAM_UUID = java.util.UUID.fromString("0000xxxx-0000-1000-8000-00805f9b34fb")
+
+    /*
+        private val ADAS_SERVICE_UUID = java.util.UUID.fromString("0000xxxx-0000-1000-8000-00805f9b34fb")
+     */
+
+    private val ADAS_ALERT_STREAM_UUID = java.util.UUID.fromString("00001234-0000-1000-8000-00805f9b34fb")
 
     // Jetson peripheral reference
     private var bluetoothGatt: BluetoothGatt? = null
@@ -208,7 +212,7 @@ class BleManager(
     ) {
         // TODO:
         // - Decode CBOR TickPayload {tick_id, seq_max, n, alerts[]}
-        // - Emit to UI or ViewModel
+        // - Emit to UI or VehicleStatusViewModel
         // - Insert into reconnect ring (for resend if needed)
     }
 

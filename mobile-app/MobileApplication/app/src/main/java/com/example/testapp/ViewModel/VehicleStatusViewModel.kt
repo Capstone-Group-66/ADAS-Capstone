@@ -4,14 +4,17 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.testapp.UpdateUIstate
 import com.example.testapp.model.BleTickRepository
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
-class ViewModel(
+class VehicleStatusViewModel(
     repository: BleTickRepository,
+    scope: CoroutineScope? = null,
 ) : ViewModel() {
+    private val vmScope = scope ?: viewModelScope
     val driveState: StateFlow<UpdateUIstate> =
         repository.dashboardState
             .map { vehicleAlert ->
@@ -23,7 +26,7 @@ class ViewModel(
                     sonarValue = vehicleAlert.sonar.front.ordinal,
                 )
             }.stateIn(
-                scope = viewModelScope,
+                scope = vmScope,
                 started = SharingStarted.WhileSubscribed(5_000),
                 initialValue =
                     UpdateUIstate(
