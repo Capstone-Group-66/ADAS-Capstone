@@ -30,7 +30,7 @@ data class VehicleTelemetry(
 )
 
 enum class SonarColor(
-    val color: Color
+    val color: Color,
 ) {
     OFF(Color.Gray),
     GREEN(Color.Green),
