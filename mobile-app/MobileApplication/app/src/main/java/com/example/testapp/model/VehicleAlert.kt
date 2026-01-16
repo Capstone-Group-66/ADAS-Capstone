@@ -1,5 +1,6 @@
 package com.example.testapp.model
 
+import androidx.compose.ui.graphics.Color
 import java.util.UUID
 
 data class VehicleAlert(
@@ -28,7 +29,12 @@ data class VehicleTelemetry(
     val speedKmh: Int,
 )
 
-enum class SonarColor { OFF, GREEN, YELLOW, RED }
+enum class SonarColor(val color: Color) {
+    OFF(Color.Gray),
+    GREEN(Color.Green),
+    YELLOW(Color.Yellow),
+    RED(Color.Red),
+}
 
 data class SonarColors(
     val front: SonarColor,
