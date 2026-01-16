@@ -53,6 +53,11 @@ set(STAGE_A_SOURCES
     src/stage_a/IngestManager.cpp
 )
 
+set(STAGE_E_SOURCES
+    src/stage_e/EgoFrame.cpp
+    src/stage_e/Track.cpp
+)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #                              MAIN EXECUTABLE
 # ══════════════════════════════════════════════════════════════════════════════
@@ -87,6 +92,29 @@ target_link_libraries(device_wizard
     Threads::Threads
     stdc++fs
 )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#                         John stuff remove
+# ══════════════════════════════════════════════════════════════════════════════
+add_executable(sensor_fusion
+    src/sensor_fusion.cpp
+    ${COMMON_SOURCES}
+    ${STAGE_A_SOURCES}
+    ${STAGE_E_SOURCES}
+)
+
+target_link_libraries(sensor_fusion
+    ${OpenCV_LIBS}
+)
+
+
+configure_file(
+    ${CMAKE_SOURCE_DIR}/test_files/omnipresense_radar_log.csv
+    ${CMAKE_BINARY_DIR}/test_files/omnipresense_radar_log.csv
+    COPYONLY
+)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #                              TESTS (Optional)

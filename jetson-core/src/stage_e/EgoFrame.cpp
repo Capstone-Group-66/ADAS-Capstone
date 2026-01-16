@@ -77,6 +77,6 @@ public:
 			0, 0, 0, 1, 0,
 			0, 0, 0, 0, 1);
 		
-		return kf.correct(measurement)
+		return kf.correct(measurement);
 	}
 };
