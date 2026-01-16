@@ -29,7 +29,9 @@ data class VehicleTelemetry(
     val speedKmh: Int,
 )
 
-enum class SonarColor(val color: Color) {
+enum class SonarColor(
+    val color: Color
+) {
     OFF(Color.Gray),
     GREEN(Color.Green),
     YELLOW(Color.Yellow),
