@@ -77,9 +77,12 @@ int main(int argc, char *argv[]) {
         std::cout << "==============================================================\n";
 
         // Load hardware map to get registered cameras
-        auto hw_map = adas::ConfigLoader::loadHardwareMap(output_path);
-        if (!hw_map.has_value()) {
+        adas::HardwareMap hw_map;
+        try {
+            hw_map = adas::ConfigLoader::loadHardwareMap(output_path);
+        } catch (const std::exception &e) {
             std::cerr << "ERROR: Could not load hardware map from " << output_path << "\n";
+            std::cerr << "  " << e.what() << "\n";
             std::cerr << "Run device registration first.\n";
             return 1;
         }
@@ -87,7 +90,7 @@ int main(int argc, char *argv[]) {
         adas::CameraCalibrator calibrator(cv::Size(pattern_w, pattern_h), square_size);
 
         // Calibrate each registered camera
-        for (const auto &[mount, device_path] : hw_map->mappings) {
+        for (const auto &[mount, device_path] : hw_map.mappings) {
             // Check if calibration already exists
             bool exists = adas::CameraCalibrator::calibrationExists(mount, calibration_dir);
 
