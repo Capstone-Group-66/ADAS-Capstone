@@ -25,7 +25,7 @@ endif()
 # ══════════════════════════════════════════════════════════════════════════════
 #                              DEPENDENCIES
 # ══════════════════════════════════════════════════════════════════════════════
-find_package(OpenCV REQUIRED COMPONENTS core videoio imgcodecs highgui)
+find_package(OpenCV REQUIRED COMPONENTS core videoio imgcodecs highgui tracking)
 find_package(Threads REQUIRED)
 
 # Optional: yaml-cpp for enhanced config parsing

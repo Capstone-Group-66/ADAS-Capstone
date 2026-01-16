@@ -1,11 +1,9 @@
 #include "opencv2/tracking.hpp"
 #include <iostream>
-#include "Track.cpp"
-#include "EgoFrame.cpp"
+#include "adas/stage_e/Track.hpp"
+#include "adas/stage_e/EgoFrame.hpp"
 
-using namespace cv;
-
-bool FCW_check(Mat ef, Mat track){
+bool FCW_check(cv::Mat ef, cv::Mat track){
 	float ef_x = ef.at<float>(0,0);
 	float track_x = track.at<float>(0,0);
 	
@@ -50,18 +48,18 @@ int main(int, char**)
 	float t_w = 10;
 	
 	//Setup egoframe
-	Mat egoFrameInitialState = (Mat_<float>(5,1) << ef_x, ef_y, ef_vx, ef_vy, ef_yaw); //Vehicle at 0,0 moving 5x,0y with 0 yaw
-	EgoFrame egoFrame = EgoFrame(egoFrameInitialState);
+	cv::Mat egoFrameInitialState = (cv::Mat_<float>(5,1) << ef_x, ef_y, ef_vx, ef_vy, ef_yaw); //Vehicle at 0,0 moving 5x,0y with 0 yaw
+	adas::EgoFrame egoFrame = adas::EgoFrame(egoFrameInitialState);
 
 	//Setup object tracker
-	Mat trackInitialState = (Mat_<float>(5,1) << t_x, t_y, t_vx, t_vy, t_w); //Object at 5,5 not moving with a width of 10
-	Track track1 = Track(trackInitialState);
+	cv::Mat trackInitialState = (cv::Mat_<float>(5,1) << t_x, t_y, t_vx, t_vy, t_w); //Object at 5,5 not moving with a width of 10
+	adas::Track track1 = adas::Track(trackInitialState);
 
 	int i = 0;
 	bool collision = false;
 	while (!collision) {
-		Mat ef_prediction = egoFrame.getPrediction();
-		Mat track_prediction = track1.getPrediction();
+		cv::Mat ef_prediction = egoFrame.getPrediction();
+		cv::Mat track_prediction = track1.getPrediction();
 
 		if(FCW_check(ef_prediction, track_prediction)){
 			std::cout << "FCW alert" << std::endl;
@@ -69,8 +67,8 @@ int main(int, char**)
 		}	
 
 		//Update egoFrame and track
-		Mat egoFrameMeas = (Mat_<float>(4, 1) << ef_x, ef_y, ef_vx, ef_vy);
-		Mat trackMeas = (Mat_<float>(4, 1) << t_x, t_y, t_vx, t_vy);
+		cv::Mat egoFrameMeas = (cv::Mat_<float>(4, 1) << ef_x, ef_y, ef_vx, ef_vy);
+		cv::Mat trackMeas = (cv::Mat_<float>(4, 1) << t_x, t_y, t_vx, t_vy);
 		
 		egoFrame.update(egoFrameMeas, 0.05);
 		track1.update(trackMeas, 0.05);
@@ -81,4 +79,6 @@ int main(int, char**)
 		t_x += t_vx;
 		//t_vx -= 1; //Decrease object speed by 1 so that vehicle and object collide eventuall
 	}
+
+	return 0;
 }
