@@ -75,7 +75,7 @@ class VehicleStatusViewModelTest {
                 assertEquals(true, item.status2) // radar.ok
                 assertEquals(true, item.status3) // bsd.rightActive
                 assertEquals(true, item.status4) // frontOk
-                assertEquals(SonarColor.RED.ordinal, item.sonarValue)
+                assertEquals(SonarColor.RED, item.sonarValue)
 
                 cancelAndIgnoreRemainingEvents()
             }

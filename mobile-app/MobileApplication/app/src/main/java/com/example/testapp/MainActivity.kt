@@ -76,7 +76,7 @@ fun TestAppAppPreview() {
             radar = RadarHealth(ok = true),
             sonar =
                 SonarColors(
-                    front = SonarColor.RED,
+                    front = SonarColor.GREEN,
                     rear = SonarColor.GREEN,
                     left = SonarColor.OFF,
                     right = SonarColor.YELLOW,
