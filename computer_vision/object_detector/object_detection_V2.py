@@ -1,13 +1,14 @@
 import cv2
-import time
 import numpy as np
 from ultralytics import YOLO
+import math
 
 # Configuration
 VIDEO_SOURCE = "dashcam6.mp4"  # 0 = webcam
 CONF_THRESHOLD = 0.4
 MODEL_PATH = "yolov8n.pt"
 SMOOTHING_ALPHA = 0.7  # Higher = smoother Vy
+FOCAL_LENGTH = 1200.0  # <-- IN PIXELS
 
 # Load YOLOv8 Nano
 model = YOLO(MODEL_PATH)
@@ -18,19 +19,20 @@ fps = cap.get(cv2.CAP_PROP_FPS)
 if fps <= 0:
     fps = 30.0  # fallback
 
+image_width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+IMAGE_CENTER_X = image_width / 2.0
+
 # Object State Storage
 # track_id -> previous centroid y
-prev_centroid_y = {}
+prev_centroid_x = {}
 # track_id -> smoothed Vy
-prev_vy = {}
+prev_vx = {}
 
 # Main Loop
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
         break
-
-    current_time = time.time()
 
     # YOLOv8 + ByteTrack
     results = model.track(
@@ -55,28 +57,36 @@ while cap.isOpened():
             cx = int(x1 + w / 2)
             cy = int(y1 + h / 2)
 
-            # Vertical velocity Vy
-            Vy = 0.0
-
-            if track_id in prev_centroid_y:
-                Vy_raw = (cy - prev_centroid_y[track_id]) * fps
+            # Horizontal Velocity Vx
+            Vx = 0.0
+            if track_id in prev_centroid_x:
+                Vx_raw = (cx - prev_centroid_x[track_id]) * fps
 
                 # Exponential smoothing
-                if track_id in prev_vy:
-                    Vy = (SMOOTHING_ALPHA * prev_vy[track_id] + (1 - SMOOTHING_ALPHA) * Vy_raw)
+                if track_id in prev_vx:
+                    Vx = (SMOOTHING_ALPHA * prev_vx[track_id] + (1 - SMOOTHING_ALPHA) * Vx_raw)
                 else:
-                    Vy = Vy_raw
+                    Vx = Vx_raw
             else:
-                Vy = 0.0
+                Vx = 0.0
 
             # Store current values
-            prev_centroid_y[track_id] = cy
-            prev_vy[track_id] = Vy
+            prev_centroid_x[track_id] = cx
+            prev_vx[track_id] = Vx
+
+            # Angle Computation (Azimuth)
+            theta = math.atan((cx - IMAGE_CENTER_X) / FOCAL_LENGTH)
 
             # Draw Bounding Box
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
-            label = f"ID:{track_id}  Y:{cy}  Vy:{Vy:.1f}px/s"
+            label = (
+                f"ID:{track_id} "
+                f"X:{cx} "
+                f"Vx:{Vx:.1f}px/s "
+                f"theta:{math.degrees(theta):.1f}"
+            )
+
             cv2.putText(
                 frame,
                 label,
