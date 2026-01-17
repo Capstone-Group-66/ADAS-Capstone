@@ -13,6 +13,8 @@ public:
 	int stateDim = 5; //x, y, vx, vy, yaw
 	int measDim = 4; //x, y, vx, vy (no change in yaw)
 	//int measDim = 5; //x, y, vx, vy, yaw
+
+	uint64_t previous_time_ns = 0;
 	
 	cv::KalmanFilter kf = cv::KalmanFilter();
 	bool kf_initialized = false;

@@ -27,7 +27,7 @@ namespace adas {
 			0, 0, 1, 0, 0,
 			0, 0, 0, 1, 0);
 		
-		if (initialState.cols != stateDim){
+		if (initialState.rows != stateDim){
 			initialState = (cv::Mat_<float>(stateDim,1) << 
 			initialState.at<float>(0,0), 
 			initialState.at<float>(1,0), 
@@ -37,6 +37,7 @@ namespace adas {
 		}
 		kf.statePost = initialState;
 		kf_initialized = true;
+		std::cout << "[Track] Track initiated" << std::endl;
 	}
 	
 	//Makes prediction of the next state of object
@@ -46,6 +47,7 @@ namespace adas {
 	}
 	
 	cv::Mat Track::update(cv::Mat measurement, float dt){		
+		std::cout << measurement << std::endl;
 		//setIdentity(kf.processNoiseCov, Scalar::all(1e-4));
 		//setIdentity(kf.measurementNoiseCov, Scalar::all(1e-1));
 		//setIdentity(kf.errorCovPost, Scalar::all(1));
@@ -64,6 +66,7 @@ namespace adas {
 		}
 
 		cv::Mat estimated = kf.correct(measurement);
+		std::cout << "[Track] Track updated" << std::endl;
 		return estimated;
 	}
 }

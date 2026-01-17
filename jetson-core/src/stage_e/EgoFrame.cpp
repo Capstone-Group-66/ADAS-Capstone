@@ -45,7 +45,7 @@ namespace adas {
 		// 	0, 0, 0, 1, 0,
 		// 	0, 0, 0, 0, 1);
 
-		if (initialState.cols != stateDim){
+		if (initialState.rows != stateDim){
 			initialState = (cv::Mat_<float>(stateDim,1) << 
 			initialState.at<float>(0,0), 
 			initialState.at<float>(1,0), 
@@ -53,8 +53,10 @@ namespace adas {
 			initialState.at<float>(3,0), 
 			0.0f);
 		}
+
 		kf.statePost = initialState;
 		kf_initialized = true;
+		std::cout << "[EgoFrame] EgoFrame initiated" << std::endl;
 	}
 	
 	//Makes prediction of the next state of object
@@ -62,7 +64,8 @@ namespace adas {
 		return kf.predict();
 	}
 	
-	cv::Mat EgoFrame::update(cv::Mat measurement, float dt){		
+	cv::Mat EgoFrame::update(cv::Mat measurement, float dt){
+		std::cout << measurement << std::endl;	
 		//setIdentity(kf.processNoiseCov, Scalar::all(1e-4));
 		//setIdentity(kf.measurementNoiseCov, Scalar::all(1e-1));
 		//setIdentity(kf.errorCovPost, Scalar::all(1));
@@ -80,6 +83,7 @@ namespace adas {
 			return getPrediction();
 		}
 		
+		std::cout << "[EgoFrame] EgoFrame updated" << std::endl;
 		return kf.correct(measurement);
 	}
 };

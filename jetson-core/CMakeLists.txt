@@ -56,6 +56,7 @@ set(STAGE_A_SOURCES
 set(STAGE_E_SOURCES
     src/stage_e/EgoFrame.cpp
     src/stage_e/Track.cpp
+    src/stage_e/SensorFusion.cpp
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
