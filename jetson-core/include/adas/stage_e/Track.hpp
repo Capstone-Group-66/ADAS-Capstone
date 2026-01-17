@@ -10,14 +10,27 @@ class KalmanFilter;
 namespace adas {
 class Track{
 public:
-	int stateDim = 5; //x, y, vx, vy, w
+	uint32_t id; 
+
+	int cls;
+
+	uint16_t sources;
+
+	float conf_01;
+	
+	float stateDim = 5; //x, y, vx, vy, w
+
 	int measDim = 4; //x, y, vx, vy (assumes w dosent change)
 	
-	int object_id;
 	
 	cv::KalmanFilter kf = cv::KalmanFilter();
+	bool kf_initialized = false;
+
+	Track ();
 
 	Track (cv::Mat initialState);
+
+	void init(cv::Mat initialState);
 	
 	//Makes prediction of the next state of object
 	cv::Mat getPrediction();

@@ -98,7 +98,7 @@ target_link_libraries(device_wizard
 #                         John stuff remove
 # ══════════════════════════════════════════════════════════════════════════════
 add_executable(sensor_fusion
-    src/sensor_fusion.cpp
+    src/stage_e.cpp
     ${COMMON_SOURCES}
     ${STAGE_A_SOURCES}
     ${STAGE_E_SOURCES}
@@ -108,13 +108,11 @@ target_link_libraries(sensor_fusion
     ${OpenCV_LIBS}
 )
 
-
 configure_file(
     ${CMAKE_SOURCE_DIR}/test_files/omnipresense_radar_log.csv
     ${CMAKE_BINARY_DIR}/test_files/omnipresense_radar_log.csv
     COPYONLY
 )
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #                              TESTS (Optional)

@@ -84,7 +84,7 @@ Config ConfigLoader::loadConfig(const std::string &path) {
         }
 
         // Network config
-        else if (key == "port") {
+        else if (key == "port" && value.find("dev") == std::string::npos) { //Front radar also has key port
             config.network.port = std::stoi(value);
         } else if (key == "latency_correction_ms") {
             config.network.latency_correction_ms = std::stoi(value);

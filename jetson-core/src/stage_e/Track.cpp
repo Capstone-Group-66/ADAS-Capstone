@@ -3,8 +3,13 @@
 #include <iostream>
 	
 namespace adas {
+	Track::Track() {}
 
 	Track::Track (cv::Mat initialState) {
+		init(initialState);
+	}
+
+	void Track::init(cv::Mat initialState){
 		kf.init(stateDim, measDim, 0, CV_32F);
 		
 		float dt = 0.05; //Elapsed time
@@ -22,7 +27,16 @@ namespace adas {
 			0, 0, 1, 0, 0,
 			0, 0, 0, 1, 0);
 		
+		if (initialState.cols != stateDim){
+			initialState = (cv::Mat_<float>(stateDim,1) << 
+			initialState.at<float>(0,0), 
+			initialState.at<float>(1,0), 
+			initialState.at<float>(2,0), 
+			initialState.at<float>(3,0), 
+			0.0f);
+		}
 		kf.statePost = initialState;
+		kf_initialized = true;
 	}
 	
 	//Makes prediction of the next state of object
@@ -43,6 +57,11 @@ namespace adas {
 			0, 0, 1, 0, 0,
 			0, 0, 0, 1, 0,
 			0, 0, 0, 0, 1);
+
+		if(kf_initialized){
+			init(measurement);
+			return getPrediction();
+		}
 
 		cv::Mat estimated = kf.correct(measurement);
 		return estimated;

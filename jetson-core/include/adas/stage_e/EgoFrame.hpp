@@ -15,6 +15,7 @@ public:
 	//int measDim = 5; //x, y, vx, vy, yaw
 	
 	cv::KalmanFilter kf = cv::KalmanFilter();
+	bool kf_initialized = false;
 	
 	/**
 	 * Empty constructor
