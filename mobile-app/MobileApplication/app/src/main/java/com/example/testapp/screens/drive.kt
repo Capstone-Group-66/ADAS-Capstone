@@ -25,11 +25,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.testapp.R
 import com.example.testapp.UpdateUIstate
-import com.example.testapp.viewmodel.ViewModel
+import com.example.testapp.model.SonarColor
+import com.example.testapp.viewmodel.VehicleStatusViewModel
 
 @Composable
-fun Drive(viewModel: ViewModel) {
-    val state by viewModel.driveState.collectAsState()
+fun Drive(vehicleStatusViewModel: VehicleStatusViewModel) {
+    val state by vehicleStatusViewModel.driveState.collectAsState()
 
     DriveContent(state = state)
 }
@@ -79,7 +80,7 @@ fun StatusBadge(isGood: Boolean) {
 }
 
 @Composable
-fun FrontDetection(detectionValue: Int) {
+fun FrontDetection(detectionValue: SonarColor) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
@@ -88,7 +89,7 @@ fun FrontDetection(detectionValue: Int) {
             painter = painterResource(R.drawable.ic_detection_re),
             contentDescription = "detection",
             // Will be changed to use detectionValue once the detection system is implemented
-            colorFilter = ColorFilter.tint(Color.Green),
+            colorFilter = ColorFilter.tint(detectionValue.color),
             modifier =
                 Modifier.offset(y = -130.dp).size(300.dp).rotate(-90f),
         )

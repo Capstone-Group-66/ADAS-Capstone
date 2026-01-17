@@ -91,6 +91,27 @@ target_link_libraries(device_wizard
 )
 
 # ══════════════════════════════════════════════════════════════════════════════
+#                         MAIN BRAIN EXECUTABLE (Vertical Slice)
+# ══════════════════════════════════════════════════════════════════════════════
+set(MAIN_BRAIN_SOURCES
+    src/main_brain/SimpleBleServer.cpp
+    src/main_brain/AlertGenerator.cpp
+    src/main_brain/BleFragmenter.cpp
+)
+
+add_executable(main_brain
+    src/main_brain/main_brain_main.cpp
+    ${MAIN_BRAIN_SOURCES}
+)
+
+# Include vendor directory for nlohmann/json (CBOR encoding)
+target_include_directories(main_brain PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
+
+target_link_libraries(main_brain
+    Threads::Threads
+)
+
+# ══════════════════════════════════════════════════════════════════════════════
 #                              TESTS (Optional)
 # ══════════════════════════════════════════════════════════════════════════════
 option(BUILD_TESTS "Build unit tests" OFF)
