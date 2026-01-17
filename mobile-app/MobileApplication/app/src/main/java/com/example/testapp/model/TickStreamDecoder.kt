@@ -4,9 +4,8 @@ import kotlinx.serialization.decodeFromByteArray
 import java.util.ArrayDeque
 
 class TickStreamDecoder(
-    private val serde: SerializationDeserialization
+    private val serde: SerializationDeserialization,
 ) {
-
     private val buffer = ArrayDeque<Byte>()
 
     /**
@@ -23,7 +22,7 @@ class TickStreamDecoder(
 
             val len =
                 (buffer.elementAt(0).toInt() and 0xFF) or
-                        ((buffer.elementAt(1).toInt() and 0xFF) shl 8)
+                    ((buffer.elementAt(1).toInt() and 0xFF) shl 8)
 
             if (buffer.size < 2 + len) break
 

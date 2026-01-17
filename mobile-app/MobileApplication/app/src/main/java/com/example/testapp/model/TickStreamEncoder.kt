@@ -2,9 +2,8 @@ package com.example.testapp.model
 import kotlinx.serialization.encodeToByteArray
 
 class TickStreamEncoder(
-    private val serde: SerializationDeserialization
+    private val serde: SerializationDeserialization,
 ) {
-
     /**
      * Encode from JSON string (tests / debug tools)
      */
@@ -30,7 +29,7 @@ class TickStreamEncoder(
         val len = payload.size
         return byteArrayOf(
             (len and 0xFF).toByte(),
-            ((len shr 8) and 0xFF).toByte()
+            ((len shr 8) and 0xFF).toByte(),
         ) + payload
     }
 }

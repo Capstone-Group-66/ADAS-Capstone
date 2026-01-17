@@ -1,14 +1,13 @@
 package com.example.testapp
 
-import kotlin.test.Test
-import kotlin.test.assertEquals
 import com.example.testapp.model.SerializationDeserialization
 import com.example.testapp.model.TickStreamDecoder
 import com.example.testapp.model.TickStreamEncoder
 import com.example.testapp.model.TickStreamPayload
+import kotlin.test.Test
+import kotlin.test.assertEquals
 
 class TickStreamTest {
-
     private val serde = SerializationDeserialization
 
     private val encoder = TickStreamEncoder(serde)
@@ -16,9 +15,10 @@ class TickStreamTest {
 
     @Test
     fun encodedTickTest() {
-        val json = javaClass.classLoader!!
-            .getResource("tick_sample.json")!!
-            .readText()
+        val json =
+            javaClass.classLoader!!
+                .getResource("tick_sample.json")!!
+                .readText()
 
         // Encode
         val framed = encoder.encodeJson(json)
