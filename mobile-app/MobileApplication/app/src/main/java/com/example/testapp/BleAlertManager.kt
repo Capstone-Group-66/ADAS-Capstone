@@ -91,12 +91,14 @@ class BleManager(
         if (scanCallback != null) return
 
         val filter =
-            ScanFilter.Builder()
+            ScanFilter
+                .Builder()
                 .setServiceUuid(ParcelUuid(ADAS_SERVICE_UUID))
                 .build()
 
         val settings =
-            ScanSettings.Builder()
+            ScanSettings
+                .Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build()
 
@@ -117,15 +119,13 @@ class BleManager(
                 }
             }
 
-        val s = scanner ?: return
-        s.startScan(listOf(filter), settings, scanCallback)
+        scanner?.startScan(listOf(filter), settings, scanCallback)
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     fun stopScan() {
         val cb = scanCallback ?: return
-        val s = scanner ?: return
-        s.stopScan(cb)
+        scanner?.stopScan(cb)
         scanCallback = null
     }
 
