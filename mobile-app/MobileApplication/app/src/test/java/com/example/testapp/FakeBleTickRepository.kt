@@ -12,6 +12,7 @@ class FakeBleTickRepository(
     initial: VehicleAlert,
 ) : BleTickRepository(
         blePackets = emptyFlow(),
+        serde = com.example.testapp.model.SerializationDeserialization,
         scope = CoroutineScope(Dispatchers.Unconfined),
     ) {
     private val stateFlow = MutableStateFlow(initial)
