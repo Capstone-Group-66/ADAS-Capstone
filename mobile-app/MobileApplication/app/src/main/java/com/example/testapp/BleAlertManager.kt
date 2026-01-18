@@ -117,13 +117,15 @@ class BleManager(
                 }
             }
 
-        scanner?.startScan(listOf(filter), settings, scanCallback)
+        val s = scanner ?: return
+        s.startScan(listOf(filter), settings, scanCallback)
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     fun stopScan() {
         val cb = scanCallback ?: return
-        scanner?.stopScan(cb)
+        val s = scanner ?: return
+        s.stopScan(cb)
         scanCallback = null
     }
 
