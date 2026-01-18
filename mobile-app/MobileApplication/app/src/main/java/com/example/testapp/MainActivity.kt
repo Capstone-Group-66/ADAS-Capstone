@@ -25,6 +25,7 @@ import com.example.testapp.model.BlindSpotStatus
 import com.example.testapp.model.CameraHealth
 import com.example.testapp.model.ObjectDetection
 import com.example.testapp.model.RadarHealth
+import com.example.testapp.model.SerializationDeserialization
 import com.example.testapp.model.SonarColor
 import com.example.testapp.model.SonarColors
 import com.example.testapp.model.VehicleAlert
@@ -41,6 +42,7 @@ class MainActivity : ComponentActivity() {
         CoroutineScope(
             SupervisorJob() + Dispatchers.Default,
         )
+    private val serde = SerializationDeserialization
 
     private lateinit var repository: BleTickRepository
 
@@ -51,6 +53,7 @@ class MainActivity : ComponentActivity() {
             BleTickRepository(
                 blePackets = emptyFlow(),
                 // ^replace with proper flow later
+                serde = serde,
                 scope = appScope,
             )
 
@@ -82,6 +85,8 @@ fun TestAppAppPreview() {
                 ),
             telemetry = VehicleTelemetry(speedKmh = 50),
             detection = ObjectDetection.None,
+            severity = SonarColor.RED,
+            direction = com.example.testapp.model.Direction.FRONT,
             bsd = BlindSpotStatus(leftActive = true, rightActive = true),
         )
 
