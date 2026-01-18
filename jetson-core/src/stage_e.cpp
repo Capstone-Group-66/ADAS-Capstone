@@ -31,29 +31,34 @@ adas::RadarTargets parseFrame(std::string str, uint64_t t_ingest) {
     float speed = 0.0f;
     float range = 0.0f;
     while((pos = str.find("\"m", pos)) != std::string::npos){
-        //std::cout << pos << std::endl;
-
+        //Radar sends either "mps" for speed or "m" for range
         if(str[pos+2] == 'p'){
             pos += 6; // Skip "mps",
-            size_t speed_end = pos;
-            while (speed_end < str.size() &&
-                (std::isdigit(str[speed_end]) || str[speed_end] == '.' ||
-                    str[speed_end] == '-')) {
-                ++speed_end;
+
+            // Extract number
+            size_t num_start = pos;
+            while (pos < str.size() &&
+                (std::isdigit(str[pos]) || str[pos] == '.' ||
+                    str[pos] == '-')) {
+                ++pos;
             }
-            if (speed_end > pos) {
-                speed = std::stof(str.substr(pos, speed_end - pos));
+
+            if (pos > num_start) {
+                speed = std::stof(str.substr(num_start, pos - num_start));
             }
         }else{
             pos += 4; // Skip "m",
-            size_t range_end = pos;
-            while (range_end < str.size() &&
-                (std::isdigit(str[range_end]) || str[range_end] == '.' ||
-                    str[range_end] == '-')) {
-                ++range_end;
+
+            // Extract number
+            size_t num_start = pos;
+            while (pos < str.size() &&
+                (std::isdigit(str[pos]) || str[pos] == '.' ||
+                    str[pos] == '-')) {
+                ++pos;
             }
-            if (range_end > pos) {
-                range = std::stof(str.substr(pos, range_end - pos));
+
+            if (pos > num_start) {
+                range = std::stof(str.substr(num_start, pos - num_start));
             }
         }
 
@@ -66,11 +71,11 @@ adas::RadarTargets parseFrame(std::string str, uint64_t t_ingest) {
         target.sigma_v = 0.05f;
         target.sigma_az = 0.5f;
         targets.targets.push_back(target);
+    }
 
-        if (targets.targets.empty()) {
-            // No targets detected - still valid, just empty
-            targets.h.healthy = true;
-        }
+    if (targets.targets.empty()) {
+        // No targets detected - still valid, just empty
+        targets.h.healthy = true;
     }
 
     return targets;
@@ -117,11 +122,11 @@ void signalHandler(int signum) {
 }
 
 int main() {
-    adas::SensorFusion sensorFusion(FrontRadarQueue, IMUQueue);
     // Setup signal handlers
     std::signal(SIGINT, signalHandler);
     std::signal(SIGTERM, signalHandler);
 
+    adas::SensorFusion sensorFusion(FrontRadarQueue, IMUQueue);
     std::thread sensorFusionThread(&adas::SensorFusion::start, &sensorFusion);
     std::thread fileThread(readFromFile);
 

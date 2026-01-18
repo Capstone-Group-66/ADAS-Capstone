@@ -4,6 +4,7 @@
 #include "adas/common/Config.hpp"
 #include "adas/stage_a/DeviceWizard.hpp"
 #include "adas/stage_a/IngestManager.hpp"
+#include "adas/stage_e/SensorFusion.hpp"
 
 #include <csignal>
 #include <iostream>
@@ -93,6 +94,9 @@ int main(int argc, char *argv[]) {
         g_manager = std::make_unique<adas::IngestManager>(config, hw_map);
         g_manager->start();
 
+        adas::SensorFusion sensorFusion(g_manager->getRadarQueue(adas::Mount::FrontRadar), g_manager->getIMUQueue());
+        sensorFusion.start();
+
         // Main loop - print status periodically
         uint64_t last_status = adas::Clock::now_ns();
         while (!g_shutdown_requested.load(std::memory_order_relaxed)) {
@@ -109,6 +113,7 @@ int main(int argc, char *argv[]) {
         std::cout << "\n[Main] Shutting down Stage A pipeline...\n";
         g_manager->stop();
         g_manager.reset();
+        sensorFusion.stop();
 
         std::cout << "[Main] Shutdown complete.\n";
         return 0;

@@ -232,9 +232,10 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len, uint64_t t
     uint32_t s = seq_.fetch_add(1, std::memory_order_relaxed);
     targets.h = Header(t_ingest, mount_, s, true);
 
-    // OPS243-A API JSON output parsing
-    // The radar outputs JSON lines like:
-    // {"product_id":"OPS243-A","targets":[{"range":1.5,"speed":-0.3},...]}
+    // OPS243-C API JSON output parsing
+    // The radar outputs lines like:
+    // 272,"0a 22 6d 22 2c 32 2e 34 0d ",""m",2.4",0,0,OPENING
+    // 15152,"0a 22 6d 70 73 22 2c 33 2e 30 0d ",""mps",3.0",0,0,OPENING
     //
     // For simplicity, we do pattern matching on the raw bytes
     // A full implementation would use a JSON parser
@@ -245,49 +246,49 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len, uint64_t t
 
     // Simple extraction - find range values
     size_t pos = 0;
-    while ((pos = str.find("\"range\":", pos)) != std::string::npos) {
-        pos += 8; // Skip "range":
+    float speed = 0.0f;
+    float range = 0.0f;
+    while((pos = str.find("\"m", pos)) != std::string::npos){
+        //Radar sends either "mps" for speed or "m" for range
+        if(str[pos+2] == 'p'){
+            pos += 6; // Skip "mps",
 
-        // Extract number
-        size_t num_start = pos;
-        while (pos < str.size() && (std::isdigit(str[pos]) || str[pos] == '.' || str[pos] == '-')) {
-            ++pos;
-        }
+            // Extract number
+            size_t num_start = pos;
+            while (pos < str.size() &&
+                (std::isdigit(str[pos]) || str[pos] == '.' ||
+                    str[pos] == '-')) {
+                ++pos;
+            }
 
-        if (pos > num_start) {
-            try {
-                float range = std::stof(str.substr(num_start, pos - num_start));
+            if (pos > num_start) {
+                speed = std::stof(str.substr(num_start, pos - num_start));
+            }
+        }else{
+            pos += 4; // Skip "m",
 
-                // Look for speed in same object
-                float speed = 0.0f;
-                size_t speed_pos = str.find("\"speed\":", pos);
-                if (speed_pos != std::string::npos && speed_pos < pos + 50) {
-                    speed_pos += 8;
-                    size_t speed_end = speed_pos;
-                    while (speed_end < str.size() &&
-                           (std::isdigit(str[speed_end]) || str[speed_end] == '.' ||
-                            str[speed_end] == '-')) {
-                        ++speed_end;
-                    }
-                    if (speed_end > speed_pos) {
-                        speed = std::stof(str.substr(speed_pos, speed_end - speed_pos));
-                    }
-                }
+            // Extract number
+            size_t num_start = pos;
+            while (pos < str.size() &&
+                (std::isdigit(str[pos]) || str[pos] == '.' ||
+                    str[pos] == '-')) {
+                ++pos;
+            }
 
-                RadarTarget target;
-                target.range_m = range;
-                target.radial_vel_mps = speed;
-                target.azimuth_rad = 0.0f; // OPS243-A doesn't provide azimuth
-                target.rcs_db = 0.0f;
-                target.sigma_r = 0.1f;
-                target.sigma_v = 0.05f;
-                target.sigma_az = 0.5f;
-
-                targets.targets.push_back(target);
-            } catch (...) {
-                // Parse error, skip
+            if (pos > num_start) {
+                range = std::stof(str.substr(num_start, pos - num_start));
             }
         }
+
+        RadarTarget target;
+        target.range_m = range;
+        target.radial_vel_mps = speed;
+        target.azimuth_rad = 0.0f; // OPS243-C doesn't provide azimuth
+        target.rcs_db = 0.0f;
+        target.sigma_r = 0.1f;
+        target.sigma_v = 0.05f;
+        target.sigma_az = 0.5f;
+        targets.targets.push_back(target);
     }
 
     if (targets.targets.empty()) {

@@ -96,7 +96,7 @@ target_link_libraries(device_wizard
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-#                         John stuff remove
+#                         Front Radar Test
 # ══════════════════════════════════════════════════════════════════════════════
 add_executable(sensor_fusion
     src/stage_e.cpp
