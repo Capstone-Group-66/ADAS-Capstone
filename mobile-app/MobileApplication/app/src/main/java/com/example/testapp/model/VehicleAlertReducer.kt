@@ -41,9 +41,6 @@ object VehicleAlertReducer {
 
         val newDirection = firstAlert?.direction ?: "front"
         val direction = MapDirectionIntToDirection(newDirection)
-
-
-
         return prev.copy(
             cameras = prev.cameras,
             radar = prev.radar,
@@ -54,7 +51,7 @@ object VehicleAlertReducer {
             severity = severity,
             lastTickId = tick.tickId,
             timestampMs = System.currentTimeMillis(),
-            )
+        )
     }
 
     private fun mapAlertsToSonar(
@@ -93,6 +90,4 @@ object VehicleAlertReducer {
         }
         return Direction.FRONT
     }
-
-
 }

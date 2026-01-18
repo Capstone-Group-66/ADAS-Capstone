@@ -151,7 +151,10 @@ fun StatusRow(
 }
 
 @Composable
-fun MapDetection(direction: Direction, detectionValue: SonarColor) {
+fun MapDetection(
+    direction: Direction,
+    detectionValue: SonarColor,
+) {
     when (direction) {
         Direction.FRONT -> FrontDetection(detectionValue)
         Direction.REAR -> FrontDetection(detectionValue)
@@ -159,5 +162,4 @@ fun MapDetection(direction: Direction, detectionValue: SonarColor) {
         Direction.RIGHT -> FrontDetection(detectionValue)
         // ^fill the rest when rear/side detections are created
     }
-
 }

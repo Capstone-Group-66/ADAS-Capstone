@@ -41,7 +41,7 @@ enum class SonarColor(
 }
 
 enum class Direction(
-    val directionString: String
+    val directionString: String,
 ) {
     FRONT("front"),
     REAR("rear"),
