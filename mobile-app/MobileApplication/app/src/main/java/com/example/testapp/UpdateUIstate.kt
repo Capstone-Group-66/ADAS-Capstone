@@ -1,5 +1,6 @@
 package com.example.testapp
 
+import com.example.testapp.model.Direction
 import com.example.testapp.model.SonarColor
 
 data class UpdateUIstate(
@@ -8,4 +9,5 @@ data class UpdateUIstate(
     val status3: Boolean,
     val status4: Boolean,
     val sonarValue: SonarColor,
+    val alertDirection: Direction,
 )

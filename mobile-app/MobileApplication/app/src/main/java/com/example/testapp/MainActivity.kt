@@ -82,6 +82,8 @@ fun TestAppAppPreview() {
                 ),
             telemetry = VehicleTelemetry(speedKmh = 50),
             detection = ObjectDetection.None,
+            severity = SonarColor.GREEN,
+            direction = com.example.testapp.model.Direction.FRONT,
             bsd = BlindSpotStatus(leftActive = true, rightActive = true),
         )
 

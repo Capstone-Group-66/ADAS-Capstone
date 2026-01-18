@@ -55,6 +55,8 @@ class VehicleStatusViewModelTest {
                     telemetry = VehicleTelemetry(speedKmh = 50),
                     detection = ObjectDetection.None,
                     bsd = BlindSpotStatus(leftActive = true, rightActive = true),
+                    severity = SonarColor.RED,
+                    direction = com.example.testapp.model.Direction.FRONT,
                 )
 
             val repository = FakeBleTickRepository(vehicleAlert)

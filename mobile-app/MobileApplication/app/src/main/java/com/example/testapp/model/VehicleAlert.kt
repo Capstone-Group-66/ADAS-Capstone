@@ -8,6 +8,8 @@ data class VehicleAlert(
     val cameras: CameraHealth,
     val radar: RadarHealth,
     val sonar: SonarColors,
+    val direction: Direction,
+    val severity: SonarColor,
     val telemetry: VehicleTelemetry,
     val detection: ObjectDetection,
     val bsd: BlindSpotStatus,
@@ -36,6 +38,15 @@ enum class SonarColor(
     GREEN(Color.Green),
     YELLOW(Color.Yellow),
     RED(Color.Red),
+}
+
+enum class Direction(
+    val directionString: String
+) {
+    FRONT("front"),
+    REAR("rear"),
+    LEFT("left"),
+    RIGHT("right"),
 }
 
 data class SonarColors(

@@ -12,6 +12,8 @@ object VehicleAlertReducer {
                     left = SonarColor.OFF,
                     right = SonarColor.OFF,
                 ),
+            severity = SonarColor.OFF,
+            direction = Direction.FRONT,
             telemetry = VehicleTelemetry(speedKmh = 0),
             detection = ObjectDetection.None,
             bsd = BlindSpotStatus(leftActive = false, rightActive = false),
@@ -25,28 +27,34 @@ object VehicleAlertReducer {
      */
     fun reduce(
         prev: VehicleAlert,
-        tick: TickPayload,
+        tick: TickStreamPayload,
     ): VehicleAlert? {
         if (tick.tickId <= prev.lastTickId) return null
 
-        val (cameras, radar) = TickPayloadMapper.healthFromMask(tick.healthMask)
-        val bsd = TickPayloadMapper.bsdFromMask(tick.bsdMask)
+        // val (cameras, radar) = TickPayloadMapper.healthFromMask(tick.healthMask)
+        val firstAlert = tick.alerts.firstOrNull()
 
-        // Replace these mappings once your protocol defines sonar/detection in alerts:
-        val sonar = mapAlertsToSonar(prev.sonar, tick.alerts)
-        val detection = mapAlertsToDetection(prev.detection, tick.alerts)
+        // Get the severity from the first alert. If there are no alerts,
+        val severityInt = firstAlert?.severity ?: -1 // Use -1 as a default "no change" value
+
+        val severity = MapSeverityIntToColour(severityInt)
+
+        val newDirection = firstAlert?.direction ?: "front"
+        val direction = MapDirectionIntToDirection(newDirection)
+
+
 
         return prev.copy(
-            cameras = cameras,
-            radar = radar,
-            bsd = bsd,
-            telemetry = VehicleTelemetry(speedKmh = tick.speed.coerceIn(0, 300)),
-            sonar = sonar,
-            detection = detection,
-            activeAlerts = tick.alerts,
+            cameras = prev.cameras,
+            radar = prev.radar,
+            telemetry = prev.telemetry,
+            sonar = prev.sonar,
+            detection = prev.detection,
+            direction = direction,
+            severity = severity,
             lastTickId = tick.tickId,
             timestampMs = System.currentTimeMillis(),
-        )
+            )
     }
 
     private fun mapAlertsToSonar(
@@ -64,4 +72,27 @@ object VehicleAlertReducer {
         // TODO: implement based on how object detection is represented in alerts.
         return prev
     }
+
+    fun MapSeverityIntToColour(severity: Int): SonarColor {
+        when (severity) {
+            0 -> SonarColor.GREEN
+            1 -> SonarColor.YELLOW
+            2 -> SonarColor.RED
+            else -> SonarColor.OFF
+        }
+        return SonarColor.OFF
+    }
+
+    fun MapDirectionIntToDirection(direction: String): Direction {
+        when (direction) {
+            "front" -> Direction.FRONT
+            "rear" -> Direction.REAR
+            "left" -> Direction.LEFT
+            "right" -> Direction.RIGHT
+            else -> Direction.FRONT
+        }
+        return Direction.FRONT
+    }
+
+
 }

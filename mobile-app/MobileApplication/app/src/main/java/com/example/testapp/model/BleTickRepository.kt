@@ -12,14 +12,18 @@ open class BleTickRepository(
     blePackets: Flow<ByteArray>,
     scope: CoroutineScope,
 ) {
+    private val serde = SerializationDeserialization
+    private val streamDecoder = TickStreamDecoder(serde)
     open val dashboardState: StateFlow<VehicleAlert> =
         blePackets
-            .map { TickDecoder.decode(it) }
+            .map{ streamDecoder.onBytes(it) }
             .runningFold(VehicleAlertReducer.initial()) { state, tick ->
+                // Because of the change above, 'tick' is now the correct type (TickStreamPayload)
                 VehicleAlertReducer.reduce(state, tick) ?: state
             }.stateIn(
                 scope = scope,
                 started = SharingStarted.WhileSubscribed(5_000),
                 initialValue = VehicleAlertReducer.initial(),
             )
+}
 }
