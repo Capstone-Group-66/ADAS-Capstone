@@ -37,17 +37,17 @@ namespace adas {
 		}
 		kf.statePost = initialState;
 		kf_initialized = true;
-		std::cout << "[Track] Track initiated" << std::endl;
 	}
 	
 	//Makes prediction of the next state of object
 	cv::Mat Track::getPrediction(){
-		cv::Mat prediction = kf.predict();
-		return prediction;
+		if(!kf_initialized){
+			return cv::Mat(); ;
+		}
+		return kf.predict();
 	}
 	
-	cv::Mat Track::update(cv::Mat measurement, float dt){		
-		std::cout << measurement << std::endl;
+	cv::Mat Track::update(cv::Mat measurement, float dt){
 		//setIdentity(kf.processNoiseCov, Scalar::all(1e-4));
 		//setIdentity(kf.measurementNoiseCov, Scalar::all(1e-1));
 		//setIdentity(kf.errorCovPost, Scalar::all(1));
@@ -60,13 +60,13 @@ namespace adas {
 			0, 0, 0, 1, 0,
 			0, 0, 0, 0, 1);
 
-		if(kf_initialized){
+		if(!kf_initialized){
 			init(measurement);
 			return getPrediction();
 		}
 
 		cv::Mat estimated = kf.correct(measurement);
-		std::cout << "[Track] Track updated" << std::endl;
+		object_detected = true;
 		return estimated;
 	}
 }

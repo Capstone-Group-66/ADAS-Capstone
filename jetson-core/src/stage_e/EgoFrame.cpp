@@ -56,16 +56,17 @@ namespace adas {
 
 		kf.statePost = initialState;
 		kf_initialized = true;
-		std::cout << "[EgoFrame] EgoFrame initiated" << std::endl;
 	}
 	
 	//Makes prediction of the next state of object
 	cv::Mat EgoFrame::getPrediction(){
+		if(!kf_initialized){
+			return cv::Mat(); ;
+		}
 		return kf.predict();
 	}
 	
 	cv::Mat EgoFrame::update(cv::Mat measurement, float dt){
-		std::cout << measurement << std::endl;	
 		//setIdentity(kf.processNoiseCov, Scalar::all(1e-4));
 		//setIdentity(kf.measurementNoiseCov, Scalar::all(1e-1));
 		//setIdentity(kf.errorCovPost, Scalar::all(1));
@@ -78,12 +79,11 @@ namespace adas {
 			0, 0, 0, 1, 0,
 			0, 0, 0, 0, 1);
 
-		if(kf_initialized){
+		if(!kf_initialized){
 			init(measurement);
 			return getPrediction();
 		}
-		
-		std::cout << "[EgoFrame] EgoFrame updated" << std::endl;
+	
 		return kf.correct(measurement);
 	}
 };

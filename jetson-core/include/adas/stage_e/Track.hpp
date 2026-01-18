@@ -23,6 +23,8 @@ public:
 	int measDim = 4; //x, y, vx, vy (assumes w dosent change)
 	
 	uint64_t previous_time_ns = 0;
+
+	bool object_detected = false;
 	
 	cv::KalmanFilter kf = cv::KalmanFilter();
 	bool kf_initialized = false;

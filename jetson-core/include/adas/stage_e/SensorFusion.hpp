@@ -62,7 +62,7 @@ private:
     void detectFCW(cv::Mat ef, cv::Mat track);
 
     //Tracks and Kalman Filters
-    Track track;
+    Track frontTrack;
     EgoFrame egoFrame;
 
     //Input queues
