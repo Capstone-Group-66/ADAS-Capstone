@@ -27,6 +27,8 @@ void DeviceWizard::runRegistration(const std::string &output_path, bool show_pre
 
     // Enumerate devices
     auto video_devices = enumerateVideoDevices();
+    auto serial_devices = enumerateSerialDevices();
+    video_devices.insert(std::end(video_devices), std::begin(serial_devices), std::end(serial_devices));
 
     if (video_devices.empty()) {
         std::cerr << "ERROR: No video devices found!\n";

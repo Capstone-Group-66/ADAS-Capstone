@@ -1,5 +1,5 @@
 #include "adas/stage_e/EgoFrame.hpp"
-#include "opencv2/tracking.hpp"
+#include "opencv2/video/tracking.hpp"
 #include <iostream>
 
 namespace adas {
@@ -61,7 +61,7 @@ namespace adas {
 	//Makes prediction of the next state of object
 	cv::Mat EgoFrame::getPrediction(){
 		if(!kf_initialized){
-			return cv::Mat(); ;
+			return cv::Mat();
 		}
 		return kf.predict();
 	}
@@ -86,4 +86,4 @@ namespace adas {
 	
 		return kf.correct(measurement);
 	}
-};
+}

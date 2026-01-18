@@ -25,7 +25,7 @@ endif()
 # ══════════════════════════════════════════════════════════════════════════════
 #                              DEPENDENCIES
 # ══════════════════════════════════════════════════════════════════════════════
-find_package(OpenCV REQUIRED COMPONENTS core videoio imgcodecs highgui tracking)
+find_package(OpenCV REQUIRED COMPONENTS core videoio imgcodecs highgui video)
 find_package(Threads REQUIRED)
 
 # Optional: yaml-cpp for enhanced config parsing
@@ -66,6 +66,7 @@ add_executable(jetson_core
     src/main.cpp
     ${COMMON_SOURCES}
     ${STAGE_A_SOURCES}
+    ${STAGE_E_SOURCES}
 )
 
 target_link_libraries(jetson_core
@@ -107,6 +108,8 @@ add_executable(sensor_fusion
 
 target_link_libraries(sensor_fusion
     ${OpenCV_LIBS}
+    Threads::Threads
+    stdc++fs
 )
 
 configure_file(
