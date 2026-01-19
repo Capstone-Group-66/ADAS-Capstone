@@ -1,6 +1,7 @@
 // File: src/stage_a/NetworkReceiver.cpp
 // ZMQ-based receiver for Pi4 sensor data
 #include "adas/stage_a/NetworkReceiver.hpp"
+#include "adas/common/Globals.hpp"
 
 #include <opencv2/imgcodecs.hpp>
 
@@ -264,18 +265,20 @@ void NetworkReceiver::imuThread() {
     while (running_.load()) {
         int len = zmq_recv(imu_socket_, buffer.data(), buffer.size(), 0);
         if (len < 0) {
-            // Check debug timer even on timeout
-            auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_debug_time).count();
-            if (elapsed >= 5) {
-                std::cout << "\n[IMU DEBUG] Last 5s: received=" << samples_in_window 
-                          << ", errors=" << errors_in_window
-                          << ", total_samples=" << stats_.imu_samples
-                          << ", total_errors=" << stats_.errors
-                          << ", last_accel_z=" << last_accel_z << "\n" << std::flush;
-                samples_in_window = 0;
-                errors_in_window = 0;
-                last_debug_time = now;
+            // Check debug timer even on timeout (only if verbose mode enabled)
+            if (g_verbose_mode.load()) {
+                auto now = std::chrono::steady_clock::now();
+                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_debug_time).count();
+                if (elapsed >= 5) {
+                    std::cout << "\n[IMU DEBUG] Last 5s: received=" << samples_in_window 
+                              << ", errors=" << errors_in_window
+                              << ", total_samples=" << stats_.imu_samples
+                              << ", total_errors=" << stats_.errors
+                              << ", last_accel_z=" << last_accel_z << "\n" << std::flush;
+                    samples_in_window = 0;
+                    errors_in_window = 0;
+                    last_debug_time = now;
+                }
             }
             continue;
         }
@@ -324,18 +327,20 @@ void NetworkReceiver::imuThread() {
         stats_.imu_samples++;
         samples_in_window++;
         
-        // Debug output every 5 seconds
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_debug_time).count();
-        if (elapsed >= 5) {
-            std::cout << "\n[IMU DEBUG] Last 5s: received=" << samples_in_window 
-                      << ", errors=" << errors_in_window
-                      << ", total_samples=" << stats_.imu_samples
-                      << ", total_errors=" << stats_.errors
-                      << ", last_accel_z=" << last_accel_z << "\n" << std::flush;
-            samples_in_window = 0;
-            errors_in_window = 0;
-            last_debug_time = now;
+        // Debug output every 5 seconds (only if verbose mode enabled)
+        if (g_verbose_mode.load()) {
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_debug_time).count();
+            if (elapsed >= 5) {
+                std::cout << "\n[IMU DEBUG] Last 5s: received=" << samples_in_window 
+                          << ", errors=" << errors_in_window
+                          << ", total_samples=" << stats_.imu_samples
+                          << ", total_errors=" << stats_.errors
+                          << ", last_accel_z=" << last_accel_z << "\n" << std::flush;
+                samples_in_window = 0;
+                errors_in_window = 0;
+                last_debug_time = now;
+            }
         }
     }
 }

@@ -1,10 +1,13 @@
 // File: src/stage_b/CameraPipeline.cpp
 // Stage B Camera Pipeline implementation
 #include "adas/stage_b/CameraPipeline.hpp"
+#include "adas/common/Globals.hpp"
 
 #include <opencv2/imgproc.hpp>
 
+#include <chrono>
 #include <iostream>
+#include <map>
 
 namespace adas {
 
@@ -63,6 +66,12 @@ void CameraPipeline::stop() {
 void CameraPipeline::threadFunc() {
     std::cout << "[CameraPipeline] Thread started for " << mountToString(mount_) << "\n";
     
+    // Verbose logging: track detections over 5 second window
+    auto last_verbose_time = std::chrono::steady_clock::now();
+    uint64_t frames_in_window = 0;
+    uint64_t total_dets_in_window = 0;
+    std::map<int, int> class_counts;
+    
     while (running_.load(std::memory_order_relaxed)) {
         CameraFrameData frame;
         
@@ -92,6 +101,35 @@ void CameraPipeline::threadFunc() {
         frames_processed_.fetch_add(1, std::memory_order_relaxed);
         total_inference_time_us_.fetch_add(detections.inference_time_us, 
                                            std::memory_order_relaxed);
+        
+        // Track for verbose output
+        frames_in_window++;
+        total_dets_in_window += detections.dets.size();
+        for (const auto& det : detections.dets) {
+            class_counts[det.cls]++;
+        }
+        
+        // Verbose output every 5 seconds
+        if (g_verbose_mode.load()) {
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_verbose_time).count();
+            if (elapsed >= 5) {
+                std::cout << "\n[Stage B] " << mountToString(mount_) << ": "
+                          << total_dets_in_window << " detections in " << frames_in_window << " frames (";
+                bool first = true;
+                for (const auto& kv : class_counts) {
+                    if (!first) std::cout << ", ";
+                    std::cout << kv.second << " cls" << kv.first;
+                    first = false;
+                }
+                std::cout << ") | " << getAvgInferenceTimeUs() / 1000.0 << "ms avg\n" << std::flush;
+                
+                frames_in_window = 0;
+                total_dets_in_window = 0;
+                class_counts.clear();
+                last_verbose_time = now;
+            }
+        }
         
         // Push to output queue (may drop if full - that's OK per "freshness over completeness")
         output_queue_.try_push(detections);

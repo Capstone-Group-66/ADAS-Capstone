@@ -2,6 +2,7 @@
 // ADAS Pipeline Entry Point - Interactive CLI with Stages A, B
 #include "adas/common/Clock.hpp"
 #include "adas/common/Config.hpp"
+#include "adas/common/Globals.hpp"
 #include "adas/stage_a/DeviceWizard.hpp"
 #include "adas/stage_a/IngestManager.hpp"
 #include "adas/stage_b/CameraPipeline.hpp"
@@ -129,6 +130,7 @@ void printMenu() {
     std::cout << "  5) Run Camera Calibration\n";
     std::cout << "  6) Register Pi4 Network Devices\n";
     std::cout << "  7) Test RTT to Pi4\n";
+    std::cout << "  8) Toggle Verbose Mode [" << (adas::g_verbose_mode.load() ? "ON" : "OFF") << "]\n";
     std::cout << "  0) Exit\n";
     std::cout << "==============================================================\n";
     std::cout << "  Enter choice: ";
@@ -235,6 +237,11 @@ void showStatus() {
 }
 
 } // namespace
+
+// Definition of global verbose mode (declared in Globals.hpp)
+namespace adas {
+std::atomic<bool> g_verbose_mode{false};
+}
 
 int main(int argc, char *argv[]) {
     printBanner();
@@ -387,6 +394,14 @@ int main(int argc, char *argv[]) {
                                 std::cout << "[RTT] Status: WARNING - High latency may affect sync\n";
                             }
                         }
+                    }
+                    break;
+                    
+                case 8:  // Toggle Verbose Mode
+                    {
+                        bool new_state = !adas::g_verbose_mode.load();
+                        adas::g_verbose_mode.store(new_state);
+                        std::cout << "[Main] Verbose mode " << (new_state ? "ENABLED" : "DISABLED") << "\n";
                     }
                     break;
                     
