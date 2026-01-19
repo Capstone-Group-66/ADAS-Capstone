@@ -167,6 +167,13 @@ void IngestManager::launchFrontRadar() {
 }
 
 void IngestManager::launchIMU() {
+#ifdef HAS_ZMQ
+    // If ZMQ receiver is active, Pi provides the IMU - skip local
+    if (zmq_receiver_) {
+        std::cout << "[IngestManager] Skipping local IMU (Pi provides IMU via ZMQ)\n";
+        return;
+    }
+#endif
     std::cout << "[IngestManager] Launching IMU ingest (scaffold mode)...\n";
 
     imu_ = std::make_unique<IMUIngest>(imu_queue_, config_.imu);
