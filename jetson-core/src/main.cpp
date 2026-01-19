@@ -153,11 +153,19 @@ void startPipeline(const adas::Config& config, const adas::HardwareMap& hw_map,
     // Add camera pipelines for each mapped camera
     auto& mappings = hw_map.mappings;
     
+    // FCW Vertical Slice: Only FrontCam is needed for Forward Collision Warning.
+    // The FrontCam detections (DetBatch) will be fused with FrontRadar in Stage E.
     if (mappings.find(adas::Mount::FrontCam) != mappings.end()) {
         g_stage_b_manager->addCamera(adas::Mount::FrontCam,
                                      g_ingest_manager->getCameraQueue(adas::Mount::FrontCam),
                                      g_det_front_queue);
     }
+    
+    // TODO: Wire remaining cameras when implementing other alerts:
+    // - SideCamL/R: Needed for Blind Spot Detection (BSD) and Lane Change Warning (LCW)
+    // - RearCam: Needed for Rear Cross Traffic Alert (RCTA) - comes via NetworkIngest
+    // These cameras do not contribute to FCW, so they're excluded from the vertical slice.
+    /*
     if (mappings.find(adas::Mount::SideCamL) != mappings.end()) {
         g_stage_b_manager->addCamera(adas::Mount::SideCamL,
                                      g_ingest_manager->getCameraQueue(adas::Mount::SideCamL),
@@ -168,7 +176,7 @@ void startPipeline(const adas::Config& config, const adas::HardwareMap& hw_map,
                                      g_ingest_manager->getCameraQueue(adas::Mount::SideCamR),
                                      g_det_side_r_queue);
     }
-    // Note: RearCam comes via NetworkIngest, add if needed
+    */
     
     g_stage_b_manager->start();
     
