@@ -178,11 +178,11 @@ void NetworkReceiver::cameraThread() {
             CameraFrameData frame_data;
             frame_data.h.mount = Mount::RearCam;
             frame_data.h.seq = header.sequence;
-            frame_data.h.t_capture = header.timestamp_ns;  // Use Pi's timestamp!
-            frame_data.h.t_ingest = header.timestamp_ns;   // Same - already timestamped
+            frame_data.h.t_device_ns = header.timestamp_ns;  // Use Pi's timestamp!
+            frame_data.h.t_ingest_ns = header.timestamp_ns;   // Same - already timestamped
             frame_data.frame = frame.clone();
 
-            cam_queue_->push(std::move(frame_data));
+            cam_queue_->try_push(std::move(frame_data));
         }
 
         stats_.cam_frames++;
@@ -292,8 +292,9 @@ void NetworkReceiver::imuThread() {
             sample.quat = {imu_payload.quat_w, imu_payload.quat_x, 
                            imu_payload.quat_y, imu_payload.quat_z};
             sample.temperature = imu_payload.temperature;
+            sample.calibration_status = imu_payload.calibration_status;
 
-            imu_queue_->push(std::move(sample));
+            imu_queue_->try_push(std::move(sample));
         }
 
         stats_.imu_samples++;

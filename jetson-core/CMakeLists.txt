@@ -181,6 +181,7 @@ if(ZMQ_FOUND)
     target_link_libraries(jetson_receiver
         ${ZMQ_LIBRARIES}
         Threads::Threads
+        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:stdc++fs>
     )
     
     # Network receiver integrated with pipeline
