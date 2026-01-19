@@ -35,13 +35,14 @@ import com.example.testapp.ui.theme.TestAppTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.emptyFlow
 
 class MainActivity : ComponentActivity() {
     private val appScope =
         CoroutineScope(
             SupervisorJob() + Dispatchers.Default,
         )
+
+    private lateinit var bleManager: BleManager
     private val serde = SerializationDeserialization
 
     private lateinit var repository: BleTickRepository
@@ -49,10 +50,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        bleManager = BleManager(this, serde)
+
         repository =
             BleTickRepository(
-                blePackets = emptyFlow(),
-                // ^replace with proper flow later
+                blePackets = bleManager.blePackets,
                 serde = serde,
                 scope = appScope,
             )
@@ -63,6 +65,7 @@ class MainActivity : ComponentActivity() {
                 // sets the theme of the app (colours structure etc)
 
                 // TestAppApp(repository), what we'll actually do on deploy
+                TestAppApp(repository)
                 TestAppAppPreview() // what were using for the IDE
             }
         }
