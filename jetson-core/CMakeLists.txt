@@ -96,6 +96,7 @@ endif()
 add_executable(device_wizard
     src/device_wizard_main.cpp
     src/common/Config.cpp
+    src/common/Globals.cpp
     src/stage_a/DeviceWizard.cpp
     src/stage_a/CameraCalibrator.cpp
 )
