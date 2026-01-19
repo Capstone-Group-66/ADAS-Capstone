@@ -45,6 +45,7 @@ include_directories(${OpenCV_INCLUDE_DIRS})
 # ══════════════════════════════════════════════════════════════════════════════
 set(COMMON_SOURCES
     src/common/Config.cpp
+    src/common/Globals.cpp
 )
 
 set(STAGE_A_SOURCES

@@ -238,11 +238,6 @@ void showStatus() {
 
 } // namespace
 
-// Definition of global verbose mode (declared in Globals.hpp)
-namespace adas {
-std::atomic<bool> g_verbose_mode{false};
-}
-
 int main(int argc, char *argv[]) {
     printBanner();
 
