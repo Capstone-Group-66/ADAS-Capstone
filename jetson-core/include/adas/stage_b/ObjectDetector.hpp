@@ -34,12 +34,20 @@ class ObjectDetector {
   public:
     /// Configuration for detector
     struct Config {
-        std::string model_path = "models/yolov8n.onnx";
-        float confidence_threshold = 0.25f;
-        float nms_threshold = 0.45f;
-        int input_width = 640;
-        int input_height = 640;
-        bool use_cuda = true;  // Try CUDA backend first
+        std::string model_path;
+        float confidence_threshold;
+        float nms_threshold;
+        int input_width;
+        int input_height;
+        bool use_cuda;
+        
+        Config() 
+            : model_path("models/yolov8n.onnx")
+            , confidence_threshold(0.25f)
+            , nms_threshold(0.45f)
+            , input_width(640)
+            , input_height(640)
+            , use_cuda(true) {}
     };
 
     /// Constructor - loads model
