@@ -83,16 +83,20 @@ class PiSensorPublisher:
         return sock
     
     def _build_header(self, msg_type, payload_size, seq):
+        """Build 32-byte message header (with padding for alignment)"""
         timestamp = time.time_ns()
-        return struct.pack('<IHHIQII',
-            PI_MAGIC,
-            PI_VERSION,
-            msg_type,
-            payload_size,
-            timestamp,
-            seq,
-            0  # reserved
-        )
+        # Format: magic(4) + version(2) + msg_type(2) + payload_size(4) + 
+        #         _padding(4) + timestamp(8) + sequence(4) + reserved(4) = 32 bytes
+        return struct.pack('<IHHIIQII',
+            PI_MAGIC,        # 4 bytes
+            PI_VERSION,      # 2 bytes
+            msg_type,        # 2 bytes
+            payload_size,    # 4 bytes
+            0,               # 4 bytes padding
+            timestamp,       # 8 bytes
+            seq,             # 4 bytes
+            0                # 4 bytes reserved
+        )  # Total: 32 bytes
     
     def camera_thread(self):
         """Stream camera frames at ~30 fps"""

@@ -46,15 +46,26 @@ enum class MessageType : uint16_t {
 // ═══════════════════════════════════════════════════════════════════════════
 
 // All messages start with this 32-byte header
+// Layout:
+//   0x00: magic (4)
+//   0x04: version (2)
+//   0x06: msg_type (2)
+//   0x08: payload_size (4)
+//   0x0C: padding (4) - for 8-byte alignment of timestamp
+//   0x10: timestamp_ns (8)
+//   0x18: sequence (4)
+//   0x1C: reserved (4)
+//   0x20: (32 bytes total)
 #pragma pack(push, 1)
 struct PiMessageHeader {
-    uint32_t magic;           // Must be PI_MAGIC (0x50493034)
-    uint16_t version;         // Protocol version (PI_PROTOCOL_VERSION)
-    uint16_t msg_type;        // MessageType enum value
-    uint32_t payload_size;    // Size of payload in bytes (after header)
-    uint64_t timestamp_ns;    // Unix epoch nanoseconds (Chrony-synced!)
-    uint32_t sequence;        // Per-stream sequence number (for drop detection)
-    uint32_t reserved;        // Set to 0
+    uint32_t magic;           // 0x00: Must be PI_MAGIC (0x50493034)
+    uint16_t version;         // 0x04: Protocol version (PI_PROTOCOL_VERSION)
+    uint16_t msg_type;        // 0x06: MessageType enum value
+    uint32_t payload_size;    // 0x08: Size of payload in bytes (after header)
+    uint32_t _padding;        // 0x0C: Padding for 8-byte alignment
+    uint64_t timestamp_ns;    // 0x10: Unix epoch nanoseconds (Chrony-synced!)
+    uint32_t sequence;        // 0x18: Per-stream sequence number (for drop detection)
+    uint32_t reserved;        // 0x1C: Set to 0
 };
 #pragma pack(pop)
 
