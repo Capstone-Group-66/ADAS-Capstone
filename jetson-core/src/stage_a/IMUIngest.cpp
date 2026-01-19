@@ -138,12 +138,16 @@ ImuSample IMUIngest::readSample() {
     // =========================================================================
 
     uint64_t t_ingest = Clock::now_ns();
-    uint32_t s = seq_.fetch_add(1, std::memory_order_relaxed);
+    seq_.fetch_add(1, std::memory_order_relaxed);
 
     ImuSample sample;
-    sample.h = Header(t_ingest, Mount::IMU, s, false); // healthy=false (stub data)
-    sample.acc_mps2 = {0.0f, 0.0f, 0.0f};
-    sample.gyro_rps = {0.0f, 0.0f, 0.0f};
+    sample.t_capture = t_ingest;
+    sample.accel = {0.0f, 0.0f, 9.81f};  // Stub: gravity on Z
+    sample.gyro = {0.0f, 0.0f, 0.0f};
+    sample.mag = {0.0f, 0.0f, 0.0f};
+    sample.quat = {1.0f, 0.0f, 0.0f, 0.0f};  // Identity quaternion
+    sample.temperature = 25.0f;
+    sample.calibration_status = 0;  // Not calibrated (stub)
 
     return sample;
 }
