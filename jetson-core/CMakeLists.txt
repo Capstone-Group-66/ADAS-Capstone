@@ -28,7 +28,7 @@ endif()
 # ══════════════════════════════════════════════════════════════════════════════
 #                              DEPENDENCIES
 # ══════════════════════════════════════════════════════════════════════════════
-find_package(OpenCV REQUIRED COMPONENTS core videoio imgcodecs highgui calib3d imgproc)
+find_package(OpenCV REQUIRED COMPONENTS core videoio imgcodecs highgui calib3d imgproc dnn)
 find_package(Threads REQUIRED)
 
 # Optional: yaml-cpp for enhanced config parsing
