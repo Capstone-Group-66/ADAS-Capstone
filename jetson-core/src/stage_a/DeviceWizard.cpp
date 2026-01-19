@@ -3,6 +3,10 @@
 #include "adas/stage_a/DeviceWizard.hpp"
 #include "adas/stage_a/CameraCalibrator.hpp"
 
+#ifdef HAS_ZMQ
+#include "adas/stage_a/NetworkReceiver.hpp"
+#endif
+
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
@@ -430,7 +434,8 @@ void DeviceWizard::registerNetworkDevices(const std::string& hw_map_path,
     std::cout << "  The Raspberry Pi 4 hosts the rear sector devices:           \n";
     std::cout << "    - RearCam (via ZMQ port 5555)                             \n";
     std::cout << "    - RearCornerRadarL (via ZMQ port 5556)                    \n";
-    std::cout << "    - RearCornerRadarR (via ZMQ port 5556)                    \n";
+    std::cout << "    - RearCornerRadarR (via ZMQ port 5557)                    \n";
+    std::cout << "    - IMU (via ZMQ port 5558)                                 \n";
     std::cout << "==============================================================\n\n";
     
     // Get Pi IP
@@ -446,9 +451,19 @@ void DeviceWizard::registerNetworkDevices(const std::string& hw_map_path,
         return;
     }
     
-    // Test connectivity (simple ping)
+    // Test connectivity
     std::cout << "\n[Network] Testing connectivity to " << pi_ip << "...\n";
+    
+#ifdef HAS_ZMQ
+    // Use ZMQ-based RTT measurement (more accurate)
+    double rtt = NetworkReceiver::measureRTT(pi_ip);
+    if (rtt > 0) {
+        std::cout << "[Network] ZMQ RTT to Pi: " << rtt << " ms\n";
+    }
+#else
     double rtt = measureRTT(pi_ip);
+#endif
+
     if (rtt < 0) {
         std::cerr << "\n[WARNING] Could not reach Pi at " << pi_ip << "\n";
         std::cout << "  Continue anyway? (y/N): ";
@@ -458,8 +473,37 @@ void DeviceWizard::registerNetworkDevices(const std::string& hw_map_path,
             return;
         }
     } else {
-        std::cout << "[Network] RTT to Pi: " << rtt << " ms\n";
+        if (rtt < 10) {
+            std::cout << "[Network] Status: EXCELLENT (RTT < 10ms)\n";
+        } else if (rtt < 25) {
+            std::cout << "[Network] Status: GOOD (RTT < 25ms)\n";
+        } else if (rtt < 50) {
+            std::cout << "[Network] Status: ACCEPTABLE (RTT < 50ms)\n";
+        } else {
+            std::cout << "[Network] Status: WARNING - High latency\n";
+        }
     }
+    
+#ifdef HAS_ZMQ
+    // Try ZMQ device discovery
+    std::cout << "\n[Network] Attempting device discovery via ZMQ...\n";
+    auto devices = NetworkReceiver::discoverDevices(pi_ip, 3000);
+    
+    if (!devices.empty()) {
+        std::cout << "[Network] Discovered " << devices.size() << " devices:\n";
+        for (const auto& dev : devices) {
+            std::string type_str = dev.type == protocol::DeviceType::CAMERA ? "Camera" :
+                                   dev.type == protocol::DeviceType::RADAR ? "Radar" : "IMU";
+            std::string status_str = dev.status == protocol::DeviceStatus::OK ? "OK" : "ERROR";
+            std::cout << "  - " << type_str << " (" << dev.serial << ") - " << status_str << "\n";
+        }
+    } else {
+        std::cout << "[Network] Discovery failed or Pi not responding.\n";
+        std::cout << "[Network] Registering default Pi devices anyway...\n";
+    }
+#else
+    std::cout << "[Network] ZMQ not available, registering default devices.\n";
+#endif
     
     // Load existing hardware map or create new one
     HardwareMap hw_map;
@@ -478,13 +522,15 @@ void DeviceWizard::registerNetworkDevices(const std::string& hw_map_path,
     // Build network device addresses
     // Format: "zmq://IP:PORT" for network devices
     std::string rear_cam_addr = "zmq://" + pi_ip + ":5555";
-    std::string radar_l_addr = "zmq://" + pi_ip + ":5556/L";
-    std::string radar_r_addr = "zmq://" + pi_ip + ":5556/R";
+    std::string radar_l_addr = "zmq://" + pi_ip + ":5556";
+    std::string radar_r_addr = "zmq://" + pi_ip + ":5557";
+    std::string imu_addr = "zmq://" + pi_ip + ":5558";
     
     // Add network devices
     hw_map.mappings[Mount::RearCam] = rear_cam_addr;
     hw_map.mappings[Mount::RearCornerRadarL] = radar_l_addr;
     hw_map.mappings[Mount::RearCornerRadarR] = radar_r_addr;
+    hw_map.mappings[Mount::IMU] = imu_addr;
     
     // Save updated hardware map
     ConfigLoader::saveHardwareMap(hw_map_path, hw_map);
@@ -493,17 +539,20 @@ void DeviceWizard::registerNetworkDevices(const std::string& hw_map_path,
     std::cout << "==============================================================\n";
     std::cout << "             NETWORK DEVICES REGISTERED                       \n";
     std::cout << "==============================================================\n";
-    std::cout << "  RearCam         -> " << rear_cam_addr << "\n";
+    std::cout << "  RearCam          -> " << rear_cam_addr << "\n";
     std::cout << "  RearCornerRadarL -> " << radar_l_addr << "\n";
     std::cout << "  RearCornerRadarR -> " << radar_r_addr << "\n";
+    std::cout << "  IMU              -> " << imu_addr << "\n";
     std::cout << "==============================================================\n";
     std::cout << "\nSaved to: " << hw_map_path << "\n";
 }
 
 double DeviceWizard::measureRTT(const std::string& pi_ip) {
-    // Simple ICMP-like RTT measurement using system ping
-    // This is a cross-platform approximation
-    
+#ifdef HAS_ZMQ
+    // Use ZMQ-based RTT measurement
+    return NetworkReceiver::measureRTT(pi_ip);
+#else
+    // Fallback to ping-based RTT measurement
 #ifdef _WIN32
     std::string cmd = "ping -n 1 -w 1000 " + pi_ip + " > nul 2>&1";
 #else
@@ -520,7 +569,9 @@ double DeviceWizard::measureRTT(const std::string& pi_ip) {
     
     double rtt_ms = std::chrono::duration<double, std::milli>(end - start).count();
     return rtt_ms;
+#endif
 }
 
 } // namespace adas
+
 

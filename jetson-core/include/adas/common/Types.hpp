@@ -7,10 +7,7 @@
 #include <cstdint>
 #include <vector>
 
-// Forward declaration - OpenCV Mat used only when available
-namespace cv {
-class Mat;
-}
+#include <opencv2/core.hpp>
 
 namespace adas {
 
@@ -116,14 +113,14 @@ struct Header {
 
 /// Camera frame payload
 /// Raw frame data - undistorting happens in Stage B
-/// Note: cv::Mat is forward-declared, actual struct defined in CameraFrame.hpp
-///       to avoid OpenCV dependency in this header
+/// Contains either raw byte data or cv::Mat (OpenCV)
 struct CameraFrameData {
     Header h;
     int width;
     int height;
     int channels;
-    std::vector<uint8_t> data;  // BGR pixel data (row-major)
+    std::vector<uint8_t> data;  // BGR pixel data (row-major) - optional
+    cv::Mat frame;              // OpenCV Mat for frame data
 
     CameraFrameData() : width(0), height(0), channels(3) {}
 };
@@ -160,12 +157,24 @@ struct RadarTargets {
 
 /// IMU sample (high-rate: ≥100 Hz)
 /// Per Section 4.2.2 - sensor frame coordinates
+/// Extended for BNO085 data from Pi
 struct ImuSample {
-    Header h;
-    std::array<float, 3> acc_mps2;   // Accelerometer [ax, ay, az] m/s²
-    std::array<float, 3> gyro_rps;   // Gyroscope [wx, wy, wz] rad/s
+    uint64_t t_capture;             // Timestamp (nanoseconds)
+    std::array<float, 3> accel;     // Accelerometer [ax, ay, az] m/s²
+    std::array<float, 3> gyro;      // Gyroscope [wx, wy, wz] rad/s
+    std::array<float, 3> mag;       // Magnetometer [mx, my, mz] µT (optional)
+    std::array<float, 4> quat;      // Quaternion [w, x, y, z] (optional)
+    float temperature;              // Temperature °C
+    uint8_t calibration_status;     // BNO085 calibration 0-3
 
-    ImuSample() : acc_mps2{0, 0, 0}, gyro_rps{0, 0, 0} {}
+    ImuSample() 
+        : t_capture(0),
+          accel{0, 0, 0}, 
+          gyro{0, 0, 0}, 
+          mag{0, 0, 0},
+          quat{1, 0, 0, 0},
+          temperature(0),
+          calibration_status(0) {}
 };
 
 // ══════════════════════════════════════════════════════════════════════════════

@@ -148,6 +148,70 @@ if(BUILD_TESTS)
 endif()
 
 # ══════════════════════════════════════════════════════════════════════════════
+#                         PI4 NETWORK RECEIVER (ZMQ)
+# ══════════════════════════════════════════════════════════════════════════════
+# Find ZeroMQ - required for Pi4 network integration
+find_package(PkgConfig QUIET)
+if(PkgConfig_FOUND)
+    pkg_check_modules(ZMQ QUIET libzmq)
+endif()
+
+# Fallback: try find_library
+if(NOT ZMQ_FOUND)
+    find_library(ZMQ_LIBRARY NAMES zmq libzmq PATHS /usr/lib /usr/local/lib)
+    find_path(ZMQ_INCLUDE_DIR zmq.h PATHS /usr/include /usr/local/include)
+    if(ZMQ_LIBRARY AND ZMQ_INCLUDE_DIR)
+        set(ZMQ_FOUND TRUE)
+        set(ZMQ_LIBRARIES ${ZMQ_LIBRARY})
+        set(ZMQ_INCLUDE_DIRS ${ZMQ_INCLUDE_DIR})
+    endif()
+endif()
+
+if(ZMQ_FOUND)
+    message(STATUS "ZeroMQ found: ${ZMQ_LIBRARIES}")
+    
+    # Standalone receiver executable (for debugging)
+    add_executable(jetson_receiver
+        scripts/jetson_receiver.cpp
+    )
+    target_include_directories(jetson_receiver PRIVATE 
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${ZMQ_INCLUDE_DIRS}
+    )
+    target_link_libraries(jetson_receiver
+        ${ZMQ_LIBRARIES}
+        Threads::Threads
+    )
+    
+    # Network receiver integrated with pipeline
+    add_library(network_receiver STATIC
+        src/stage_a/NetworkReceiver.cpp
+    )
+    target_include_directories(network_receiver PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${ZMQ_INCLUDE_DIRS}
+    )
+    target_link_libraries(network_receiver
+        ${ZMQ_LIBRARIES}
+        Threads::Threads
+    )
+    target_compile_definitions(network_receiver PUBLIC HAS_ZMQ)
+    
+    # Link network_receiver to jetson_core
+    target_link_libraries(jetson_core network_receiver)
+    target_compile_definitions(jetson_core PRIVATE HAS_ZMQ)
+    
+    # Link network_receiver to device_wizard for discovery
+    target_link_libraries(device_wizard network_receiver)
+    target_compile_definitions(device_wizard PRIVATE HAS_ZMQ)
+    
+    install(TARGETS jetson_receiver DESTINATION bin)
+else()
+    message(STATUS "ZeroMQ NOT found - Pi4 network integration disabled")
+    message(STATUS "  Install with: sudo apt install libzmq3-dev")
+endif()
+
+# ══════════════════════════════════════════════════════════════════════════════
 #                              INSTALL
 # ══════════════════════════════════════════════════════════════════════════════
 install(TARGETS jetson_core device_wizard DESTINATION bin)
