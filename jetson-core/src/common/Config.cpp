@@ -171,8 +171,9 @@ HardwareMap ConfigLoader::loadHardwareMap(const std::string &path) {
             // Parse mount -> path mappings
             // Helper lambda to extract value
             auto extractValue = [&line]() -> std::string {
-                size_t start = line.find_last_of(':');
-                size_t quote1 = line.find('"', start);
+                size_t colon = line.find(':');  // Find FIRST colon (after key name)
+                if (colon == std::string::npos) return "";
+                size_t quote1 = line.find('"', colon);
                 size_t quote2 = line.find('"', quote1 + 1);
                 if (quote1 != std::string::npos && quote2 != std::string::npos) {
                     return line.substr(quote1 + 1, quote2 - quote1 - 1);
