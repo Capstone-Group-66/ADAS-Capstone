@@ -10,6 +10,10 @@
 #include "adas/stage_a/NetworkIngest.hpp"
 #include "adas/stage_a/RadarIngest.hpp"
 
+#ifdef HAS_ZMQ
+#include "adas/stage_a/NetworkReceiver.hpp"
+#endif
+
 #include <map>
 #include <memory>
 #include <thread>
@@ -120,6 +124,11 @@ private:
 
     // Network ingest (rear sector from Pi4)
     std::unique_ptr<NetworkIngest> network_;
+
+#ifdef HAS_ZMQ
+    // ZMQ-based network receiver (preferred over TCP NetworkIngest)
+    std::unique_ptr<NetworkReceiver> zmq_receiver_;
+#endif
 
     // Direct front radar
     std::unique_ptr<RadarIngest> radar_front_;

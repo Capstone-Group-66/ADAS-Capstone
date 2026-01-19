@@ -50,6 +50,11 @@ void IngestManager::stop() {
     if (imu_) {
         imu_->stop();
     }
+#ifdef HAS_ZMQ
+    if (zmq_receiver_) {
+        zmq_receiver_->stop();
+    }
+#endif
     if (network_) {
         network_->stop();
     }
@@ -104,11 +109,52 @@ void IngestManager::launchDirectCameras() {
 }
 
 void IngestManager::launchNetworkIngest() {
-    std::cout << "[IngestManager] Launching network ingest (Pi4 rear sector)...\n";
+#ifdef HAS_ZMQ
+    // Check if Pi is configured in hardware map
+    auto rear_cam_it = hw_map_.mappings.find(Mount::RearCam);
+    if (rear_cam_it == hw_map_.mappings.end()) {
+        std::cout << "[IngestManager] RearCam not in hardware_map, skipping ZMQ receiver\n";
+        return;
+    }
+    
+    // Extract Pi IP from hardware map (format: "zmq://IP:PORT")
+    std::string addr = rear_cam_it->second;
+    std::string pi_ip;
+    if (addr.substr(0, 6) == "zmq://") {
+        size_t colon = addr.find(':', 6);
+        if (colon != std::string::npos) {
+            pi_ip = addr.substr(6, colon - 6);
+        }
+    }
+    
+    if (pi_ip.empty()) {
+        std::cerr << "[IngestManager] Invalid RearCam address: " << addr << "\n";
+        std::cerr << "[IngestManager] Falling back to TCP NetworkIngest\n";
+        network_ = std::make_unique<NetworkIngest>(cam_rear_queue_, radar_rear_l_queue_,
+                                                   radar_rear_r_queue_, config_.network);
+        network_->start();
+        return;
+    }
+    
+    std::cout << "[IngestManager] Launching ZMQ receiver for Pi at " << pi_ip << "...\n";
+    
+    // Create NetworkReceiver with queues for camera and IMU
+    zmq_receiver_ = std::make_unique<NetworkReceiver>(
+        pi_ip,
+        &cam_rear_queue_,  // Camera frames go here
+        &imu_queue_        // IMU samples go here
+    );
+    
+    zmq_receiver_->start();
+    std::cout << "[IngestManager] ZMQ receiver started for RearCam + IMU\n";
+    
+#else
+    std::cout << "[IngestManager] Launching TCP network ingest (Pi4 rear sector)...\n";
 
     network_ = std::make_unique<NetworkIngest>(cam_rear_queue_, radar_rear_l_queue_,
                                                radar_rear_r_queue_, config_.network);
     network_->start();
+#endif
 }
 
 void IngestManager::launchFrontRadar() {
@@ -186,6 +232,18 @@ IngestManager::HealthStatus IngestManager::getHealth() const {
     }
 
     // Check network (rear sector)
+#ifdef HAS_ZMQ
+    if (zmq_receiver_) {
+        bool h = zmq_receiver_->isPiConnected();
+        status.sensor_health[Mount::RearCam] = h;
+        status.sensor_health[Mount::IMU] = h;  // IMU also comes from Pi
+        status.total_drops += cam_rear_queue_.drops();
+        status.total_drops += imu_queue_.drops();
+        if (!h) {
+            status.all_healthy = false;
+        }
+    } else
+#endif
     if (network_) {
         bool h = network_->isHealthy();
         status.sensor_health[Mount::RearCam] = h;
