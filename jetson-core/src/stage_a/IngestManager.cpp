@@ -138,15 +138,16 @@ void IngestManager::launchNetworkIngest() {
     
     std::cout << "[IngestManager] Launching ZMQ receiver for Pi at " << pi_ip << "...\n";
     
-    // Create NetworkReceiver with queues for camera and IMU
-    zmq_receiver_ = std::make_unique<NetworkReceiver>(
-        pi_ip,
-        &cam_rear_queue_,  // Camera frames go here
-        &imu_queue_        // IMU samples go here
-    );
+    // Create NetworkReceiver (constructor takes only IP)
+    zmq_receiver_ = std::make_unique<NetworkReceiver>(pi_ip);
     
-    zmq_receiver_->start();
-    std::cout << "[IngestManager] ZMQ receiver started for RearCam + IMU\n";
+    // Start with queue pointers
+    if (zmq_receiver_->start(&cam_rear_queue_, &imu_queue_)) {
+        std::cout << "[IngestManager] ZMQ receiver started for RearCam + IMU\n";
+    } else {
+        std::cerr << "[IngestManager] Failed to start ZMQ receiver\n";
+        zmq_receiver_.reset();
+    }
     
 #else
     std::cout << "[IngestManager] Launching TCP network ingest (Pi4 rear sector)...\n";
