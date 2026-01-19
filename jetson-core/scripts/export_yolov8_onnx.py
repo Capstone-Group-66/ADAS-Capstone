@@ -6,15 +6,14 @@ The Jetson's OpenCV 4.1.1 has a bug with int64 tensors in ONNX models.
 This script exports with opset=12 and simplifies the model for compatibility.
 
 Usage:
-    pip install ultralytics onnx onnxsim
+    pip install ultralytics
     python3 export_yolov8_onnx.py
 
 This will create yolov8n_cv41.onnx in the current directory.
 """
 
 from ultralytics import YOLO
-import onnx
-import onnxsim
+import shutil
 
 def main():
     print("[Export] Loading YOLOv8n pretrained model...")
@@ -24,13 +23,12 @@ def main():
     model.export(
         format='onnx',
         opset=12,           # Lower opset for OpenCV 4.1.1 compatibility
-        simplify=True,      # Simplify to remove unsupported ops
+        simplify=True,      # Use ultralytics' built-in simplify
         dynamic=False,      # Static input shape
         imgsz=640,          # Input size
     )
     
     # The export creates yolov8n.onnx, rename for clarity
-    import shutil
     shutil.move('yolov8n.onnx', 'yolov8n_cv41.onnx')
     
     print("[Export] Saved to yolov8n_cv41.onnx")
