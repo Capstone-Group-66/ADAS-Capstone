@@ -29,7 +29,7 @@ using namespace adas::protocol;
 namespace {
 
 struct Options {
-    std::string bind_ip = "0.0.0.0";
+    std::string pi_ip;  // Required: Pi IP address to connect to
     double stats_interval = 2.0;
     std::string save_dir;
     int save_every = 30;
@@ -45,8 +45,8 @@ void handle_signal(int) {
 
 void print_usage(const char* prog) {
     std::cout
-        << "Usage: " << prog << " [options]\n"
-        << "  --bind-ip <ip>           Bind address (default 0.0.0.0)\n"
+        << "Usage: " << prog << " --pi-ip <ip> [options]\n"
+        << "  --pi-ip <ip>             Pi IP address to connect to (REQUIRED)\n"
         << "  --stats-interval <sec>   Stats interval (default 2.0)\n"
         << "  --save-dir <path>        Save camera frames to directory\n"
         << "  --save-every <n>         Save every N frames (default 30)\n"
@@ -66,8 +66,8 @@ bool parse_args(int argc, char** argv, Options& out) {
             return argv[++i];
         };
 
-        if (arg == "--bind-ip") {
-            out.bind_ip = next("--bind-ip");
+        if (arg == "--pi-ip") {
+            out.pi_ip = next("--pi-ip");
         } else if (arg == "--stats-interval") {
             out.stats_interval = std::stod(next("--stats-interval"));
         } else if (arg == "--save-dir") {
@@ -124,16 +124,16 @@ void receiver_thread(void* ctx, const std::string& addr, MessageType expected_ty
     zmq_setsockopt(sock, ZMQ_RCVHWM, &hwm, sizeof(hwm));
     zmq_setsockopt(sock, ZMQ_RCVTIMEO, &timeout, sizeof(timeout));
 
-    int rc = zmq_bind(sock, addr.c_str());
+    int rc = zmq_connect(sock, addr.c_str());
     if (rc != 0) {
         std::cerr << "[" << msg_type_name(static_cast<uint16_t>(expected_type)) 
-                  << "] Failed to bind " << addr << ": " << zmq_strerror(errno) << "\n";
+                  << "] Failed to connect to " << addr << ": " << zmq_strerror(errno) << "\n";
         zmq_close(sock);
         return;
     }
 
     std::cout << "[" << msg_type_name(static_cast<uint16_t>(expected_type)) 
-              << "] Listening on " << addr << "\n";
+              << "] Connected to " << addr << "\n";
 
     // Create save directory if needed
     if (!opt.save_dir.empty() && expected_type == MessageType::REAR_CAM_FRAME) {
@@ -213,24 +213,42 @@ void receiver_thread(void* ctx, const std::string& addr, MessageType expected_ty
 }
 
 void heartbeat_thread(void* ctx, const std::string& addr, const Options& opt) {
-    void* sock = zmq_socket(ctx, ZMQ_PULL);
+    void* sock = zmq_socket(ctx, ZMQ_REQ);  // Use REQ to send heartbeat request
     int timeout = 1000;
     zmq_setsockopt(sock, ZMQ_RCVTIMEO, &timeout, sizeof(timeout));
+    zmq_setsockopt(sock, ZMQ_SNDTIMEO, &timeout, sizeof(timeout));
 
-    int rc = zmq_bind(sock, addr.c_str());
+    int rc = zmq_connect(sock, addr.c_str());
     if (rc != 0) {
-        std::cerr << "[HEARTBEAT] Failed to bind " << addr << "\n";
+        std::cerr << "[CONTROL] Failed to connect to " << addr << "\n";
         zmq_close(sock);
         return;
     }
 
-    std::cout << "[HEARTBEAT] Listening on " << addr << "\n";
+    std::cout << "[CONTROL] Connected to " << addr << "\n";
 
     std::vector<uint8_t> buffer(256);
     auto last_heartbeat = std::chrono::steady_clock::now();
     bool connected = false;
 
     while (!g_stop.load()) {
+        // Build and send heartbeat request
+        PiMessageHeader req_header;
+        req_header.magic = PI_MAGIC;
+        req_header.version = PI_PROTOCOL_VERSION;
+        req_header.msg_type = static_cast<uint16_t>(MessageType::HEARTBEAT);
+        req_header.payload_size = 0;
+        req_header._padding = 0;
+        req_header.timestamp_ns = 0;
+        req_header.sequence = 0;
+        req_header.reserved = 0;
+
+        if (zmq_send(sock, &req_header, sizeof(req_header), 0) < 0) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            continue;
+        }
+
+        // Receive response
         int recv_len = zmq_recv(sock, buffer.data(), buffer.size(), 0);
         if (recv_len >= static_cast<int>(sizeof(PiMessageHeader) + sizeof(HeartbeatPayload))) {
             PiMessageHeader header;
@@ -263,6 +281,9 @@ void heartbeat_thread(void* ctx, const std::string& addr, const Options& opt) {
             std::cerr << "[HEARTBEAT] WARNING: No heartbeat for " << elapsed << " seconds\n";
             connected = false;
         }
+
+        // Wait 1 second between heartbeats
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
     zmq_close(sock);
@@ -279,10 +300,18 @@ int main(int argc, char** argv) {
         return 1;
     }
 
+    // Validate required --pi-ip
+    if (opt.pi_ip.empty()) {
+        std::cerr << "ERROR: --pi-ip is required\n";
+        print_usage(argv[0]);
+        return 1;
+    }
+
     std::cout << "\n";
     std::cout << "==============================================================\n";
     std::cout << "              JETSON PI4 RECEIVER                             \n";
     std::cout << "==============================================================\n";
+    std::cout << "  Connecting to Pi at " << opt.pi_ip << "                      \n";
     std::cout << "  Protocol: PiProtocol v1.0                                   \n";
     std::cout << "  Press Ctrl+C to stop                                        \n";
     std::cout << "==============================================================\n\n";
@@ -293,12 +322,12 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Build addresses
-    std::string cam_addr = build_addr(opt.bind_ip, PORT_REAR_CAM);
-    std::string radar_l_addr = build_addr(opt.bind_ip, PORT_RADAR_L);
-    std::string radar_r_addr = build_addr(opt.bind_ip, PORT_RADAR_R);
-    std::string imu_addr = build_addr(opt.bind_ip, PORT_IMU);
-    std::string ctrl_addr = build_addr(opt.bind_ip, PORT_CONTROL);
+    // Build addresses - connect to Pi
+    std::string cam_addr = build_addr(opt.pi_ip, PORT_REAR_CAM);
+    std::string radar_l_addr = build_addr(opt.pi_ip, PORT_RADAR_L);
+    std::string radar_r_addr = build_addr(opt.pi_ip, PORT_RADAR_R);
+    std::string imu_addr = build_addr(opt.pi_ip, PORT_IMU);
+    std::string ctrl_addr = build_addr(opt.pi_ip, PORT_CONTROL);
 
     // Stats
     StreamStats cam_stats, radar_l_stats, radar_r_stats, imu_stats;
