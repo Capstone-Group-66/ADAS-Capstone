@@ -47,7 +47,7 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8>* cam_queue,
     radar_l_socket_ = zmq_socket(context_, ZMQ_PULL);
     radar_r_socket_ = zmq_socket(context_, ZMQ_PULL);
     imu_socket_ = zmq_socket(context_, ZMQ_PULL);
-    heartbeat_socket_ = zmq_socket(context_, ZMQ_PULL);
+    heartbeat_socket_ = zmq_socket(context_, ZMQ_REQ);  // REQ/REP pattern for control
 
     // Set socket options
     int hwm = 10;
@@ -306,6 +306,23 @@ void NetworkReceiver::heartbeatThread() {
     auto last_heartbeat = std::chrono::steady_clock::now();
 
     while (running_.load()) {
+        // Build and send heartbeat request (REQ/REP pattern)
+        PiMessageHeader req_header;
+        req_header.magic = PI_MAGIC;
+        req_header.version = PI_PROTOCOL_VERSION;
+        req_header.msg_type = static_cast<uint16_t>(MessageType::HEARTBEAT);
+        req_header.payload_size = 0;
+        req_header._padding = 0;
+        req_header.timestamp_ns = 0;
+        req_header.sequence = 0;
+        req_header.reserved = 0;
+
+        if (zmq_send(heartbeat_socket_, &req_header, sizeof(req_header), 0) < 0) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            continue;
+        }
+
+        // Receive response
         int len = zmq_recv(heartbeat_socket_, buffer.data(), buffer.size(), 0);
         if (len >= static_cast<int>(sizeof(PiMessageHeader) + sizeof(HeartbeatPayload))) {
             PiMessageHeader header;
@@ -338,6 +355,9 @@ void NetworkReceiver::heartbeatThread() {
                 stats_.pi_connected = false;
             }
         }
+
+        // Wait 1 second between heartbeats
+        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 }
 
