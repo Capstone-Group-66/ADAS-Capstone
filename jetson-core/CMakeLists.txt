@@ -8,18 +8,21 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Optimization for Jetson
-if(CMAKE_BUILD_TYPE STREQUAL "Release")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native")
-endif()
-
-# Enable warnings
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
-
-# Coverage option
-option(COVERAGE "Enable code coverage" OFF)
-if(COVERAGE)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
+# Optimization for Jetson (GCC/Clang only)
+if(NOT MSVC)
+    if(CMAKE_BUILD_TYPE STREQUAL "Release")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native")
+    endif()
+    # Enable warnings (GCC/Clang)
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
+    # Coverage option
+    option(COVERAGE "Enable code coverage" OFF)
+    if(COVERAGE)
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} --coverage")
+    endif()
+else()
+    # MSVC Warnings
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4")
 endif()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -54,6 +57,12 @@ set(STAGE_A_SOURCES
     src/stage_a/IngestManager.cpp
 )
 
+set(STAGE_B_SOURCES
+    src/stage_b/CameraPreprocessor.cpp
+    src/stage_b/ObjectDetector.cpp
+    src/stage_b/CameraPipeline.cpp
+)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #                              MAIN EXECUTABLE
 # ══════════════════════════════════════════════════════════════════════════════
@@ -61,13 +70,18 @@ add_executable(jetson_core
     src/main.cpp
     ${COMMON_SOURCES}
     ${STAGE_A_SOURCES}
+    ${STAGE_B_SOURCES}
 )
 
 target_link_libraries(jetson_core
     ${OpenCV_LIBS}
     Threads::Threads
-    stdc++fs
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:stdc++fs>
 )
+
+if(MSVC)
+    target_compile_definitions(jetson_core PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
 
 if(yaml-cpp_FOUND)
     target_link_libraries(jetson_core yaml-cpp)
@@ -87,8 +101,12 @@ add_executable(device_wizard
 target_link_libraries(device_wizard
     ${OpenCV_LIBS}
     Threads::Threads
-    stdc++fs
+    $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:stdc++fs>
 )
+
+if(MSVC)
+    target_compile_definitions(device_wizard PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
 
 # ══════════════════════════════════════════════════════════════════════════════
 #                         MAIN BRAIN EXECUTABLE (Vertical Slice)

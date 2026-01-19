@@ -29,6 +29,14 @@ class DeviceWizard {
     static void saveDirectMapping(const std::string &output_path,
                                   const std::map<Mount, std::string> &mappings);
 
+    /// Run camera calibration for all mapped cameras
+    /// @param hw_map Hardware mapping from previous registration
+    /// @param calib_dir Directory to save calibration files
+    /// @param recalibrate If true, recalibrate even if calibration exists
+    static void runCalibration(const HardwareMap& hw_map, 
+                               const std::string& calib_dir = "config/calibration",
+                               bool recalibrate = false);
+
     /// Enumerate all /dev/video* devices
     /// @return List of available video device paths
     static std::vector<std::string> enumerateVideoDevices();
@@ -49,6 +57,17 @@ class DeviceWizard {
 
     /// Get current timestamp in ISO 8601 format
     static std::string getCurrentTimestamp();
+
+    /// Register Pi4 network devices (RearCam, RearRadarL, RearRadarR)
+    /// @param hw_map_path Path to hardware_map.json (will merge with existing)
+    /// @param pi_ip IP address of Pi4 (e.g., "192.168.1.100")
+    static void registerNetworkDevices(const std::string& hw_map_path, 
+                                        const std::string& pi_ip = "");
+
+    /// Test RTT (round-trip time) to Pi4
+    /// @param pi_ip IP address of Pi4
+    /// @return RTT in milliseconds, or -1 if failed
+    static double measureRTT(const std::string& pi_ip);
 
   private:
     /// Prompt user to assign a mount to a device

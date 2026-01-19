@@ -43,67 +43,94 @@ Config ConfigLoader::loadConfig(const std::string &path) {
     // In production, use yaml-cpp library
     std::istringstream stream(content);
     std::string line;
+    std::string current_section;  // Track which section we're in
 
     while (std::getline(stream, line)) {
-        line = trim(line);
-        if (line.empty() || line[0] == '#') {
+        // Check indentation to determine if this is a section header
+        size_t indent = line.find_first_not_of(" \t");
+        std::string trimmed = trim(line);
+        
+        if (trimmed.empty() || trimmed[0] == '#') {
             continue;
         }
 
         // Parse key-value pairs
-        size_t colonPos = line.find(':');
+        size_t colonPos = trimmed.find(':');
         if (colonPos == std::string::npos) {
             continue;
         }
 
-        std::string key = trim(line.substr(0, colonPos));
-        std::string value = trim(line.substr(colonPos + 1));
+        std::string key = trim(trimmed.substr(0, colonPos));
+        std::string value = trim(trimmed.substr(colonPos + 1));
+        
+        // If value is empty, this is a section header
+        if (value.empty() || value[0] == '#') {
+            if (indent == 0) {
+                current_section = key;
+            }
+            continue;
+        }
+
+        // Remove quotes from string values
+        if (!value.empty() && value.front() == '"' && value.back() == '"') {
+            value = value.substr(1, value.size() - 2);
+        }
 
         // Time config
-        if (key == "fusion_hz") {
-            config.time.fusion_hz = std::stoi(value);
-        } else if (key == "max_skew_ms") {
-            config.time.max_skew_ms = std::stoi(value);
-        } else if (key == "buffer_ms") {
-            config.time.buffer_ms = std::stoi(value);
-        } else if (key == "late_drop_ms") {
-            config.time.late_drop_ms = std::stoi(value);
-        } else if (key == "warmup_ticks") {
-            config.time.warmup_ticks = std::stoi(value);
+        if (current_section == "time") {
+            if (key == "fusion_hz") {
+                config.time.fusion_hz = std::stoi(value);
+            } else if (key == "max_skew_ms") {
+                config.time.max_skew_ms = std::stoi(value);
+            } else if (key == "buffer_ms") {
+                config.time.buffer_ms = std::stoi(value);
+            } else if (key == "late_drop_ms") {
+                config.time.late_drop_ms = std::stoi(value);
+            } else if (key == "warmup_ticks") {
+                config.time.warmup_ticks = std::stoi(value);
+            }
         }
-
         // Camera config
-        else if (key == "width") {
-            config.cameras.width = std::stoi(value);
-        } else if (key == "height") {
-            config.cameras.height = std::stoi(value);
-        } else if (key == "target_fps") {
-            config.cameras.target_fps = std::stoi(value);
-        } else if (key == "use_mjpeg") {
-            config.cameras.use_mjpeg = (value == "true");
+        else if (current_section == "cameras") {
+            if (key == "width") {
+                config.cameras.width = std::stoi(value);
+            } else if (key == "height") {
+                config.cameras.height = std::stoi(value);
+            } else if (key == "target_fps") {
+                config.cameras.target_fps = std::stoi(value);
+            } else if (key == "use_mjpeg") {
+                config.cameras.use_mjpeg = (value == "true");
+            }
         }
-
         // Network config
-        else if (key == "port") {
-            config.network.port = std::stoi(value);
-        } else if (key == "latency_correction_ms") {
-            config.network.latency_correction_ms = std::stoi(value);
-        } else if (key == "reconnect_timeout_ms") {
-            config.network.reconnect_timeout_ms = std::stoi(value);
+        else if (current_section == "network") {
+            if (key == "port") {
+                config.network.port = std::stoi(value);
+            } else if (key == "latency_correction_ms") {
+                config.network.latency_correction_ms = std::stoi(value);
+            } else if (key == "reconnect_timeout_ms") {
+                config.network.reconnect_timeout_ms = std::stoi(value);
+            }
         }
-
-        // Radar config
-        else if (key == "baud_rate") {
-            config.front_radar.baud_rate = std::stoi(value);
-        } else if (key == "poll_timeout_ms") {
-            config.front_radar.poll_timeout_ms = std::stoi(value);
+        // Front radar config
+        else if (current_section == "front_radar") {
+            if (key == "port") {
+                config.front_radar.port = value;  // String, not int!
+            } else if (key == "baud_rate") {
+                config.front_radar.baud_rate = std::stoi(value);
+            } else if (key == "poll_timeout_ms") {
+                config.front_radar.poll_timeout_ms = std::stoi(value);
+            }
         }
-
         // IMU config
-        else if (key == "rate_hz") {
-            config.imu.rate_hz = std::stoi(value);
-        } else if (key == "use_uart") {
-            config.imu.use_uart = (value == "true");
+        else if (current_section == "imu") {
+            if (key == "rate_hz") {
+                config.imu.rate_hz = std::stoi(value);
+            } else if (key == "use_uart") {
+                config.imu.use_uart = (value == "true");
+            } else if (key == "bus") {
+                config.imu.bus = value;
+            }
         }
     }
 

@@ -1,18 +1,29 @@
 // File: src/main.cpp
-// ADAS Pipeline Entry Point - Stage A (Ingest & Timestamp)
+// ADAS Pipeline Entry Point - Interactive CLI with Stages A, B
 #include "adas/common/Clock.hpp"
 #include "adas/common/Config.hpp"
 #include "adas/stage_a/DeviceWizard.hpp"
 #include "adas/stage_a/IngestManager.hpp"
+#include "adas/stage_b/CameraPipeline.hpp"
 
 #include <csignal>
 #include <iostream>
 #include <memory>
+#include <string>
 
 namespace {
 
-std::unique_ptr<adas::IngestManager> g_manager;
+// Global managers
+std::unique_ptr<adas::IngestManager> g_ingest_manager;
+std::unique_ptr<adas::StageBManager> g_stage_b_manager;
 std::atomic<bool> g_shutdown_requested{false};
+std::atomic<bool> g_pipeline_running{false};
+
+// Detection output queues (Stage B -> Stage E)
+adas::SPSCQueue<adas::DetBatch, 8> g_det_front_queue;
+adas::SPSCQueue<adas::DetBatch, 8> g_det_side_l_queue;
+adas::SPSCQueue<adas::DetBatch, 8> g_det_side_r_queue;
+adas::SPSCQueue<adas::DetBatch, 8> g_det_rear_queue;
 
 void signalHandler(int signum) {
     std::cout << "\n[Main] Received signal " << signum << ", initiating shutdown...\n";
@@ -21,6 +32,7 @@ void signalHandler(int signum) {
 
 void printBanner() {
     std::cout << R"(
+
     ===========================================================================
                                                                        
          AAAAA  DDDD    AAAAA  SSSSS      PPPP   III  PPPP   EEEEE     
@@ -29,10 +41,107 @@ void printBanner() {
         AA   AA DD  DD AA   AA     SS    PP      III PP     EE         
         AA   AA DDDD   AA   AA SSSSS     PP      III PP     EEEEE      
                                                                        
-                Stage A: Ingest & Timestamp Pipeline                   
+                    ADAS Pipeline - Interactive Mode                   
                                                                        
     ===========================================================================
     )" << std::endl;
+}
+
+void printMenu() {
+    std::cout << "\n";
+    std::cout << "==============================================================\n";
+    std::cout << "                    MAIN MENU                                 \n";
+    std::cout << "==============================================================\n";
+    std::cout << "  1) Start Pipeline (Stages A + B)\n";
+    std::cout << "  2) Stop Pipeline\n";
+    std::cout << "  3) Show Status\n";
+    std::cout << "  4) Run Device Wizard (USB cameras)\n";
+    std::cout << "  5) Run Camera Calibration\n";
+    std::cout << "  6) Register Pi4 Network Devices\n";
+    std::cout << "  7) Test RTT to Pi4\n";
+    std::cout << "  0) Exit\n";
+    std::cout << "==============================================================\n";
+    std::cout << "  Enter choice: ";
+}
+
+void startPipeline(const adas::Config& config, const adas::HardwareMap& hw_map,
+                   const std::string& calib_dir, const std::string& model_path) {
+    if (g_pipeline_running.load()) {
+        std::cout << "[Main] Pipeline is already running\n";
+        return;
+    }
+    
+    std::cout << "\n[Main] Starting pipeline...\n";
+    
+    // Stage A: Ingest
+    g_ingest_manager = std::make_unique<adas::IngestManager>(config, hw_map);
+    g_ingest_manager->start();
+    
+    // Stage B: Camera Preprocessing + Inference
+    g_stage_b_manager = std::make_unique<adas::StageBManager>(calib_dir, model_path);
+    
+    // Add camera pipelines for each mapped camera
+    auto& mappings = hw_map.mappings;
+    
+    if (mappings.find(adas::Mount::FrontCam) != mappings.end()) {
+        g_stage_b_manager->addCamera(adas::Mount::FrontCam,
+                                     g_ingest_manager->getCameraQueue(adas::Mount::FrontCam),
+                                     g_det_front_queue);
+    }
+    if (mappings.find(adas::Mount::SideCamL) != mappings.end()) {
+        g_stage_b_manager->addCamera(adas::Mount::SideCamL,
+                                     g_ingest_manager->getCameraQueue(adas::Mount::SideCamL),
+                                     g_det_side_l_queue);
+    }
+    if (mappings.find(adas::Mount::SideCamR) != mappings.end()) {
+        g_stage_b_manager->addCamera(adas::Mount::SideCamR,
+                                     g_ingest_manager->getCameraQueue(adas::Mount::SideCamR),
+                                     g_det_side_r_queue);
+    }
+    // Note: RearCam comes via NetworkIngest, add if needed
+    
+    g_stage_b_manager->start();
+    
+    g_pipeline_running.store(true);
+    std::cout << "\n[Main] Pipeline started successfully!\n";
+    std::cout << "[Main] Press '3' to view status, '2' to stop\n";
+}
+
+void stopPipeline() {
+    if (!g_pipeline_running.load()) {
+        std::cout << "[Main] Pipeline is not running\n";
+        return;
+    }
+    
+    std::cout << "\n[Main] Stopping pipeline...\n";
+    
+    // Stop in reverse order
+    if (g_stage_b_manager) {
+        g_stage_b_manager->stop();
+        g_stage_b_manager.reset();
+    }
+    
+    if (g_ingest_manager) {
+        g_ingest_manager->stop();
+        g_ingest_manager.reset();
+    }
+    
+    g_pipeline_running.store(false);
+    std::cout << "[Main] Pipeline stopped\n";
+}
+
+void showStatus() {
+    if (!g_pipeline_running.load()) {
+        std::cout << "\n[Main] Pipeline is not running\n";
+        return;
+    }
+    
+    if (g_ingest_manager) {
+        g_ingest_manager->printStatus();
+    }
+    if (g_stage_b_manager) {
+        g_stage_b_manager->printStatus();
+    }
 }
 
 } // namespace
@@ -47,7 +156,9 @@ int main(int argc, char *argv[]) {
     // Parse command line args
     std::string config_path = "config/componentConfig.yaml";
     std::string hw_map_path = "config/hardware_map.json";
-    bool run_wizard = false;
+    std::string calib_dir = "config/calibration";
+    std::string model_path = "models/yolov8n.onnx";
+    bool auto_start = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -55,61 +166,152 @@ int main(int argc, char *argv[]) {
             config_path = argv[++i];
         } else if (arg == "--hardware-map" && i + 1 < argc) {
             hw_map_path = argv[++i];
-        } else if (arg == "--wizard") {
-            run_wizard = true;
+        } else if (arg == "--calib-dir" && i + 1 < argc) {
+            calib_dir = argv[++i];
+        } else if (arg == "--model" && i + 1 < argc) {
+            model_path = argv[++i];
+        } else if (arg == "--auto-start") {
+            auto_start = true;
         } else if (arg == "--help") {
             std::cout << "Usage: " << argv[0] << " [options]\n"
                       << "Options:\n"
                       << "  --config <path>        Path to componentConfig.yaml\n"
                       << "  --hardware-map <path>  Path to hardware_map.json\n"
-                      << "  --wizard               Run device registration wizard\n"
+                      << "  --calib-dir <path>     Path to calibration directory\n"
+                      << "  --model <path>         Path to YOLOv8 ONNX model\n"
+                      << "  --auto-start           Start pipeline automatically\n"
                       << "  --help                 Show this help\n";
             return 0;
         }
     }
 
     try {
-        // Check if hardware map exists, run wizard if not
-        if (!adas::ConfigLoader::hardwareMapExists(hw_map_path) || run_wizard) {
-            std::cout << "[Main] Hardware map not found or wizard requested\n";
-            std::cout << "[Main] Running Device Registration Wizard...\n\n";
-            adas::DeviceWizard::runRegistration(hw_map_path);
+        // Check if hardware map exists
+        if (!adas::ConfigLoader::hardwareMapExists(hw_map_path)) {
+            std::cout << "[Main] Hardware map not found at " << hw_map_path << "\n";
+            std::cout << "[Main] Please run Device Wizard first (option 4)\n\n";
         }
 
         // Load configuration
         std::cout << "[Main] Loading configuration from: " << config_path << "\n";
         adas::Config config = adas::ConfigLoader::loadConfig(config_path);
 
-        // Load hardware mapping
-        std::cout << "[Main] Loading hardware map from: " << hw_map_path << "\n";
-        adas::HardwareMap hw_map = adas::ConfigLoader::loadHardwareMap(hw_map_path);
-
-        std::cout << "[Main] Mapped devices:\n";
-        for (const auto &[mount, path] : hw_map.mappings) {
-            std::cout << "  " << adas::mountToString(mount) << " -> " << path << "\n";
-        }
-
-        // Create and start IngestManager
-        g_manager = std::make_unique<adas::IngestManager>(config, hw_map);
-        g_manager->start();
-
-        // Main loop - print status periodically
-        uint64_t last_status = adas::Clock::now_ns();
-        while (!g_shutdown_requested.load(std::memory_order_relaxed)) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
-            // Print status every 10 seconds
-            if (adas::Clock::elapsed_ms(last_status) >= 10000) {
-                g_manager->printStatus();
-                last_status = adas::Clock::now_ns();
+        // Load hardware mapping (may be empty if file doesn't exist)
+        adas::HardwareMap hw_map;
+        if (adas::ConfigLoader::hardwareMapExists(hw_map_path)) {
+            std::cout << "[Main] Loading hardware map from: " << hw_map_path << "\n";
+            hw_map = adas::ConfigLoader::loadHardwareMap(hw_map_path);
+            
+            std::cout << "[Main] Mapped devices:\n";
+            for (const auto &[mount, path] : hw_map.mappings) {
+                std::cout << "  " << adas::mountToString(mount) << " -> " << path << "\n";
             }
         }
 
-        // Graceful shutdown (FR93)
-        std::cout << "\n[Main] Shutting down Stage A pipeline...\n";
-        g_manager->stop();
-        g_manager.reset();
+        // Auto-start if requested
+        if (auto_start && !hw_map.mappings.empty()) {
+            startPipeline(config, hw_map, calib_dir, model_path);
+        }
 
+        // Interactive menu loop
+        while (!g_shutdown_requested.load(std::memory_order_relaxed)) {
+            printMenu();
+            
+            int choice = -1;
+            std::cin >> choice;
+            
+            if (std::cin.fail()) {
+                std::cin.clear();
+                std::cin.ignore(10000, '\n');
+                continue;
+            }
+            
+            switch (choice) {
+                case 1:  // Start Pipeline
+                    // Reload hw_map in case wizard was run
+                    if (adas::ConfigLoader::hardwareMapExists(hw_map_path)) {
+                        hw_map = adas::ConfigLoader::loadHardwareMap(hw_map_path);
+                    }
+                    if (hw_map.mappings.empty()) {
+                        std::cout << "[Main] No devices mapped. Run Device Wizard first (option 4)\n";
+                    } else {
+                        startPipeline(config, hw_map, calib_dir, model_path);
+                    }
+                    break;
+                    
+                case 2:  // Stop Pipeline
+                    stopPipeline();
+                    break;
+                    
+                case 3:  // Show Status
+                    showStatus();
+                    break;
+                    
+                case 4:  // Device Wizard
+                    if (g_pipeline_running.load()) {
+                        std::cout << "[Main] Please stop the pipeline first\n";
+                    } else {
+                        adas::DeviceWizard::runRegistration(hw_map_path);
+                    }
+                    break;
+                    
+                case 5:  // Camera Calibration
+                    if (g_pipeline_running.load()) {
+                        std::cout << "[Main] Please stop the pipeline first\n";
+                    } else {
+                        // Reload hw_map and run calibration
+                        if (adas::ConfigLoader::hardwareMapExists(hw_map_path)) {
+                            hw_map = adas::ConfigLoader::loadHardwareMap(hw_map_path);
+                        }
+                        adas::DeviceWizard::runCalibration(hw_map, calib_dir);
+                    }
+                    break;
+                    
+                case 6:  // Register Pi4 Network Devices
+                    if (g_pipeline_running.load()) {
+                        std::cout << "[Main] Please stop the pipeline first\n";
+                    } else {
+                        adas::DeviceWizard::registerNetworkDevices(hw_map_path);
+                    }
+                    break;
+                    
+                case 7:  // Test RTT to Pi4
+                    {
+                        std::cout << "  Enter Pi4 IP address: ";
+                        std::string pi_ip;
+                        std::cin >> pi_ip;
+                        std::cin.ignore(10000, '\n');
+                        double rtt = adas::DeviceWizard::measureRTT(pi_ip);
+                        if (rtt < 0) {
+                            std::cout << "[RTT] Failed to reach " << pi_ip << "\n";
+                        } else {
+                            std::cout << "[RTT] Round-trip time to " << pi_ip << ": " << rtt << " ms\n";
+                            if (rtt < 10) {
+                                std::cout << "[RTT] Status: EXCELLENT (< 10ms)\n";
+                            } else if (rtt < 25) {
+                                std::cout << "[RTT] Status: GOOD (< 25ms)\n";
+                            } else if (rtt < 50) {
+                                std::cout << "[RTT] Status: ACCEPTABLE (< 50ms)\n";
+                            } else {
+                                std::cout << "[RTT] Status: WARNING - High latency may affect sync\n";
+                            }
+                        }
+                    }
+                    break;
+                    
+                case 0:  // Exit
+                    stopPipeline();
+                    std::cout << "\n[Main] Goodbye!\n";
+                    return 0;
+                    
+                default:
+                    std::cout << "[Main] Invalid choice\n";
+                    break;
+            }
+        }
+
+        // Graceful shutdown on signal
+        stopPipeline();
         std::cout << "[Main] Shutdown complete.\n";
         return 0;
 

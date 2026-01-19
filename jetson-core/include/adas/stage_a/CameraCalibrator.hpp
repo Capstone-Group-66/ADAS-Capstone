@@ -28,10 +28,10 @@ struct CameraIntrinsics {
 /// Uses OpenCV's cv::calibrateCamera with sub-pixel corner refinement
 class CameraCalibrator {
   public:
-    /// Default calibration parameters
-    static constexpr int DEFAULT_PATTERN_WIDTH = 9;
-    static constexpr int DEFAULT_PATTERN_HEIGHT = 6;
-    static constexpr double DEFAULT_SQUARE_SIZE_M = 0.025; // 25mm
+    /// Default calibration parameters (matches physical chessboard: 9x6 squares = 8x5 inner corners)
+    static constexpr int DEFAULT_PATTERN_WIDTH = 8;
+    static constexpr int DEFAULT_PATTERN_HEIGHT = 5;
+    static constexpr double DEFAULT_SQUARE_SIZE_M = 0.030; // 30mm
     static constexpr int DEFAULT_NUM_IMAGES = 15;
 
     /// Constructor with configurable parameters

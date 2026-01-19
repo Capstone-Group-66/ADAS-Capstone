@@ -187,6 +187,7 @@ constexpr uint32_t NET_MAGIC_WORD = 0xADA5DA7A;
 
 /// Network packet header (sent by Pi4, received by Jetson)
 /// All multi-byte fields are little-endian
+#pragma pack(push, 1)
 struct NetPacketHeader {
     uint32_t magic;          // Must be NET_MAGIC_WORD
     uint8_t type;            // NetPacketType
@@ -195,7 +196,8 @@ struct NetPacketHeader {
     uint32_t payload_size;   // Size of payload in bytes
     uint32_t seq;            // Sequence number (per-type)
     uint64_t pi_timestamp;   // Pi's local timestamp (informational only)
-} __attribute__((packed));
+};
+#pragma pack(pop)
 
 static_assert(sizeof(NetPacketHeader) == 24, "NetPacketHeader must be 24 bytes");
 
