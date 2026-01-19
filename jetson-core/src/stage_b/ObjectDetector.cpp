@@ -152,8 +152,15 @@ DetBatch ObjectDetector::detect(const cv::Mat& frame, const Header& header) {
     // Inference
     cv::Mat output = net_.forward();
     
-    // Postprocess
-    result.dets = postprocess(output, frame.size());
+    // Postprocess - get internal detections
+    std::vector<Detection> internal_dets = postprocess(output, frame.size());
+    
+    // Convert to Det struct with centroid
+    for (const auto& det : internal_dets) {
+        cv::Rect2f box_f(static_cast<float>(det.box.x), static_cast<float>(det.box.y),
+                         static_cast<float>(det.box.width), static_cast<float>(det.box.height));
+        result.dets.emplace_back(box_f, det.class_id, det.confidence);
+    }
     
     auto end = std::chrono::high_resolution_clock::now();
     result.inference_time_us = std::chrono::duration_cast<std::chrono::microseconds>(

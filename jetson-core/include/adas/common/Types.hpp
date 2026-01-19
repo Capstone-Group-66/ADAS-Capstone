@@ -178,6 +178,62 @@ struct ImuSample {
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
+//                              DETECTION STRUCTURES (Stage B Output)
+// ══════════════════════════════════════════════════════════════════════════════
+
+/// Semantic class IDs (COCO subset relevant for ADAS)
+/// Per Section 4.2.4 of proposal: car, truck, bus, bike, person
+enum class ObjectClass : uint8_t {
+    Person = 0,
+    Bicycle = 1,
+    Car = 2,
+    Motorcycle = 3,
+    Bus = 5,
+    Truck = 7,
+    Unknown = 255
+};
+
+/// Convert COCO class ID to ObjectClass
+inline ObjectClass cocoToObjectClass(int coco_id) {
+    switch (coco_id) {
+        case 0: return ObjectClass::Person;
+        case 1: return ObjectClass::Bicycle;
+        case 2: return ObjectClass::Car;
+        case 3: return ObjectClass::Motorcycle;
+        case 5: return ObjectClass::Bus;
+        case 7: return ObjectClass::Truck;
+        default: return ObjectClass::Unknown;
+    }
+}
+
+/// Single detection from camera (Stage B output)
+/// Per Section 4.2.2 of proposal
+struct Det {
+    cv::Rect2f box_px;      // [x, y, w, h] in pixels (after preproc)
+    cv::Point2f centroid;   // Center point in pixels (for fusion)
+    int cls;                // Class ID (ObjectClass enum value)
+    float score;            // Confidence score [0, 1]
+    
+    Det() : box_px(), centroid(), cls(static_cast<int>(ObjectClass::Unknown)), score(0.0f) {}
+    
+    Det(const cv::Rect2f& box, int class_id, float confidence)
+        : box_px(box), 
+          centroid(box.x + box.width / 2.0f, box.y + box.height / 2.0f),
+          cls(class_id), 
+          score(confidence) {}
+};
+
+/// Batch of detections from a single frame
+/// Per Section 4.2.2 of proposal
+struct DetBatch {
+    Header h;                       // Inherited from source frame
+    std::vector<Det> dets;          // All detections in frame
+    uint64_t inference_time_us;     // Inference latency (microseconds)
+    
+    DetBatch() : inference_time_us(0) {}
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
 //                              NETWORK PROTOCOL (Pi4 → Jetson)
 // ══════════════════════════════════════════════════════════════════════════════
 

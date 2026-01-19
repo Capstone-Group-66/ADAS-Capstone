@@ -60,6 +60,7 @@ set(STAGE_A_SOURCES
 set(STAGE_B_SOURCES
     src/stage_b/CameraPreprocessor.cpp
     src/stage_b/ObjectDetector.cpp
+    src/stage_b/ObjectTracker.cpp
     src/stage_b/CameraPipeline.cpp
 )
 

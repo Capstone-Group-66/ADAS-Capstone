@@ -13,19 +13,14 @@
 
 namespace adas {
 
-/// Single detection result
+// Note: Det and DetBatch are defined in Types.hpp
+
+/// Internal detection result (before conversion to Det)
 struct Detection {
     int class_id;           // Class index (0=person, 2=car, etc.)
     float confidence;       // Detection confidence [0,1]
     cv::Rect box;           // Bounding box in image coordinates
     std::string class_name; // Human-readable class name
-};
-
-/// Batch of detections from a single frame
-struct DetBatch {
-    Header h;                       // Inherited from source frame
-    std::vector<Detection> dets;    // All detections in frame
-    uint64_t inference_time_us;     // Inference latency in microseconds
 };
 
 /// ObjectDetector: YOLOv8 Nano inference for object detection
