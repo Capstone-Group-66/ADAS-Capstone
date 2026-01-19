@@ -169,27 +169,33 @@ HardwareMap ConfigLoader::loadHardwareMap(const std::string &path) {
             inMappings = true;
         } else if (inMappings) {
             // Parse mount -> path mappings
+            // Helper lambda to extract value
+            auto extractValue = [&line]() -> std::string {
+                size_t start = line.find_last_of(':');
+                size_t quote1 = line.find('"', start);
+                size_t quote2 = line.find('"', quote1 + 1);
+                if (quote1 != std::string::npos && quote2 != std::string::npos) {
+                    return line.substr(quote1 + 1, quote2 - quote1 - 1);
+                }
+                return "";
+            };
+
             if (line.find("\"FrontCam\"") != std::string::npos) {
-                size_t start = line.find_last_of(':');
-                size_t quote1 = line.find('"', start);
-                size_t quote2 = line.find('"', quote1 + 1);
-                if (quote1 != std::string::npos && quote2 != std::string::npos) {
-                    map.mappings[Mount::FrontCam] = line.substr(quote1 + 1, quote2 - quote1 - 1);
-                }
+                map.mappings[Mount::FrontCam] = extractValue();
             } else if (line.find("\"SideCamL\"") != std::string::npos) {
-                size_t start = line.find_last_of(':');
-                size_t quote1 = line.find('"', start);
-                size_t quote2 = line.find('"', quote1 + 1);
-                if (quote1 != std::string::npos && quote2 != std::string::npos) {
-                    map.mappings[Mount::SideCamL] = line.substr(quote1 + 1, quote2 - quote1 - 1);
-                }
+                map.mappings[Mount::SideCamL] = extractValue();
             } else if (line.find("\"SideCamR\"") != std::string::npos) {
-                size_t start = line.find_last_of(':');
-                size_t quote1 = line.find('"', start);
-                size_t quote2 = line.find('"', quote1 + 1);
-                if (quote1 != std::string::npos && quote2 != std::string::npos) {
-                    map.mappings[Mount::SideCamR] = line.substr(quote1 + 1, quote2 - quote1 - 1);
-                }
+                map.mappings[Mount::SideCamR] = extractValue();
+            } else if (line.find("\"RearCam\"") != std::string::npos) {
+                map.mappings[Mount::RearCam] = extractValue();
+            } else if (line.find("\"FrontRadar\"") != std::string::npos) {
+                map.mappings[Mount::FrontRadar] = extractValue();
+            } else if (line.find("\"RearCornerRadarL\"") != std::string::npos) {
+                map.mappings[Mount::RearCornerRadarL] = extractValue();
+            } else if (line.find("\"RearCornerRadarR\"") != std::string::npos) {
+                map.mappings[Mount::RearCornerRadarR] = extractValue();
+            } else if (line.find("\"IMU\"") != std::string::npos) {
+                map.mappings[Mount::IMU] = extractValue();
             } else if (line.find('}') != std::string::npos) {
                 inMappings = false;
             }
