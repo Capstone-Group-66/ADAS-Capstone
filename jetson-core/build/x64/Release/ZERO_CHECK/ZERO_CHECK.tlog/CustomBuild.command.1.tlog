@@ -1,0 +1,10 @@
+^C:\USERS\DAMON\ONEDRIVE\DESKTOP\PROJECT_FILES\GIT_PULL\ADAS-CAPSTONE\JETSON-CORE\BUILD\CMAKEFILES\AC4460119D8ECE19019214385FD748ED\GENERATE.STAMP.RULE
+setlocal
+"C:\Program Files\CMake\bin\cmake.exe" -SC:/Users/damon/OneDrive/Desktop/PROJECT_FILES/git_pull/ADAS-Capstone/jetson-core -BC:/Users/damon/OneDrive/Desktop/PROJECT_FILES/git_pull/ADAS-Capstone/jetson-core/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file C:/Users/damon/OneDrive/Desktop/PROJECT_FILES/git_pull/ADAS-Capstone/jetson-core/build/jetson_core.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

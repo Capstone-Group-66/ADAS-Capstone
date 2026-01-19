@@ -1,0 +1,6 @@
+C:/Users/damon/OneDrive/Desktop/PROJECT_FILES/git_pull/ADAS-Capstone/jetson-core/build/CMakeFiles/jetson_core.dir
+C:/Users/damon/OneDrive/Desktop/PROJECT_FILES/git_pull/ADAS-Capstone/jetson-core/build/CMakeFiles/device_wizard.dir
+C:/Users/damon/OneDrive/Desktop/PROJECT_FILES/git_pull/ADAS-Capstone/jetson-core/build/CMakeFiles/main_brain.dir
+C:/Users/damon/OneDrive/Desktop/PROJECT_FILES/git_pull/ADAS-Capstone/jetson-core/build/CMakeFiles/INSTALL.dir
+C:/Users/damon/OneDrive/Desktop/PROJECT_FILES/git_pull/ADAS-Capstone/jetson-core/build/CMakeFiles/ALL_BUILD.dir
+C:/Users/damon/OneDrive/Desktop/PROJECT_FILES/git_pull/ADAS-Capstone/jetson-core/build/CMakeFiles/ZERO_CHECK.dir

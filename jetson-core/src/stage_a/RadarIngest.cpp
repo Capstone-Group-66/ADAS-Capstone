@@ -91,14 +91,12 @@ void RadarIngest::run() {
             std::cout << "[RadarIngest] " << mountToString(mount_) << " rate: " << hz << " Hz"
                       << std::endl;
 
-            // Check against 20Hz target (from radar_freq_test.cpp)
-            if (hz >= 18.0 && hz <= 22.0) {
-                std::cout << "  [PASS] Expected around 20Hz\n";
-            } else if (hz >= 15.0) {
-                std::cout << "  [WARN] Lower than expected\n";
-            } else {
-                std::cerr << "  [FAIL] Too low - check connection\n";
-                healthy_.store(false, std::memory_order_relaxed);
+            // Only warn if below pipeline rate (20Hz)
+            if (hz < 20.0) {
+                std::cerr << "  [WARN] Below 20Hz pipeline rate - may cause data drops\n";
+                if (hz < 10.0) {
+                    healthy_.store(false, std::memory_order_relaxed);
+                }
             }
 
             frames_in_window_ = 0;

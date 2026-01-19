@@ -1,0 +1,1653 @@
+﻿Customizable AI-Enabled ADAS Demonstrator
+Project Proposal
+  
+
+
+
+
+
+
+
+Recipient: 
+Department of Systems and Computer Engineering
+
+
+Students:
+Ajen Srisivapalan #101248498
+Damon Ricci # 101229913
+Jason Keah #101233435
+John Guo #101233817
+Rami Mrad #101237780
+Ryan Page #101268082
+
+
+Supervisor: 
+Mohamed Atia
+
+
+Course:
+SYSC 4907
+________________
+Table of Contents
+1.0 Background        6
+2.0 Objectives        7
+2.1 Functional Requirements        7
+2.1.1 Sensor I/O and Time:        7
+2.1.2 Sensor Calibration and Frames:        8
+2.1.3 Perception of Lanes:        10
+2.1.4 Perception of Objects:        11
+2.1.5 Radar Processing:        13
+2.1.6 Fusion and State:        14
+2.1.7 Decision Logic:        14
+2.1.8 Alert Publication & Schema:        15
+2.1.9 Data Logging and Replay:        16
+2.1.10 Config and Lifecycle:        17
+2.1.11 Safety Operations:        17
+2.1.12 CI & Quality Gates:        18
+2.2 Non-functional Requirements        18
+2.2.1 Legal and Safety        18
+2.2.3 Customizability and Scalability        19
+2.2.4 Performance        20
+2.2.5 Reliability        20
+2.2.6 Accessibility        20
+2.2.7 Additional Non-Functional Requirements        20
+2.3 Risk & Mitigation Strategies        21
+2.3.1 Sensor Installation and Calibration Risks        21
+2.3.2 Sensor Interference from Weather        21
+2.3.3 Data Privacy        22
+2.3.4 Distracted Driving        22
+2.3.5 Cyber Security Risks        22
+2.3 Future Enhancements (Deferred Scope)        22
+2.3.1 E1. Backup hardware alerts (buzzer/LED)        23
+2.3.2 E2. User profiles & settings UI (Conservative/Standard/Rain)        23
+2.3.3 E3. Privacy consent & logging controls        23
+2.3.4 E4. Capability manifest & runtime health/failover framework        24
+2.3.5 E5. Rich mobile settings & diagnostics        24
+2.3.6 E6. Traffic sign recognition (speed limit, stop, etc.)        24
+2.3.7 E7. Lane v2 — Learned Lane Detection (Segmentation/Keypoints)        24
+3.0 Hardware Architecture & Design        25
+3.1 NVIDIA Jetson Board        25
+3.2 Sensor Integration        26
+3.2.1 Primary Radar: OmniPreSense OPS243-A Doppler Radar Sensor        26
+3.2.2 Secondary Radar: DFRobot C4001 mmWave Presence Sensor        27
+3.2.3 Camera: InnoMaker U20CAM-1080P USB Camera        28
+3.2.4 IMU: Adafruit BNO085 9-DoF Orientation Sensor        28
+3.2.5 LiDAR (Optional): SLAMTEC RPLIDAR C1 360° DTOF Laser Scanner        29
+3.2.6 Sensor Wiring Diagram        30
+3.3 Vehicle Platform Specification        31
+3.3.1 Decision: Lock Mounts & Interfaces to a Single Platform (D-001)        31
+3.4 Sensor Suite & Mounting (Civic 2012 Coupe Si)        32
+3.4.1 Decision: Sensor Suite & Placement (D-002)        33
+3.4.2 Decision: LiDAR Usage Policy (D-003)        34
+4.0 Methods: Architecture, Algorithms, and Validation        35
+4.1 Pipeline Architecture for Preprocessing & Alert Detection [24]        35
+4.1.1 Justification (best-fit)        35
+4.1.2 Alternatives rejected        36
+4.2 Interfaces & Data Contracts        36
+4.2.1 Frame/Packet Header (Authoritative)        36
+4.2.2 Sensor Payloads Structure        36
+4.2.3 Lane Model (V1)        38
+4.2.4 Tracking and Fusion Outputs        38
+4.2.5 Alerts (FR70 Schema in C++)        39
+4.3 Configuration Files (Locked YAMLs)        40
+4.3.1 componentConfig.yaml (Authoritative)        40
+4.3.1.1 On‑Site/On-Vehicle Measurement Process (to fill xyz_m & rpy_deg)        41
+4.3.2 Per-Camera Intrinsics YAMLs (One File Per Camera)        42
+4.4 Threads & Queues        43
+4.4.1 Queues (Lock‑Free SPSC, Preallocated)        43
+4.4.2 Threads (Producers → Consumers) [25]        44
+4.5 Stages (Expanded) + Parallelism        44
+4.5.1 Stage A — Ingest & Timestamp (Parallel)        44
+4.5.2 Stage B — Camera Preproc + Inference (Parallel: 4 Threads/4 CUDA Streams)        45
+4.5.3 Stage C — Radar Processing (Parallel: 3 Threads)        45
+4.5.4 Stage D — LiDAR Processing (Optional, Parallel)        45
+4.5.5 Stage E — 20 Hz Alignment & Fusion/Tracking (Single Thread for Determinism)        46
+4.5.6 Stage F — Decision Logic (Inside Tick Thread, After Fusion, Stage E)        46
+4.5.7 Stage G — Publish / Main‑brain handoff        47
+4.6 Pipeline Architecture Diagram        47
+4.7 Toolset for Jetson Board        48
+4.8 Main Brain Feature Set & Rationale        48
+4.8.1 Scope and Role        48
+4.8.2 Inputs, Contracts, and Constraints        48
+4.8.3 Feature Set & Justification        49
+4.8.3.1 F.01 Tick Intake and Freshness        49
+4.8.3.2 F.02 Resend Cache (On Reconnect)        49
+4.8.3.3 F.03 BLE Transport (FR71/78)        49
+4.8.3.4 F.04 Status Publisher (FR75–76)        50
+4.8.3.5 F.05 Alert Output Logging for Latency (FR80–81/83)        50
+4.8.3.6 F.06 Minimal Command Set (App → Board)        50
+4.8.3.7 F.07 Replay Mode (Minimal)        50
+4.8.3.8 F.08 Security Check (FR78)        50
+4.8.3.9 F.09 Failure Handling        51
+4.8.4 Metrics for QA of Feature Set (FR-Acceptance)        51
+4.9 BLE Alert Framing & Fragmentation        52
+4.9.1 Definitions        52
+4.9.2 Frame Header (4 bytes)        52
+4.9.3 Tick Payload (variable length)        52
+4.9.4 Coalescing policy        53
+4.9.5 Sending Process (each tick @ 20 Hz)        53
+4.10 Hexagonal architecture for Main Brain [30]        54
+4.10.1 Justification (best-fit)        54
+4.10.2 Alternatives rejected        55
+4.10.3 Style overview and adaptation to context        55
+4.10.4 Ports and adapters (why each is required)        55
+4.10.5 Core components (inside the single core class)        56
+4.10.5.1 Methods/Functions required:        56
+4.10.6 Concurrency model        57
+4.10.7 Physical code map:        57
+4.11 Artificial Intelligence        59
+4.11.1 System Overview and Objectives        59
+4.11.2 Method of Implementation        60
+4.11.2.1 Lane Detection        60
+4.11.2.2 Object Detection        61
+4.11.2.3 Sensor fusion        61
+4.12 Mobile App        61
+4.12.1 Programming Languages and Environment        61
+4.12.1.1 Programming Language Selection        62
+4.12.1.2 Integrated Development Environment        63
+4.12.1.3 Build System        63
+4.12.2 Mobile Bluetooth Framework        63
+4.12.3 Mobile Architecture        63
+4.12.3.1 Software Architecture Patterns        63
+4.12.3.2 Mobile Data Flow Sequence        64
+4.12.3.3 Mobile User Interface Design        65
+4.13 DevOps        67
+4.13.1 GitHub        67
+4.13.2 Docker        69
+4.13.3 Databases        69
+5.0 Relation to Course        70
+5.1 Computer Systems Engineering        70
+5.2 Electrical Engineering        71
+5.3 Software Engineering        71
+6.0 Team Skills        72
+7.0 Timetable        74
+8.0 Components and Facilities Required        75
+9.0 References        76
+________________
+1.0 Background
+In 2023, traffic accidents in Canada caused 3,732 deaths and injured 118,838 people [1]. Globally, traffic accidents caused approximately 1.19 million fatalities and injured between 20 to 50 million people [2]. While various environmental factors can be attributed to some of these incidents, the majority of these accidents are caused by human-related factors. More specifically, drivers failing to perceive hazardous objects on the road, drivers failing to make correct judgments responding to hazardous objects, and drivers failing to perform maneuvers to avoid hazardous objects [3].
+To compensate for these factors, automotive manufacturers have begun equipping vehicles with advanced driver assistance systems (ADAS). The purpose of ADASs is to increase vehicle and road safety by assisting drivers with driving-related tasks. ADAS accomplishes this by using sensors to collect data regarding the environment surrounding the vehicle. This data is then used by the ADAS to determine which actions the system should perform next, which can include alerting the driver of objects on the road, to taking control of the vehicle to activate the brakes. 
+ADASs can come with a variety of features. These include collision warning (CW), alerting the driver of possible collisions, emergency braking assistance (EAB), automatically applying brakes to prevent collisions, lane departure warning (LDW), alerting the driver that the vehicle is leaving its lane, adaptive cruise control (ACC), automatically keeping the vehicle at a constant speed, and blind spot detection (BSD), alerting the driver of vehicle(s) in blind spots [4].
+Most modern vehicles are equipped with some form of ADAS, typically including FCW and EAB. However, older vehicles typically do not come equipped with ADAS, reducing the safety of the vehicle and increasing the risk of traffic accidents [5]. This issue can be resolved through the use of aftermarket ADAS. Aftermarket ADAS are ADASs that can be installed after a vehicle has been manufactured without requiring major changes to be made to the structure of the vehicle. This allows older vehicles to gain some of the safety benefits of modern vehicles. 
+Although aftermarket ADASs are a great solution to increase the safety of older vehicles, the cost of the system must also be considered. Older vehicles are typically owned by those with lower incomes [6]. Designing a low-cost aftermarket ADAS will allow older vehicles to be equipped with modern safety features, increasing road safety and decreasing traffic accidents.
+
+
+
+
+
+
+
+
+________________
+2.0 Objectives
+The objective of this project is to design and implement a low-cost, customizable aftermarket Advanced Driver Assistance System (ADAS) prototype capable of enhancing driver awareness and road safety.
+Specifically, the system will:
+1. Detect and assess hazards through AI-based lane detection, object detection, and collision risk estimation.
+2. Provide real-time safety alerts to the driver via a connected mobile application with a user-friendly interface.
+3. Demonstrate modularity and scalability, allowing for easy integration of additional sensors such as LiDAR.
+4. Comply with legal and safety standards, ensuring that the design aligns with ethical, regulatory, and societal considerations for aftermarket automotive systems.
+The outcome will be an educational and research demonstrator that showcases the feasibility of embedded AI-driven perception for low-cost vehicle safety enhancement.
+2.1 Functional Requirements
+2.1.1 Sensor I/O and Time:
+* FR1. The front camera must intake frames >= 30 FPS with a timestamp that always increases and never repeats.
+   * Frames must be taken in order of time.
+   * Acceptance Criteria: 5-minute capture shows >= 30 FPS (median), with strictly increasing timestamps (100% of the time), and no out-of-order/sequence frames.
+* FR2. The rear camera must intake frames >= 30 FPS with a timestamp that always increases and never repeats. Frames must be taken in order of time.
+   * Rear camera required to support rear CW.
+   * Acceptance Criteria: 5-minute capture shows >= 30 FPS (median), with strictly increasing timestamps (100% of the time), and no out-of-order/sequence frames.
+* FR2.5. The side cameras must intake frames >= 30 FPS with a timestamp that always increases and never repeats. Frames must be taken in order of time.
+   * Acceptance Criteria: 5-minute capture shows >= 30 FPS (median), with strictly increasing timestamps (100% of the time), and no out-of-order/sequence frames.
+* FR3. The radar frames must be parsed with pre-detection for range, azimuth, radial velocity, and RCS. Standard radar measures:
+   * Range: Measure of the distance of the object relative to the radar
+   * Azimuth: Direction of the object relative to the radar (basically the angle/direction)
+   * Radial Velocity: Velocity of the object relative to the radar
+   * RCS: Radar cross section, how easily an object is detectable by the radar
+      * Baseline: Front radar required; two rear corner radars required.
+   * Acceptance Criteria: Parser outputs {range, azimuth, radial velocity, RCS} with units, and 0 parse errors over 10k frames.
+* FR4. The Inertial Measurement Unit (IMU) should stream with an accelerometer and gyroscope at >= 100 Hz (for smooth, detailed motion data).
+   * Acceptance Criteria: IMU streams >= 100 Hz for 60 seconds with monotonic timestamps.
+* FR5. The GPS data (in either NMEA or PVT) should stream at >= 5 Hz for speed and time
+   * GPS gives: speed, position, and time of each reading.
+   * Acceptance Criteria: GPS reports speed and position at >= 5 Hz for a 6060-second period.
+* FR6. The system must have a unified timebase to sync sensor data. 
+   * Additionally max inter-sensor skew should be <= 5ms over a 10-minute time period.
+   * If any sensor is wireless, the intake node shall apply a receive-time timestamp and compensate for average link latency/jitter so alignment meets this requirement.
+   * Acceptance Criteria: Over 10 minutes, measured inter-sensor skew <= 5ms.
+* FR7. The system must be able to handle missing or delayed sensor data and continue operating with degraded functionality.
+   * Acceptance Criteria: Under injected drops/errors/delays, the system should stay up and emit a degraded status
+* FR8. The system will use Bluetooth as the communication network between the board and the board and the mobile app.
+   * Sensors use their native wired links (MIPI/USB/CAN/Ethernet). BLE is only for phone ↔ device.
+   * Acceptance Criteria: Phone to device link over BLE passes alerts and commands.
+2.1.2 Sensor Calibration and Frames:
+* FR11. The system must store each sensor’s settings/calibration data, and must load them at boot for the specific vehicle (make and model).
+   * Store T_cam→ego and T_radar→ego (rotation + translation) in a config file (same for other sensors; sensor→ego transformation).
+   * Acceptance Criteria: On boot, the system loads vehicle-specific calibration files.
+* FR12. The system must define the ego frame as the vehicle-centric coordinate system.
+   * All components/services must consume/emit ego coordinates. (So it should do the sensor → ego positioning transformation as pre-processing for each sensor’s service to save the main brain from having to do that). 
+   * Acceptance Criteria: On boot, the system loads vehicle-specific calibration files.
+* FR13. The system’s services must transform all sensor data into ego (point of view) before fusion and decision making.
+   * All LDW/CW/BSD computations require using ego coordinates.
+      * LDW: Lane Departure Warning (vehicle is drifting/going out of the lane)
+      * CW: Collision Warning (Calculates time to collision between the ego and detected object)
+         * FCW and RCW, respectively, will be implemented: Forward/Rear Collision Warnings.
+      * BSD: Blind Spot Detection (calculates whether another object is inside a defined region to the left or right of the ego of the vehicle)
+   * Acceptance Criteria: Each sensor service logs pre-fusion data already transformed to ego.
+* FR14. The system must verify that the ego frame is lined up correctly.
+   * Acceptance Criteria: Self-check aligns ego X with forward motion using GPS/IMU, handling < 5 degree errors on a straight 100m drive.
+From there, we’ll define the axes as (from the standard definition for ADAS literature):
+* X pointing forward through the car’s nose,
+* Y pointing left (driver’s side),
+* Z is pointing upward.
+  
+
+Fig 1: Diagram displaying vehicle accesses and ego frame
+
+
+* FR15. Calibration routine (for example: camera’s intrinsics and extrinsics, and radar alignment) must be repeatable and re-runnable after hardware reassembly, ensuring portability when moving the system between vehicles/labs.
+   * Acceptance Criteria: After reassembly, rerun calibration, and compare recovered extrinsics are within +-1% rotation degree and +-2% translation of prior values. This will ensure our measuring process is consistent and reproducible.
+* FR16. Double interface pattern:
+   * Device interfaces: ICamera, IRadar, IIMU, ILiDAR define specific data contracts while keeping vendors swappable.
+   * Mount/placement interface: Mount enumerates fixed positions { FrontCam, SideCamL, SideCamR, RearCam,  FrontRadar, RearCornerRadarL, RearCornerRadarR,  IMU, LiDAR2D }; with stored extrinsics.
+      * Algorithms consume device interface + mount identity; mounts are fixed per vehicle make/model; components may change.
+   * Acceptance Criteria: Replace one sensor without recompiling algorithms, and tests still pass.
+* FR17. LiDAR modularity: 
+   * LiDAR is optional and shall be pluggable. The pipeline must check per tick whether LiDAR data is available; if not, continue normally; if present, augment perception/fusion without changing any algorithm interfaces.
+   * Acceptance Criteria: When LiDAR is absent, the pipeline runs correctly with no code change. With LiDAR pipeline includes LiDAR data when V_ego < 20kph.
+2.1.3 Perception of Lanes:
+* FR20. The system must detect left/right lane boundaries and fit a lane model in the ego frame. Output lanes metadata and quality score.
+   * Acceptance Criteria: detect lane boundaries in camera frames with at least 90% accuracy under perfect conditions (daylight and clear weather).
+* FR21. Issue LDW only when the lateral distance from the ego center to the lane centerline () is greater than the drift threshold  after  frames in a row where this condition holds. 
+   * Also, the threshold for clearing the alert must be below the threshold for activating the alert, to prevent rapid on/off alerts.
+   *       * Additionally, a 2-second cooldown will occur each time the alert goes off to prevent spam.
+      * Acceptance Criteria: With configured drift thresholds and N/M, LDW triggers only after the condition holds for N of M frames; clearing threshold < activation; 2 s cooldown enforced.
+      * FR22. Post: “Lane Unavailable” when the lane Quality < Quality_threshold ( ) for 10 frames in a row or in poor conditions (fog/heavy rain).
+         * MUST: Suppress LDW while Lane is Unavailable.
+         * Acceptance Criteria: When lane quality < threshold for 10 frames or poor-conditions flag set, system posts “Lane Unavailable” and suppresses LDW until recovery
+         * FR23. The Lane model carries estimated lane width and road curvature with an associated variance (confidence/quality marker 0-1). The Lane model must give data:
+         * Lane width (distance between the lines), Curvature (how tightly the road bends), and Variance (confidence in the calculated results).
+         * Acceptance Criteria: Lane model output includes {lane width, curvature, variance∈[0,1]} per frame.
+2.1.4 Perception of Objects:
+         * FR30. The system must detect vehicles, pedestrians, and cyclists within a forward range of >= 25m using sensor fusion (camera and radar; optionally LiDAR).
+         * Classes: Car, Truck, Bus, Bike (different vehicle size ranges, appearanc,e and behavior)
+         * Acceptance Criteria: On replay or during live tests, the system detects and classifies cars/trucks/bikes/people within 25 +/- 5m ahead.
+         * FR31. The system must issue a collision warning (CW) if 
+            * Acceptance Criteria: CW raises only when TTC<TTC_threshold, relative speed closing, and non-closing cases yield TTC=−1 or infinity; threshold computed per stated formulas and 2.5 s reaction time.
+Calculating Time-To-Collision:
+
+Note: if the speed of the ego is less than the speed of the target in the approach direction (front case: not closing; rear case: ego not being approached), then TTC must be set to −1 or a very large number, signalling infinity (since no collision).
+
+
+Calculating TTC Threshold:
+            * T(current speed): choose CW threshold dynamically based on the current speed of the vehicle. Therefore, if the vehicle is traveling at a higher speed, the CW will trigger sooner. We will use:
+            * ,   where deceleration a is calculated based on the friction of the surface * gravity.
+            * 
+
+ constant values depending on the surface:
+
+
+
+
+Table 1. μ constants by road surface  [7, Table 1]
+  
+
+
+
+
+This 2.5-second reaction time value was chosen because of the AASHTO Green Book recommendations of perception-reaction time for motorists. “It cites research by Johansson and Rumar, who found a mean reaction time of 0.66 seconds, after collecting data from 321 drivers who expected to apply their brakes. (30) About 10 percent of drivers had reaction times of 1.5 seconds or longer. Also in that study, when drivers did not expect to apply their brakes, their reaction times increased by approximately 1.0 second. Based on that study and other research, the AASHTO Green Book concluded that a value of 2.5 seconds exceeds the 90th percentile perception-reaction time of all drivers and takes into account the additional time required for unexpected braking vs. expected braking.” [8]
+               * FR32. The system must define two invisible blind spot zones to the right rear and left rear of the vehicle.
+               * FR33. The system must issue a blind spot detection (BSD) alert if an object is detected within one of the blind-spot zones. It should include a cooldown (1 second), and alerts should be suppressed when ego speed < 1m/s for more than 5 seconds (no alerts when no movement of the vehicle)
+               * Acceptance Criteria: BSD alert fires when an object enters a zone, and a 1-second cooldown is enforced.
+               * FR34. Publish tracked object states at ≥20 Hz with {id, x, y, vx, vy, cov, class, source}.
+               * Lower refresh rate is acceptable if components do not allow for 20 Hz of state, or computing power isn’t available.
+               * Acceptance Criteria: Object state topic publishes at ~ 20Hz on average over 5 minutes with all fields {id, x, y, vx, vy, cov, class, source}.
+               * FR35. The system must filter false positives using (a) M/N multi-frame confirmation, (b) radar–camera gating by Mahalanobis distance, and (c) source-aware confidence fusion.
+               * Acceptance Criteria: (a) Single-frame ghosts do not trigger due to M/N rule; (b) mismatched radar/camera pairs are rejected by Mahalanobis gating; (c) fusion requires confidence >0.51.
+
+
+               1. M/N multi-frame confirmation
+Purpose: Prevents false detections caused by noise or single-frame misclassifications.
+Mechanism: A detection must appear in at least M out of the last N frames before it is used for alert data. Example:
+               *                * While increasing the certainty of the alert or data passed to the main brain.
+Why: Random camera or radar noise can produce one-off objects. Multi-frame logic ensures persistence before triggering warnings.
+
+
+                  2. radar–camera gating by Mahalanobis distance
+Purpose: Ensures fusion only combines detections that physically make sense together.
+Mechanism: A detection must appear in both the radar and camera before it is used as alert data.
+                  * Mahalanobis distance is a statistical distance of how far the object is apart from the camera to the radar.
+                  * If this distance is small, then they are probably referring to the same thing, so fuse them.
+Why: Prevents wrong associations. For example, if we accidentally fused two different cars together from camera to radar, and accidentally treated them as 1 object.
+
+
+     (c) source-aware confidence fusion
+Purpose: Weight detection confidence by sensor reliability before deciding to alert.
+Mechanism: Each detection/alert has an associated confidence, and the final alert will only trigger if the confidence of all of the data is greater than 0.51 (51%).
+Why: Different sensors will perform differently depending on the conditions, so weighing their accuracy based on that should reduce false positives when one sensor is unreliable.
+
+
+                  * FR36. The system must associate a detection with an object/source and maintain a persistence ID for at least 5 seconds for a leading vehicle at a constant speed
+                  * Acceptance Criteria: For a constant speed lead vehicle, it must keep the same track ID and persist for at least 5 seconds without becoming a new Track.
+                  * FR37. Use radar for relative (radial) velocity; use GPS+IMU for ego velocity; combine in EKF.
+
+
+2.1.5 Radar Processing:
+                  * FR40. The radar processing component must cluster the data into targets with radial velocity.
+                  * Each dot has range, angle, and radial velocity
+                  * Radial velocity = speed the object is moving away from or towards ego.
+                  * FR41. The system should use a camera to radar association via gating for stronger tracking and collision estimation.
+                  * FR34 (b) goes over this using the Mahalanobis distance.
+2.1.6 Fusion and State:
+                  * FR50. Each tracked object must maintain an estimated state {x, y, vx, vy} in the ego frame using an Extended Kalman Filter (EKF).
+                  * Kalman or Extended Kalman Filter mathematical algorithms should be used to estimate the true state of a moving object from noisy data.
+                  * Implementing this algorithm may be a challenge. Therefore, I have found a paper on using the EKF sensor fusion in practice [9].
+                  * Acceptance Criteria: EKF outputs {x, y, vx, vy} at fusion rate.
+                  * FR51. The tracking component must manage the life cycle of each object to reduce false or duplicate objects.
+                  * FR34 goes more into detail about the strategies to reduce false data.
+                  * Acceptance Criteria: Tracker implements states {init, active, lost}.
+                  * FR52. The system must estimate the ego’s speed using GPS and IMU data when the camera’s speed estimate is unreliable (poor visibility).
+                  * This fallback must ensure continuous calculation of the TTC for CW.
+                  * Acceptance Criteria: When camera speed becomes unreliable, the system switches to GPS+IMU for V_ego.
+                  * FR53. Fusion tick: the perception/fusion pipeline shall produce fused frames at 20 Hz, aligning inputs via buffering/resampling to meet the skew target in FR6.
+                  * Acceptance Criteria: Fused frames produced at 20 Hz +/- 5% over 5 minutes.
+2.1.7 Decision Logic:
+                  * FR60. The system must compute TTC for each in-path tracked object. Raises CW alert when all of the following are TRUE:
+                  * TTC < TTC_threshold
+                  * Relative speed is closing (V_relative < 0)
+                  * Condition holds for N frames in a row out of M (FR34)
+                  * Acceptance Criteria: CW triggers only when TTC<TTC_threshold, closing<0, and N/M persistence holds; ELSE no alerts when condition fails.
+                  * FR61. The system must raise an LDW alert when for N frames in a row out of M. (FR21)
+                     * 2-second cooldown after an LDW event.
+                     * FR62. The system must define left and right BSD zones as ego-fixed polygons in the rear quarters. 
+                     * FR63. Each alert must include a rationale (why the payload was sent:
+                     * {type, primary_metric, object_id, sources_used, profile}
+                     * Most useful for testing and debugging.
+2.1.8 Alert Publication & Schema:
+                     * FR70. The system must publish alerts on a message bus following the specific required schema of:
+                     * { t_ms, id, type, severity, ttl_ms, rationale, object_id?, sources[], profile, schemaVersion, confidence }
+                     * Acceptance Criteria: Alerts on bus validate against schema {t_ms,id,type,severity,ttl_ms,rationale,object_id?,sources[],profile,schemaVersion,confidence}; messages with expired ttl_ms are dropped
+Rationale behind data schema: 
+                     1. T_ms: Timestamp of the alert, so we know when the alert arrived. Gives an order to the alert. 
+                     1. Example: 2 alerts -> choose alert with smaller t_ms
+                     2. Id: Unique alert ID, will be helpful for debugging, to be able to identify each alert with an ID. If we have to retry an alert, we’ll know if it’s the same one or not, or maybe be able to retry by ID.
+                     3. Type: Enum {LDW, FCW, RCW, BSD} enum of all alert codes. (add more options here if more alerts are added)
+                     4. Severity: Enum {info, warning, critical} – severity ratings can be revised if needed. I propose this baseline categorization of severities to map to 1 specific style of UI alert.
+                     5. Ttl_ms: When the alert is considered “expired” relative to T_ms
+                     1. If Ttl_ms < T_current, then the rop alert since it’s now considered stale
+                     1. Note: We’ll test and find optimal values for Ttl_ms for different alerts
+                     6. Rationale: Show the dev what triggered the payload, WHY did the payload happen.
+                     1. For CW put {ttc_s, in_path, closing}
+                     2. For LDW, put {}
+                     3. For BSD, put {zone:”L”, entering:true}
+                        7. Object_id?: We’ll use this to track an object to an alert, if that specific object was the cause of the alert. This will be helpful when debugging.
+                        8. sources[]:  Sensors that were involved in triggering this alert. Again for debugging.
+                        9. Profile: Current active config profile.
+                        10. schemaVersion: Start at v1.0, only increment to v1.1 if the data schema of these messages changes.
+                        11. Confidence: rating from 0-1 of % confident out of 1. Computed using 
+
+
+                        * FR71. The system must link to the phone via BLE (Bluetooth) or Wifi Direct, selectable via config; auto-reconnects on drop.
+                        * FR72. The phone Mobile App UI must display LDW/CW/BSD indicators with a brief sound and screen color tone change.
+                        * FR73. The mobile app must disable inputs during vehicle movement.
+                        * When  > 0.
+                           * FR74. The mobile app must have a settings menu for feature toggles and profile selection, and consent toggle. Changes apply at runtime without a restart.
+                           * FR74b. Session privacy consent.
+                           * On system boot (or first app open), consent defaults to OFF. Show a pop-up before asking for “Sensor capture consent for logging YES/NO”
+                           * When privacy consent is off, logging of camera/radar/GPS data is disabled, as well as export session data actions.
+                           * Singleton of consent, it’s either signed or not, and there’s only ever one. (like a contract)
+                           * All alerts must operate as usual regardless of the no logging policy.
+                           * FR75. The app must include a hidden(-ish) toggleable debug HUD showing:
+                           * Camera FPS
+                           * Model FPS
+                           * Alert latency (capture to propagation)
+                           * Link status (depending on whether we choose BLE or wifi D)
+                           * FR76. The mobile app must provide an offline UI.
+                           * Display a screen showing the app is not connected to the device, from this screen, only allow to connect to the device (since that is always the first step)
+                           * FR77. The system must provide Access Control via a randomly generated 4-digit pairing code shown on the Jetson console on boot. Additionally, store a list of allowed devices after the first time paired with the code.
+                           * FR78. Phone-based GPS & Map (primary map implementation):
+                           * The mobile app must obtain the phone’s GPS (GNSS) location and render a live map view of the ego vehicle using that phone's GPS. Requirements:
+                           * Rate: ≥ 5 Hz location updates when the app is foregrounded; include accuracy metadata (such as horizontal accuracy in meters) and heading/speed when available.
+                           * Map: Display current position and a short breadcrumb trail; show link status to the on-board device.
+                           * Safety: No interactive map inputs allowed while V_ego > 0 (ties to FR73).
+                           * Scope: All map rendering occurs on the phone. The on-board device is not required to render or display a map.
+2.1.9 Data Logging and Replay:
+                           * FR80. The system must allow for lossless per-sensor logging with a ring buffer where a 30-minute or less run shows 0 dropped records and incrementing timestamps.
+                           * Ring buffer = once the disk is full, drop the oldest data first.
+                           * With respect to the consent toggle.
+                           * Acceptance Criteria: 30-minute runs log every sensor with 0 dropped records and increasing timestamps.
+                           * FR81. The system must be able to deterministically replay a log file and get the SAME alerts at the SAME times.
+                           * Input a log folder → output exact system behavior from that run
+                           * Same behavior in all components and modules
+                           * Capture all Random Numbers generated during the run, and disable random behavior paths during replay.
+                           * Acceptance Criteria: Replay of a log reproduces the exact same alert stream within +/- 1 frame.
+                           * FR82. The system must allow for logging control, which can be disabled separately from consent in the settings menu. (relates to FR74)
+                           * Acceptance Criteria: Logging is OFF while consent can be ON/OFF.
+                           * FR83. The system must allow for exporting logs as a zip folder following the naming convention “ADAS_DATETIME.zip”, with logs.json, config snapshot, raw data capture files or data.
+                           * FR84. The system must allow synthetic/faulty data generation to simulate runs with errors (e.g., missing frames, re-ordered frames, timestamp jumps) for testing edge cases.
+2.1.10 Config and Lifecycle:
+                           * FR90. The system must keep a config file for the on-boot settings of the system.
+                           * If any settings get modified at runtime, timestamp and override the config file for deterministic behavior. So UI > config file.
+                           * Acceptance Criteria: On boot, the system loads the config. UI overrides the config file.
+                           * FR91. The system must implement a watchdog monitor and restart the system in under 5 seconds after a crash.
+                           * FR92. The system must boot to ready in under 1 minute.
+                           * Not including the user error of pairing time.
+                           * FR93. The system must gracefully shut down → catch exit, flush writers.
+                           * Acceptance Criteria: On SIGTERM, writers flush and exit cleanly; no truncated files; health log shows graceful shutdown.
+                           * FR94. Config schema versioning is required. The system will reject all unversioned schemas (schemaVersion?)
+                           * FR95. Overall component health measures:
+                           *                            * 2.1.11 Safety Operations:
+                              * FR100. Before driving, the app must walk the operator through a liability waiver outlining the following policy of use:
+                              * Only trained team operators. No public volunteers.
+                              * The supervisor is aware of each road test. Prefer private lots first.
+                              * Advisory alerts only. No control of vehicle systems.
+                              * FR101. The app must provide a “Mute alerts” control switch on the HUD that mutes the audio and visual alerts (still logs them).
+                              * Show a visual indicator that alerts are muted. Ex: screen tint or overlay
+2.1.12 CI & Quality Gates:
+                              * FR110. CI pipeline
+                              * Build targets.
+                              * Run unit and integration tests.
+                              * Reject changes that cause any unit or integration tests to suddenly start failing.
+                              * Enforce formatter and linter during CI.
+                              * FR111. Automated tests must be provided for fault injections to missing frames, out-of-order frames (arrival), etc.
+                              * The system must not crash, but rather enter into a degraded mode when missing the required data to accurately compute alerts.
+                              * FR112. The system’s utilities and core logic must have > 70% code coverage of tests.
+                              * 100% code coverage for the pipeline software part is required.
+                              * Acceptance Criteria: 70% code coverage for all code excluding the pipeline. 100% code coverage for pipeline code (critical decision logic).
+2.2 Non-functional Requirements
+2.2.1 Legal and Safety
+                              * NFR1. The system and vehicle must follow all laws and regulations specified in Ontario’s Highway Traffic Act [10]. This requirement will be measured by ensuring that all relevant sections and regulations in the Act are satisfied by the ADAS.
+                              * NFR2. The sensors must not obstruct the number plates [10, Sec. 13].
+                              * NFR3. The sensors must not obstruct the front lamps of the vehicle [10, Sec. 61.7].
+                              * NFR4. The sensors must not obstruct the driver’s view of the road [10, Sec. 73.1 & 74.1].
+                              * NFR5. The mobile application must have a hands-free mode [10, Sec. 78.3].
+                              * NFR6. The sensors must be securely mounted and not detach from the vehicle while being driven on the road [10, Sec. 84.2].
+                              * NFR7. The vehicle with sensors attached must not exceed a width of 2.6 meters, a length of 12.5 meters, and a height of 4.15 meters [10, Sec. 109].
+                              * NFR8. The system must not create a vehicle with an automation level higher than 3 [10, O. Reg. 306/15: PILOT PROJECT - AUTOMATED VEHICLES].
+                              * NFR9. The system must not include the national safety mark as specified in the Motor Vehicle Safety Act [11, Sec 5].
+                              * NFR10. The system must not alter gross vehicle weight rating or gross axle weight rating of the vehicle as specified in the Motor Vehicle Safety Regulation [12, Sec 9].
+                              * NFR11. The system must ensure that all personal information is collected only with explicit consent and is used solely for expected purposes to satisfy the privacy requirements of the Personal Information Protection and Electronic Documents Act [13].
+                              * NFR12. The system does not capture audio, no microphones are present; therefore, it satisfies the invasion of privacy requirements regarding recording any conversations without the user's consent under the Criminal Code [14].
+                              * NFR13. The mobile application must follow Transport Canada Guidelines to Limit Distraction from Visual Displays in Vehicles [15]. This requirement can be measured by ensuring all the following requirements derived from the guideline are satisfied.
+                              * NFR14. The mobile device used for the mobile application must not be mounted in a location that interferes with the driver’s view of the road or any existing controls and displays.
+                              * NFR15. The mobile device must be mounted in a location that is in line with the driver’s forward view.
+                              * NFR16. The mobile application must have a driver mode that is activated when the vehicle is being driven.
+                              * NFR17. The driver mode of the mobile application must not include any videos or moving images except those relevant to driving.
+                              * NFR18. The driver mode of the mobile application must only include images that are relevant to driving.
+                              * NFR19. The driver mode of the mobile application must only include text that is relevant to driving.
+                              * NFR20. The driver mode of the mobile application must not include any automatically scrolling text.
+                              * NFR21. The driver mode of the mobile application must be designed in a way that tasks can be performed by the driver with a single glance or a series of glances, each with a duration of 2 seconds or less.
+                              * NFR22. The driver mode of the mobile application must allow the driver to complete all interactions and tasks without requiring two-handed inputs.
+                              * NFR23. The driver mode of the mobile application must not allow the driver to manually enter text.
+                              * NFR24. The driver mode of the mobile application must provide feedback on driver input.
+                              * NFR25. The driver mode of the mobile application must contain tasks that can easily be interrupted and then resumed by the driver.
+2.2.3 Customizability and Scalability
+                              * NFR26. The system must be able to add additional sensors to existing subsystems, for a total of 10 sensors.
+                              * NFR27. The system must allow for the addition of new ADAS features.
+                              * NFR28. The system must be compatible with a Honda Civic 2012 for v1 (iteration 1). The design is parametric (intrinsics/extrinsics/zones) to enable use with other car body styles with recalibration/remeasurement of parameters.
+2.2.4 Performance
+                              * NFR29. The system must have a maximum latency from device decision publish to app render <= 100ms (p95) and median capture → decision time <= 50ms at 20 Hz.
+                              * NFR30. The system’s Bluetooth link must maintain 20 Hz alert notification throughput with p95 app receive latency <= 100ms. (effective throughput > 5KB/s for alerts + status)
+                              * NFR31. The system must be able to start up, boot-to-ready within 60 seconds of power on.
+                              * On a crash, the system must restart < 5 seconds.
+                              * NFR32. The mobile application must be able to start up and arrive at the first page within 5 seconds of the application being opened.
+2.2.5 Reliability
+                              * NFR33. This system must be able to continue its functions despite sensor failures.
+                              * NFR34. The system must alert the user if a sensor is missing or malfunctioning. 
+                              * NFR35. The system must perform reliably under any weather conditions with a minimum decrease in general performance.
+                              * On the winter test set: maintain CW recall >= 0.80 and precision >= 0.85.
+                              * LDW false positive rate <= 10% with lane quality suppression.
+                              * BSD p95 latency <= 150ms.
+2.2.6 Accessibility
+                              * NFR36. The mobile application must use colors that have sufficient contrast.
+                              * NFR37. The mobile application must not display alerts using only colors, but must also use text and icons. 
+                              * NFR38. The mobile application must use alerts that are not solely audio, in case the driver is deaf or hard of hearing.
+                              * NFR39. The mobile application must use text that is easily readable from a distance of 1 m.
+                              * NFR40. The system must not have flashing lights that exceed 5 flashes per second to prevent epileptic seizures. 
+2.2.7 Additional Non-Functional Requirements
+                              * NFR41. The system must, when replaying a recorded drive, produce the same alerts at the same tick times as the original run (with a tolerance of <= 1 tick offset).
+                              * NFR42. At the 20 Hz fusion tick, internal sensor skew must be <= 5ms. Frames older than 100ms at the tick must be dropped.
+                              * NFR43. Each process must emit a watchdog heartbeat at least once per second. On a crash, the system must restart in under 5 seconds.
+                              * NFR44. Under normal load, the system must maintain a 20 Hz tick rate with CPU utilization < 80%, GPU utilization < 90% and at least 500 MB of free RAM.
+                              * NFR45. The BLE connection to the mobile application must require first-use pairing using a randomly generated 4-digit code, use encryption, and remember allowed devices.
+                              * NFR46. The system must reject unversioned configuration files and only accept configuration files with a schemaVersion of vY.x.
+2.3 Risk & Mitigation Strategies
+The ADAS will be built to satisfy all provincial and federal laws; however, risks will still exist despite these considerations. The following sections will discuss some of the legal risks associated with the ADAS.
+2.3.1 Sensor Installation and Calibration Risks
+The process of installing sensors on a vehicle introduces several minor risks.
+                              * If the sensors are not installed securely on the vehicle, they may detach while the vehicle is in motion, then it violates section 84.2 of the Highway Traffic Act and could result in a $100-$2000 fine as well as a possible license suspension for up to 60 days [10].
+                              * If sensors obstruct the number plates or the front lamps of the vehicle, then it violates sections 13 and 62.7 of the Highway Traffic Act, and the driver could be guilty of an offense [10].
+                              * If sensors cause the vehicle to exceed the maximum dimensions specified in section 109 of the Highway Traffic Act, then the driver could be fined $200-1000$ as well as a possible license suspension for up to 6 months [10].
+If these problems occur, then some of the liability can fall on the people who installed the sensors. These risks can be mitigated by having drivers sign liability waivers waiving the installer of problems that may arise due to the installation of the sensors. These risks can also be mitigated by having precise installation guides available for each vehicle type (sedan, hatchback, minivan, etc).
+Incorrectly installing and calibrating the sensors in the ADAS can result in the system not properly detecting the surroundings, resulting in the ADAS missing or producing incorrect alerts. If these errors cause the driver to get into an accident, then the installer may be partially liable for the accident. For smaller accidents, liability waivers can be used to mitigate the risks; however, if the ADAS errors cause drivers to have accidents that cause bodily harm and/or death, then the sensor installer could be charged with criminal negligence and/or homicide as specified in sections 219 and 222 of the Criminal Code, and receive prison time [14]. To mitigate these larger risks, the sensors must be thoroughly tested after they are installed and calibrated and before the ADAS is used.
+2.3.2 Sensor Interference from Weather
+Certain weather conditions can cause the ADAS sensors to function improperly. Conditions such as heavy rain, fog, snow, and glare can all cause the sensors to receive improper readings, causing the ADAS to create false negatives and/or false positives. This risk can be mitigated by overlapping sensors. This project will combine cameras and radars to create a sensor system that will work as intended under most environmental conditions, causing the system to produce fewer faults. This risk can also be mitigated by adding a warning and caution statement on the start-up page of the mobile application, letting users know that not all alerts and data readings are 100% accurate. This waives some of the manufacturer's responsibilities when it comes to faults and errors in the alerts. 
+2.3.3 Data Privacy
+The ADAS will use sensors to collect information about the environment surrounding the vehicle. This creates the risk of violating the Invasion of Privacy section in the Criminal Code. Since the Invasion of Privacy section only addresses the interference of communication and eavesdropping on communication using devices, the risks can be mitigated by completely excluding audio sensors, making the system incapable of eavesdropping or interfering with communications [14].
+The system may also inadvertently collect the personal information of individuals (faces, location, address, etc). According to the Personal Information Protection and Electronic Documents Act (PIPEDA), any personal information collected must be used in an appropriate way, and if the personal information is not used appropriately, then the organization may receive a fine (PIPEDA cite). To mitigate this risk, the ADAS will only use the data received from sensors for their intended purposes of the ADAS and not collect any of the information.
+2.3.4 Distracted Driving
+The ADAS uses a mobile application installed on the driver's mobile phone to send alerts to the driver. This introduces the risk of the driver being distracted by their mobile device. To mitigate this risk, the mobile application will be designed to have a hands-free mode or driver mode to satisfy section 78.3 of the Highway Traffic Act [10]. A driver mode will minimize the distractions caused by the mobile application, allowing the driver to keep their full attention on the road while also being able to receive alerts from the ADAS.
+2.3.5 Cyber Security Risks
+For the ADAS, the main cybersecurity risks come from the Bluetooth connections. Outside of Bluetooth, all other communication within the system is wired. If attackers gain access to the Bluetooth connections, they can potentially pass false sensor data to the system, receive data from the sensors and ADAS, or connect to the driver's mobile device. These risks can be mitigated by adding additional authentication and authorization between connections and possibly even encryption if required.
+2.3 Future Enhancements (Deferred Scope)
+Items E1–E7 are explicitly out of v1 scope; they reference FR origins, list value/trade-offs, and carry acceptance ideas for v2.
+Purpose of this section:
+                              * Scope control: Keeps v1 aligned to the baseline deliverables the professor expects.
+                              * Time/risk: Avoids hardware + UX expansion that could delay core pipeline readiness.
+2.3.1 E1. Backup hardware alerts (buzzer/LED)
+Origin (moved from FR77).
+                              * Engineering value: Redundant channel when the phone disconnects or audio is muted; meets safety best practices for multi‑modal alerts.
+                              * Trade‑offs: Additional hardware/wiring; enclosure/EMI concerns; driver distraction risk; need for human factors tuning (volume/brightness, night mode).
+                              * Why not in Iteration 1: Demo scope focuses on on‑device pipeline + phone UI; adding hardware IO and tuning expands scope/time.
+                              * Acceptance idea: Within ≤100 ms of alert publication, buzzer/LED activates with severity mapping; continues during phone loss; power budget < 1 W idle.
+2.3.2 E2. User profiles & settings UI (Conservative/Standard/Rain)
+Origin (moved from FR64, FR74).
+                              * Engineering value: Rapid A/B testing of thresholds; easier parameter sweeps during validation; field‑tunable behavior.
+                              * Trade‑offs: Larger test surface; risk of misconfiguration; reduces determinism for replay; extra UX flows.
+                              * Why not in Iteration 1: Proposal baseline avoids per‑user customization; v1 prioritizes deterministic config via on‑device file.
+                              * Acceptance idea: Three locked profiles; switch requires vehicle stopped; profile change logged; replay pins to captured profile.
+2.3.3 E3. Privacy consent & logging controls
+Origin (moved from FR74b, FR82).
+                              * Engineering value: Ethics/compliance if testing expands beyond the internal team; explicit operator control over data retention/export.
+                              * Trade‑offs: Consent state management; data segmentation (no‑log vs log); additional UI and QA; potential to block useful telemetry if toggled off mid‑run.
+                              * Why not in Iteration 1: No public users; internal engineering team only.
+                              * Acceptance idea: First‑boot consent gate; per‑run consent stamp embedded in log headers; export disabled when consent=false.
+2.3.4 E4. Capability manifest & runtime health/failover framework
+Origin (from earlier roadmap items 6–7).
+Engineering value: Clear, machine‑readable inventory of available sensors + health; automated degrade/restore; hot‑plug resilience.
+Trade‑offs: Significant framework work (registry, health probes, dependency graph); non‑trivial state transitions; more tests.
+Why not in Iteration 1: v1 uses a lightweight presence map at startup; continuous health + auto‑reroute is out of scope.
+Acceptance idea: Loss of any single sensor updates manifests within ≤1 tick (50 ms); alerts continue with documented capability downgrade; health timeline is logged.
+
+
+2.3.5 E5. Rich mobile settings & diagnostics
+Origin (subset of FR74/FR75 expansion).
+Engineering value: Operator quality-of-life (filter logs, per‑sensor FPS, fusion backlog, etc.).
+Trade‑offs: App complexity; distractibility while driving; duplicates on‑device debug.
+Why not in Iteration 1: Keep mobile minimal; development effort concentrated on onboard pipeline.
+Acceptance idea: Read‑only diagnostics pages gated behind parking state.
+
+
+2.3.6 E6. Traffic sign recognition (speed limit, stop, etc.)
+Origin (new v2 item).
+Engineering value: Enables context‑aware alerts (e.g., speed‑limit compliance hints, stop‑sign approach cues), richer datasets for validating CW thresholds vs. posted limits, and potential UI augmentations.
+Trade‑offs: Additional CV model (detection + classification, and for speed‑limit, OCR/digit classification); domain variability (fonts, shapes, weather, occlusion); need for dataset collection/labeling; integration with ego speed to avoid driver distraction; false‑positive risk.
+Why not in Iteration 1: Outside baseline scope (core CW/LDW/BSD); requires model training/tuning and additional validation time.
+Acceptance idea: Front‑camera TSR at ≥20 FPS on cropped ROIs; ≥95% precision/recall on local signage set in daylight/clear; speed‑limit update latency ≤500 ms; confidence‑gated publication to bus (read‑only in v2, no driver behavior enforcement).
+2.3.7 E7. Lane v2 — Learned Lane Detection (Segmentation/Keypoints)
+Origin (new v2 item).
+Scope: Add a lightweight ONNX lane model (TensorRT C++ runtime) to augment/replace Lane v1 under snow/shadows/faded paint.Interface contract (unchanged): outputs {centerlines, lane_width_m, curvature, quality∈[0,1]} in ego frame, same fields as v1.
+Data: Fine‑tune on our Civic 2012 logs (winter emphasis), plus public lane datasets; include nighttime/snow/occlusion cases.
+Compute budget: ≤10 ms @ ~640–768p FP16 on Jetson; share OpenCV pre/post with detector.
+Acceptance (targets): daylight ≥95% lane presence F1; winter/night ≥85% on curated set; mean lateral error ≤0.15 m @ 30–50 m.
+Fusion policy: Prefer higher-quality (v2 vs v1); fall back to v1 when v2 quality < threshold; suppress LDW when both low (“Lane Unavailable”).
+Risks/Trade‑offs: Requires labeling/QA; modest extra compute; ensure determinism in replay (fixed pre/post + engine checksum).
+
+
+3.0 Hardware Architecture & Design
+The hardware architecture of the Customizable AI-Enabled ADAS Demonstrator is centered on the NVIDIA Jetson Orin Nano Super Developer Kit and integrates multiple sensors, including cameras, Radar, LiDAR, GPS, and an IMU, to achieve real-time perception and decision-making. The system is modular, allowing each component to contribute distinct data that together form a unified environmental model through sensor fusion. All hardware is mounted and calibrated on a fixed platform, the 2012 Honda Civic Si, ensuring consistent testing and repeatable performance.
+3.1 NVIDIA Jetson Board 
+The NVIDIA Jetson Orin Nano Super Developer Kit serves as the central processing unit for the customizable AI-Enabled ADAS Demonstrator. This embedded computing platform is purpose-built for AI and robotic applications, offering high-performance GPU acceleration, energy efficiency, and versatile I/O connectivity. These capabilities make it ideal for real-time perception, sensor fusion, and control tasks in automotive environments [16], [17]. The board is equipped with an Ampere GPU featuring 1,024 CUDA cores and 32 Tensor Cores, delivering up to 67 trillion operations per second (TOPS), which enables accelerated deep learning inference and computer vision processing [16]. Its 6-core ARM Cortex-A78AE CPU operating at 1.7 GHz, combined with 8 GB of LPDDR5 memory, supports high-speed processing of multi-sensor data streams for real-time decision-making [16]. Operating at a low power envelope of up to 25 Watts, the board maintains manageable thermal performance while powering all connected sensors and cameras [16].
+In terms of connectivity, the Jetson Orin Nano Super Developer Kit provides a wide array of interfaces, including GPIO, I²C, SPI, UART, USB 3.1, M.2 NVMe, and PCIe, allowing flexible integration with radar, LiDAR, cameras, IMUs, and other peripheral devices [17]. It is fully compatible with the NVIDIA JetPack SDK, which offers a comprehensive suite of libraries and tools for AI, computer vision, deep learning, and GPU acceleration [17]. The board functions as the central hub for sensor data acquisition, processing, and fusion into real-time ego frames. It collects inputs from all onboard/connected sensors and performs the necessary calculations before fusion [17]. Its GPU and CPU enable simultaneous execution of multiple AI inference pipelines, including object detection, motion estimation, and collision prediction [16]. It is able to process multiple sensor signals, both digital and analog, directly through GPIO and dedicated serial/I²C ports to ensure synchronized data acquisition [17]. The modular design of the board supports future upgrades, such as higher-resolution cameras, additional AI workloads, or advanced radar units [18].
+Calibration and system alignment are handled natively on the Jetson Orin Nano Super. Calibration routines ensure proper alignment between sensors and the vehicle’s ego frame (T_sensor → ego), which is critical for accurate spatial modeling [17]. Sensor fusion algorithms also run directly on the platform, enabling low-latency decision-making and high-accuracy environmental modeling [18]. These features collectively make the Jetson Orin Nano Super Developer Kit a robust and scalable solution for embedded ADAS systems. bling low-latency decision making and high accuracy environmental modeling [18]
+3.2 Sensor Integration
+This Customizable AI-Enabled ADAS Demonstrator integrates a diverse array of sensors that work in tandem to construct a comprehensive, real-time perception of the vehicle’s surrounding environment. Each sensor, ranging from cameras and radar to LiDAR, GPS, and IMU, contributes data that captures visual, spatial, and motion-related information. These sensors are strategically positioned around the vehicle to maximize coverage and minimize blind spots. By leveraging sensor fusion techniques, the system combines these inputs into a unified situational awareness model, enabling accurate object detection, lane boundary recognition, and precise vehicle localization. This integrated perception layer forms the foundation for downstream decision-making modules, such as lane departure warnings (LDW), forward collision warnings (FCW), and blind spot detection (BSD), ensuring timely and context-aware alerts to the driver. The modular architecture also allows for sensor configurations to be adapted based on vehicle type or testing environment, enhancing the system’s flexibility and scalability.
+The system integrates essential sensors to enable real-time environmental awareness. Cameras capture 30 FPS footage from the front, rear, and sides for object detection, lane tracking, and blind spot monitoring. Radar units detect objects up to 25-100 meters, with front-facing radar for collision alerts and angled rear units for blind spot detection. An IMU tracks vehicle motion, while a GPS module provides speed, position, and timestamps. A LiDAR sensor adds high-resolution depth data for accurate object localization.
+3.2.1 Primary Radar: OmniPreSense OPS243-A Doppler Radar Sensor
+The OmniPreSense OPS243-A Doppler Radar Sensor is deployed as the primary radar module for Forward Collision Warning (FCW) in the ADAS demonstrator. Operating at 24 GHz, this short-range radar sensor provides onboard signal processing and outputs motion, speed, and direction data in real time. Its narrow 20° beam width makes it ideal for monitoring traffic lanes and detecting objects directly ahead of the vehicle, supporting high-precision collision prediction and alerting [19].
+The OPS243-A supports a detection range of 1–100 meters, with speed reporting accurate to within 0.5%, and can track objects moving at speeds up to 138 mph. It provides directional reporting for inbound and outbound objects and outputs data via USB or UART, allowing flexible integration with the Jetson Orin Nano Super Developer Kit. The sensor consumes only 1.5 W active power and 0.7 W idle, making it suitable for embedded systems with constrained power budgets. Its compact form factor simplifies mounting, and its onboard processing reduces the computational load on the Jetson platform [19].
+The sensor will stream radar frames containing the range. Radial velocity and direction data, satisfying FR3. These frames will be timestamped and synchronized to the system’s unified time base, which is then transformed into the ego frame for fusion and decision logic (FR5, FR13). Multi-frame confirmation (FR35a) and Mahalanobis gating (FR35b) will be applied to reduce false positives and ensure robust sensor fusion. The radar’s firmware will be tuned for optimal performance in detecting vehicles, cyclists, and pedestrians within the forward detection zone (FR30), supporting accurate Time-To-Collision (TTC) calculations (FR31). Calibration routines will align radar-to-ego transformations (T_radar→ego) and ensure repeatability across vehicle setups (FR11, FR15). Radar data will be fused with camera and optional LiDAR inputs to enhance object classification and collision prediction accuracy (FR41, FR50). The OPS243-A’s directional reporting and long-range capabilities make it a critical component in the ADAS forward perception pipeline.
+3.2.2 Secondary Radar: DFRobot C4001 mmWave Presence Sensor
+The DFRobot C4001 mmWave Presence Sensor is deployed as the secondary radar module in the rear corners of the vehicle to support blind spot detection (BSD). Operating at 24 GHz, this compact radar sensor utilizes Frequency Modulated Continuous Wave (FMCW) and Doppler radar principles to detect both static and moving objects. Its wide 100° horizontal field of view and 25-meter motion detection range make it ideal for monitoring lateral zones adjacent to the vehicle, enhancing safety during lane changes and merges [20].
+The sensor supports velocity detection up to 10 m/s and distance measurement from 1.2 to 25 meters, with millimeter-level precision. It features strong anti-interference capabilities, remaining unaffected by environmental factors such as temperature, humidity, dust, light, and noise. The module outputs presence signals via GPIO, which will be directly interfaced with the Jetson Orin Nano Super Developer Kit for real-time event triggering and synchronization. Its low power consumption and compact size make it suitable for embedded automotive applications [20].
+Each rear corner radar will be configured to monitor its respective blind spot zone and trigger BSD alerts when objects are detected within the defined ego-fixed polygon regions (FR32, FR33). GPIO signals will be timestamped and aligned to the system’s unified timebase, ensuring accurate fusion with side camera and IMU data. Multi-frame confirmation (FR34a) and source-aware confidence fusion (FR34c) will be applied to reduce false positives and improve alert reliability. Calibration routines will align radar-to-ego transformations (T_radar→ego) and ensure repeatability across vehicle setups (FR11, FR15). Radar data from the rear corners will be fused with side camera inputs to enhance BSD alert precision and reduce missed detections, making it a critical component for right and left BSD.
+3.2.3 Camera: InnoMaker U20CAM-1080P USB Camera
+The InnoMaker U20CAM-1080P USB Camera is deployed as the primary visual sensor in the ADAS demonstrator, supporting all core perception features including Blind Spot Detection (BSD), Forward Collision Warning (FCW), Rear Collision Warning (RCW), and Lane Departure Warning (LDW). This compact, high-performance camera is UVC-compliant and supports plug-and-play operation across Jetson boards, Raspberry Pi, and other Linux-based platforms, making it ideal for the embedded automotive application [21].
+The U20CAM-1080p supports 1080p resolution at 30 FPS, with different output formats including MJPEG and YUY2. It features a 120° diagonal field of view and 102° horizontal field of view, enabling wide-angle coverage for lane detection, object tracking, and blind spot monitoring. The camera connects via USB 2.0 high-speed interface, requiring no external power supply or driver installation. Its compact 32 × 32 mm form factor and onboard mounting holes allow flexible placement on the vehicle chassis, including front, rear, and side-facing positions. [21]
+The camera will be configured to stream timestamped frames at ≥30 FPS, satisfying FR1–FR2.5. These frames will be synchronized to the system’s unified timebase and transformed into the ego frame for perception and fusion (FR5, FR13). Calibration routines will include intrinsic and extrinsic parameter alignment, ensuring accurate projection into the vehicle’s coordinate system (FR11, FR15). The camera’s wide-angle lens and high-resolution output support robust lane boundary detection (FR20–FR23), object classification (FR30–FR31), and blind spot zone monitoring (FR32–FR33). Its compatibility with Jetson Nano and UVC standards simplifies integration into the ADAS pipeline, enabling real-time inference for all major alert types.
+3.2.4 IMU: Adafruit BNO085 9-DoF Orientation Sensor
+The Adafruit BNO085 is a high-performance 9-DoF inertial measurement unit (IMU) that integrates accelerometer, gyroscope, and magnetometer data with onboard sensor fusion to deliver real-time orientation and motion tracking. Developed by CEVA Hillcrest Laboratories, the BNO085 includes an Arm Cortex-M0 processor running SH-2 firmware, which handles fusion internally—eliminating the need for external algorithms. This makes it ideal for embedded ADAS applications requiring low-latency, high-accuracy motion data [22].
+The sensor provides quaternion, Euler angle, linear acceleration, and gravity vector outputs directly from its onboard fusion engine. It supports high-frequency streaming at ≥100 Hz, satisfying FR3 requirements for smooth motion tracking. Communication interfaces include I²C and UART, allowing flexible integration with the Jetson Orin Nano via GPIO or USB-to-serial adapters. Orientation outputs include rotation vector, linear acceleration, gravity vector, and raw gyroscope and accelerometer data. These outputs are essential for ego-motion tracking and fallback velocity estimation (FR52), and they contribute to the Extended Kalman Filter (EKF) fusion process for object tracking and collision prediction (FR50) [22].
+Sensor data from the BNO085 is timestamped and aligned to the system’s unified timebase (FR5), then transformed into the ego frame for consistent spatial modeling (FR13). The module is plug-and-play with Jetson Nano using either I²C or UART, and its compact form factor and low power consumption make it well-suited for embedded automotive systems. Calibration routines will be implemented to ensure consistent alignment across vehicle setups (FR15). The sensor’s built-in classification features, such as step detection and activity recognition, may also be leveraged for future ADAS feature expansion [22].
+3.2.5 LiDAR (Optional): SLAMTEC RPLIDAR C1 360° DTOF Laser Scanner
+
+
+The SLAMTEC RPLIDAR C1 360° DTOF Laser Scanner is included as an optional component in the ADAS demonstrator, primarily supporting Blind Spot Detection (BSD). Its fusion-type Direct Time of Flight (DTOF) technology enables high-definition distance and reflectivity measurements with minimal blind zones, making it ideal for short-range lateral monitoring around the vehicle [23].
+The RPLIDAR C1 offers a maximum detection radius of 12 meters, with enhanced performance in close-range scenarios. It provides 2.5D reflectivity data alongside positional information, improving object classification and lateral zone awareness. The sensor’s 360° horizontal field of view and SL-DTOF ranging system allow for continuous scanning of adjacent lanes and blind spot regions. Classified as an eye-safe Class 1 laser product, it is suitable for continuous operation in passenger environments. Its compact form factor and anti-interference design make it well-suited for embedded automotive systems [23].
+To maximize coverage of lateral zones, the LiDAR will be mounted on the center roof of the vehicle, providing unobstructed 360° visibility. Scan frames will be timestamped and aligned to the system’s unified timebase (FR5), then transformed into the ego frame (FR13). Data will be fused with radar and side camera inputs to enhance BSD alert precision and reduce missed detections (FR32–FR33). The sensor’s short-range precision and panoramic coverage make it a valuable enhancement to the ADAS blind spot monitoring system.
+
+
+
+
+
+
+
+
+3.2.6 Sensor Wiring Diagram
+  
+
+Fig 2 - Sensor Connection Diagram for NVIDIA Jetson Orin Nano
+  
+
+Fig 3- Jetson Orin Nano Super GPIO Header Pin Configuration
+3.3 Vehicle Platform Specification
+Vehicle baseline:
+                              * Make/Model/Year: Honda Civic 2012
+                              * Body style: Coupe
+                              * Trim: Si
+                              * Project role: This vehicle is the platform for Iteration-1 development, calibration, and validation. All mounts, transforms, timing assumptions, and tuning parameters are frozen against this platform; other vehicles can be supported later via re-measurement and configuration file swaps (no architectural rewrites).
+Why does this matter to the software
+                              * Having a fixed, known platform allows us to lock interfaces and keep the math parametric (without hard-coded pixels or placements). 
+                              * Stable interfaces enable deterministic engineering. We freeze mounts (position) and rely on parametric math configured via YAML, rather than hard-coding any pixel ROI or geometry constants.
+                              * Porting later is calibration, not a rewrite. If we ever move away from the Civic 2012 Coupe Si, the expected work is: re-measure extrinsics, regenerate camera intrinsics, update zones, and re-tune a small number of thresholds—not a pipeline redesign.
+Ego frame definition
+                              * Origin O: midpoint of the rear wheel contact patches on level ground.
+                              * Axes: +X forward, +Y left (driver side), +Z up.
+                              * All perception, fusion, and decision modules consume & emit ego-frame coordinates. Each sensor’s raw data is transformed into ego prior to fusion/association.
+3.3.1 Decision: Lock Mounts & Interfaces to a Single Platform (D-001)
+                              * Decision: Fix physical mount identities on the Civic 2012; keep math parametric via configuration (intrinsics/extrinsics, ego-fixed zones).
+                              * Alternatives Considered: (a) Design for multiple vehicles from day-1 (higher complexity), (b) hard-code image ROIs (non-portable).
+                              * Trade-offs: Geometry/FOV changes later may require ROI/gating retuning—but not a redesign.
+                              * Consequences: Direct translation from proposal to code; porting later is mainly re-measure + YAML update.
+3.4 Sensor Suite & Mounting (Civic 2012 Coupe Si)
+Final, approved sensor set (Iteration-1)
+                              * FrontCam (required) — high windshield center, slight down-tilt; primary for LDW and visual classification for CW-Front context.
+                              * SideCam-L (required) — driver mirror; covers left blind-spot wedge; visual context for BSD-Left.
+                              * SideCam-R (required) — passenger mirror; covers right blind-spot wedge; visual context for BSD-Right.
+                              * RearCam (required) — center above plate/rear glass; visual detection/classification behind vehicle; context for CW-Rear and BSD.
+                              * FrontRadar (required) — low center grille, boresighted; range + Doppler for CW-Front under all weather/lighting.
+                              * RearCornerRadar-L (required) — behind left rear bumper corner, yawed outward ~15–25°; overlaps behind vehicle and sweeps left quarter; supports CW-Rear and BSD-Left.  
+                              * RearCornerRadar-R (required) — behind right rear bumper corner, yawed outward ~15–25°; overlaps behind vehicle and sweeps right quarter; supports CW-Rear and BSD-Right.
+                              * IMU (required) — rigid mount at/near CoG (or record offset); provides ego dynamics (yaw/accel) for lane geometry and fusion stability.
+                              * LiDAR2D (optional, pluggable) — single-beam 360°; research-only input; never a sole trigger; BSD confidence boost only when V_ego < 20 kph.
+Alternatives considered & trade-offs (sensor suite)
+                                 1. Side-midbody radars vs. rear-corner radars.
+                                 1. Alternative: add two dedicated side radars near doors to strengthen BSD in snow.  
+                                 2. Decision: reject for v1; rear-corner radars, properly yawed, give rear-overlap (for CW-Rear) and quarter coverage (for BSD) with lower hardware count, simpler calibration, and sufficient robustness.
+                                 3. Trade-off: marginal BSD improvements in extreme side-only, therefore deferred to v2 if needed.
+                                    2. Heavier LiDAR integration (2D 360°) for CW/LDW.
+                                    1. Alternative: use LiDAR for TTC or lane geometry.
+                                    2. Decision: reject for v1; single-plane spin and latency give low ROI for TTC/lanes.
+                                    3. Policy: LiDAR is kept only to raise BSD confidence at <20 kph and is never a sole trigger (research telemetry retained).
+3.4.1 Decision: Sensor Suite & Placement (D-002)
+                                    * Decision: Cameras (Front/Side/Rear) + Radars (Front + two Rear-Corners) + IMU; optional LiDAR2D.
+                                    * Alternatives Considered: Add side-midbody radars; heavier LiDAR use (for TTC/lanes).
+                                    * Trade-offs: Properly yawed corner radars give rear overlap (CW-Rear) and quarter coverage (BSD) with fewer devices and simpler calibration; single-plane LiDAR ROI is limited for TTC/lanes.
+                                    * Consequences: Robust rear TTC; strong BSD in adverse weather; reduced hardware count and complexity.
+Mount identity (fixed) vs. device (swappable)
+We abstract physical positions as Mounts and keep device vendors swappable behind those identities (C++ snippet of locked interface enum):
+Enum class Mount {
+  FrontCam, SideCamL, SideCamR, RearCam,
+  FrontRadar, RearCornerRadarL, RearCornerRadarR,
+  IMU, LiDAR2D
+};
+
+
+Why: Algorithms bind to Mount, not hardware brand, which stabilizes the pipeline while allowing hardware changes/swaps. The SensorSource bitmask tracks which sensors contributed data to fusion and alert updates:
+enum SensorSource : uint16_t {
+  SRC_NONE  = 0,
+  SRC_CAM_F = 1<<0,  // FrontCam
+  SRC_CAM_L = 1<<1,  // SideCamL
+  SRC_CAM_R = 1<<2,  // SideCamR
+  SRC_CAM_B = 1<<3,  // RearCam
+  SRC_RAD_F = 1<<4,  // FrontRadar
+  SRC_RAD_L = 1<<5,  // RearCornerRadarL
+  SRC_RAD_R = 1<<6,  // RearCornerRadarR
+  SRC_IMU   = 1<<7,  // IMU
+  SRC_LIDAR = 1<<8   // LiDAR2D
+};
+
+
+Table 2: Coverage matrix showing how this suite satisfies all alerts
+Alert
+	FrontCam
+	FrontRadar
+	SideCam-L/R
+	RearCam
+	RearCornerRadar-L/R
+	IMU
+	CW-Front
+	✔ detect/classify
+	✔ range + relative velocity
+	–
+	–
+	–
+	✔ ego dynamics
+	CW-Rear
+	–
+	–
+	–
+	✔ detect
+	✔ range + relative velocity (overlap of both radars)
+	✔ ego dynamics
+	LDW
+	✔ lanes
+	–
+	–
+	–
+	–
+	✔ yaw/pose
+	BSD (L/R)
+	–
+	–
+	✔ occupancy/class
+	✔ context
+	✔ service continuation in poor weather conditions
+	✔ motion cues
+	
+
+Fusion policy overview:
+                                    * Mahalanobis gating for radar↔camera associations (χ²(2) ≤ 5.99).
+                                    * M/N confirmation (such as 3/5 as specified) to suppress one-off false positives.
+                                    * Source-aware confidence weights (defaults: camera 0.6, radar 1.0, lidar 2D 0.25) tuned from configuration.
+                                    * LiDAR2D: boosts BSD confidence only when <20 kph, never sole trigger.
+
+
+3.4.2 Decision: LiDAR Usage Policy (D-003)
+                                    * Decision: LiDAR2D is not used for CW/LDW; it only boosts BSD confidence when V_ego < 20 kph and never triggers alone.
+                                    * Alternatives Considered: Use LiDAR for lanes/TTC; rejected (spin latency, single height → low ROI).
+                                    * Trade-offs: For simplicity, we lose potential redundancy at highway speeds; keep LiDAR as research telemetry at low speeds.
+                                    * Consequences: Cleaner pipeline; optional LiDAR thread gated by speed; data helps analyze low-speed edge cases.
+4.0 Methods: Architecture, Algorithms, and DevOps
+The methods section will serve as our proposal for modeling the software side of system behaviour. This section outlines key architectural decisions, software components, communication frameworks, and design patterns employed to ensure real-time performance, fault tolerance, and interoperability.  Leveraging the Jetson Nano’s capabilities, the architectural goal is to support all of the software systems' functional requirements.
+4.1 Pipeline Architecture for Preprocessing & Alert Detection [24]
+4.1.1 Justification (best-fit)
+The desirable architectural characteristics/goals of the Main Brain are:
+                                    * Low latency & consistent throughput (FR1–7, FR40–41, FR50, FR60–63): must maintain a strict 20 Hz tick rate while in-taking multiple sensors and running four camera models in parallel.
+                                    * Determinism & replayability (FR80–81, FR90–96): identical inputs → identical outputs; bounded skew; warm-up gates; deterministic drop rules.
+                                    * Reliability under degradation (FR6, FR22, FR34, FR51): tolerate missing/late frames, suppress when quality is low, and keep tracking life-cycle.
+                                    * Modularity & swappability (D-001/D-007/D-009; FR18): fixed mount identities with swappable devices; intrinsics/extrinsics and zones in YAML; optional LiDAR plug-in.
+                                    * Testability (FR111–112): stage boundaries with stable contracts; easy fault injection (late/out-of-order frames) and deterministic assertions.
+
+
+A staged pipeline is the best fit architecture style for Preprocessing & Alert detection since each sensor/component runs in its own thread and writes to a small single-producer/single-consumer queue, while one 20 Hz “tick” thread reads the latest sample from each source, lines them up by when we received them, fuses them, and makes the alerts. This keeps latency low and prevents a slow camera from blocking everything else. It also gives repeatable timing targets (≤ 5 ms skew, ~150 ms buffer, ~100 ms late-drop, ~2 s warm-up). All heavy GPU work (TensorRT per camera) stays outside the tick, so the tick stays steady. Most behavior is in config, not code (zones, χ² gate 5.99, M/N = 3/5, sensor weights like radar 1.0, camera 0.6, lidar2d 0.25), so we can tune safely. LiDAR is optional by design—if it’s there, we only use it to boost BSD confidence below 20 kph and never as a sole trigger. Therefore, the choice of a Pipeline Architecture best hits our goals: low latency, deterministic output we can replay, graceful handling of missing/late data, and clean swaps of sensors later.
+4.1.2 Alternatives rejected
+                                    * Single-loop monolith (one big thread): This option was rejected since camera capture, model inference, radar parsing, and EKF in one loop causes long worst-case latencies and missed deadlines under load. GPU work blocks everything. Determinism suffers when I/O stalls.
+                                    * ROS-style fine-grained graph (many nodes): This option was rejected because of the extra scheduling and serialization overhead on a Jetson-class board; time sync and replay determinism are harder across many processes. It would also introduce added jitter and failure modes without a clear benefit for our fixed, on-device ideology (FR90-96).
+4.2 Interfaces & Data Contracts
+4.2.1 Frame/Packet Header (Authoritative)
+Each frame/pack will be given this authoritative header (C++ snippet of locked Header struct):
+struct Header {
+  uint64_t t_device_ns;  // device clock if provided
+  uint64_t t_ingest_ns;  // authoritative monotonic receive time
+  Mount    mount;  // fixed mount id (see enum)
+  uint32_t seq;  // per-mount sequence counter
+  bool     healthy;  // device/ingest health bit
+};
+
+
+Why: We align and fuse on ingest timestamps to meet skew budgets even with potential wireless links; device time is retained for diagnostics/testing.
+                                    * Ingest-time as truth: Wireless jitter makes device time unreliable; ingest-time guarantees ≤ 5 ms skew at the 20 Hz tick
+                                    * seq & healthy: Needed for loss/dup detection, health telemetry, and deterministic replay assertions.
+4.2.2 Sensor Payloads Structure
+Each sensor/source has a generic data structure to keep pipeline processing consistent (locked C++ structures):
+// Vision
+struct CameraFrame { Header h; cv::Mat bgr; }; // undistort at preproc
+
+
+struct Det {
+  cv::Rect2f box_px; // [x,y,w,h] in pixels after preproc/letterbox
+  int cls; // {car,truck,bus,bike,person}
+  float score; // [0,1]
+};
+struct DetBatch { Header h; std::vector<Det> dets; };
+
+
+// Radar (pre-detected or clustered targets)
+struct RadarTarget {
+  float range_m; // radial distance
+  float azimuth_rad; // angle in radar frame (+left)
+  float radial_vel_mps; // toward-negative; away-positive (convention)
+  float rcs_db; // radar cross section
+  float sigma_r, sigma_az, sigma_v; // measurement stdevs
+};
+struct RadarTargets { Header h; std::vector<RadarTarget> targets; };
+
+
+// IMU
+struct ImuSample {
+  Header h;
+  Eigen::Vector3f acc_mps2;  // ax, ay, az (sensor frame)
+  Eigen::Vector3f gyro_rps;  // wx, wy, wz (sensor frame)
+};
+
+
+// LiDAR2D (optional; near-field clusters)
+struct LidarDetection { float range_m; float bearing_rad; float sigma_r; };
+struct LidarDetections { Header h; std::vector<LidarDetection> dets; };
+Justification/usage
+                                    * Camera path: Split raw frames (CameraFrame) from detections (DetBatch) isolates preproc+inference; supports TRT/DNN fallback and keeps detection results in a compact, queue-friendly form.
+                                    * Radar target fields: Range/azimuth/radial velocity (+ stdevs) are exactly what the EKF/gating needs (FR34b). Keeping polar in the radar frame avoids premature transforms and preserves uncertainties.
+                                    * IMU sample: Higher-rate inertial updates (≥ 100 Hz) get interpolated to the 20 Hz tick, stabilizing ego motion and lane geometry (FR52).
+                                    * LiDAR2D: Model only what we use—near-field angle/range for BSD boost below 20 kph (D-003). No 3D fields that we won’t consume in v1.
+4.2.3 Lane Model (V1)
+In order to keep track of the lane for various alerts, a LaneModel is used (locked C++ structures):
+struct LaneModel {
+  Header h;
+  float lane_width_m; // estimated lane width
+  float curvature_1pm; // 1/m curvature (sign = left/right)
+  float quality_01; // 0..1 confidence (used to suppress LDW when low)
+};
+Justification/usage
+                                    * Minimal, sufficient fields: LDW needs lateral offset and curvature; the quality scalar directly drives “Lane Unavailable” suppression (FR21–FR23).
+4.2.4 Tracking and Fusion Outputs
+To keep track of objects around the vehicle, Track objects will be used to track their position and source (locked C++ structures):
+struct Track {
+  uint32_t id; // persistent for ≥5s on steady lead (FR35)
+  Eigen::Vector4f x; // [x, y, vx, vy] in ego frame (meters, m/s)
+  Eigen::Matrix4f P; // 4x4 covariance
+  int cls; // semantic class (from camera)
+  uint16_t sources; // SensorSource bitmask (multi-sensor)
+  float conf_01; // fused confidence [0,1]
+};
+
+
+struct FusedFrame {
+  uint64_t t_tick_ns; // 20 Hz tick time (authoritative)
+  std::vector<Track> tracks; // in-path + non-in-path
+  std::optional<LaneModel> lane; // present if computed this tick
+};
+Justification/usage
+                                    * State choice [x,y,vx,vy]: Constant-velocity EKF state is the simplest stable model for TTC and BSD occupancy; it avoids over-fitting acceleration noise.
+                                    * P covariance: Required for Mahalanobis gating and for downstream confidence math; kept PSD for numerical stability.
+                                    * Id persistence: Satisfies FR35 and lets alerts reference the causal object (object_id).
+                                    * sources & conf_01: Make the fusion output self-describing—debuggable source and a single scalar for decision thresholds/FR7
+4.2.5 Alerts (FR70 Schema in C++)
+enum class AlertType : uint8_t { LDW, FCW, RCW, BSD };
+enum class Severity : uint8_t { info, warning, critical };
+
+
+struct Alert {
+  uint64_t t_ms; // wallclock for UI ordering (device also logs t_tick_ns)
+  std::string id; // unique (uuid or tick+track)
+  AlertType type; // {LDW, CW, BSD}
+  std::optional<std::string> direction; // "front"|"rear" for CW; omitted for others
+  Severity severity; // {info,warning,critical}
+  uint32_t ttl_ms; // expiry window relative to t_ms
+  nlohmann::json rationale; // CW:{ttc_s,in_path,closing}, LDW:{DEgo_Lane}, BSD:{zone,entering}
+  std::optional<uint32_t> object_id; // Track.id if applicable
+  std::vector<std::string> sources; // e.g., ["FrontRadar","FrontCam"]
+  std::string schemaVersion; // "v1.0"
+  float confidence; // final confidence [0,1]
+};
+Justification/usage
+                                    * Schema parity with FR70: Guarantees the on-device publisher and the mobile app share the same contract; schemaVersion ties into FR94 for versioning discipline.
+                                    * Direction is optional: Only CW needs front/rear; LDW/BSD omit it—compact and explicit.
+                                    * Rationale as JSON: Human-readable, test-assertable reason codes per alert type; essential for debugging and replay verification.
+                                    * ttl_ms: Enforces staleness rules in the consumer (main brain/app) and enables deterministic drop behavior during replays.
+Validation & invariants (applies to all structures in this section):
+                                    * Header.t_ingest_ns monotonic non-decreasing per mount; seq increments by 1.
+                                    * Units are meters, m/s, radians, degrees (where noted); no mixed units.
+                                    * Schema changes require versioning to keep backward and forward compatibility.
+4.3 Configuration Files (Locked YAMLs)
+These configuration sources must be the sole source of truth for mounts, timing, zones, and fusion nodes at runtimes. ALL extrinsics are measured AFTER all sensors and components are mounted on the actual Honda Civic.
+
+
+                                    * componentConfig.yaml (per-vehicle): mounts (extrinsics), timebase policy, zones (ego polygons), fusion params (M/N, χ², weights).
+                                    * Per-camera intrinsics YAMLs: K/D/R/P, distortion model, reprojection error; optional precomputed undistort maps.
+4.3.1 componentConfig.yaml (Authoritative)
+Note: values are currently placeholder only; all extrinsic values must be measured on-vehicle.
+vehicle: Civic_2012
+
+
+mounts:
+  # All xyz_m, rpy_deg are measured on-vehicle (ego origin O; +X fwd, +Y left, +Z up) [Note: the values are currently placeholder only]
+  FrontCam: { xyz_m: [0.85,  0.00, 1.35], rpy_deg: [0, -3.0,  0] }
+  SideCamL: { xyz_m: [0.30,  0.80, 1.10], rpy_deg: [0,  0.0,  5] }
+  SideCamR: { xyz_m: [0.30, -0.80, 1.10], rpy_deg: [0,  0.0, -5] }
+  RearCam: { xyz_m: [-1.10, 0.00, 1.10], rpy_deg: [0,  3.0,  0] }
+  FrontRadar: { xyz_m: [0.90,  0.00, 0.50], rpy_deg: [0,  0.0,  0] }
+  RearCornerRadarL: { xyz_m: [-0.90, 0.65, 0.50], rpy_deg: [0,  0.0, 12] }
+  RearCornerRadarR: { xyz_m: [-0.90,-0.65, 0.50], rpy_deg: [0,  0.0,-12] }
+  IMU: { xyz_m: [0.00,  0.00, 0.55], rpy_deg: [0,  0.0,  0] }
+  LiDAR2D: { xyz_m: [0.20,  0.00, 1.30], rpy_deg: [0,  0.0,  0] }
+
+
+cameras:
+  FrontCam: { intrinsics_file: calibration/front.yaml, fps: 30, undistort: true }
+  SideCamL: { intrinsics_file: calibration/sideL.yaml,  fps: 30, undistort: true }
+  SideCamR: { intrinsics_file: calibration/sideR.yaml,  fps: 30, undistort: true }
+  RearCam:  { intrinsics_file: calibration/rear.yaml,   fps: 30, undistort: true }
+
+
+radars:
+  FrontRadar: { fov_deg: 120, max_range_m: 150 }
+  RearCornerRadarL: { fov_deg: 120, max_range_m:  70 }
+  RearCornerRadarR: { fov_deg: 120, max_range_m:  70 }
+
+
+imu: { rate_hz: 100 }
+lidar2d: { spin_hz: 10 }   #pipeline bypass if absent
+
+
+time:
+  fusion_hz: 20
+  max_skew_ms: 5
+  buffer_ms: 150
+  late_drop_ms: 100
+  warmup_ticks: 40
+  clock_source: MONOTONIC_RAW
+  drift_ppm_warn: 50
+
+
+zones:
+  bsd:
+    rear_quarter_length_m: 6.0
+    lateral_offset_m: 0.7
+    height_ignore: true
+  in_path:
+    lane_expand_m: 0.3
+    lookahead_m: 60
+
+
+fusion_params:
+  mn_confirm: { M: 3, N: 5 }
+  maha_gating_chi2_2d: 5.99
+  source_weights: { camera: 0.6, radar: 1.0, lidar2d: 0.25 }
+
+
+Validation rules (@ load time):
+                                    * mounts.*.xyz_m length=3 (meters), rpy_deg length=3 (degrees).
+                                    * All required mounts present except LiDAR2D (optional).
+                                    * time.fusion_hz == 20, max_skew_ms ≤ 5, buffer_ms ≥ late_drop_ms.
+                                    * fusion_params.mn_confirm.M ≤ N and both > 0.
+                                    * maha_gating_chi2_2d == 5.99 (χ²(2) 95% gate).
+                                    * source_weights.radar ≥ camera ≥ lidar2d (default policy; warn if violated).
+                                    * Reject file if any required key is missing (FR94).
+
+
+4.3.1.1 On‑Site/On-Vehicle Measurement Process (to fill xyz_m & rpy_deg)
+Ego frame: origin O at midpoint of rear wheel contact patches on level ground; +X forward, +Y left, +Z up.
+For each sensor:
+                                    1. Reference point: lens center (cams), antenna face center (radars), board center (IMU), spin axis (LiDAR).
+                                    2. Ground projection: plumb bob to mark point P on the floor beneath the reference.
+                                    3. Positions (m):
+                                    * x = signed distance from O to P along centerline (+ forward)
+                                    * y = signed perpendicular distance from centerline to P (+ left)
+                                    * z = vertical distance floor→reference (laser level)
+                                    4. Orientations (deg) using a digital angle gauge on a flat plate aligned to the sensor's forward axis:
+                                    * yaw (about Z) vs. centerline (left = +)
+                                    * pitch (about Y) vs. level (down = −)
+                                    * roll (about X) vs. level (left side up = +)
+                                    5. Calibrate & refine:
+                                    * Cameras: intrinsics + extrinsics (Charuco/AprilTag); target reprojection error <0.5 px.
+                                    * Radars: dynamic boresight yaw via straight‑road runs & overtakes; aim +/-1.5°.
+                                    * Update YAML with calibrated values; keep photos and a short report.
+4.3.2 Per-Camera Intrinsics YAMLs (One File Per Camera)
+Scope: One YAML per camera holding intrinsics/undistortion metadata only; extrinsics (T_sensor→ego) remain in componentConfig.yaml under mounts.
+
+
+Generic per-camera YAML (locked for now, but could change depending on the n model of camera):
+schema_version: 1.0
+camera_name: <FrontCam|SideCamL|SideCamR|RearCam>
+serial: <vendor-serial-or-tag>
+calibration_date: <YYYY-MM-DD>
+calibrator: <name-or-script>
+image_width: <px>
+image_height: <px>
+distortion_model: <plumb_bob|equidistant>
+
+
+camera_matrix: { rows: 3, cols: 3, data: [ <fx>,0,<cx>, 0,<fy>,<cy>, 0,0,1 ] }
+distortion_coefficients: { rows: 1, cols: <5|4>, data: [ ... ] }
+rectification_matrix: { rows: 3, cols: 3, data: [1,0,0, 0,1,0, 0,0,1] }
+projection_matrix: { rows: 3, cols: 4, data: [ <fxp>,0,<cxp>,0, 0,<fyp>,<cyp>,0, 0,0,1,0 ] }
+
+
+reprojection_error_px: <float>   # target < 0.5 px
+calibration_target:
+  type: <charuco|chessboard>
+  squares_x_or_cols: <int>
+  squares_y_or_rows: <int>
+  square_length_m: <float>
+  marker_length_m: <float_if_charuco>
+
+
+undistort:
+  enabled: true
+  map1_path: calibration/maps/<camera>_map1.yml
+  map2_path: calibration/maps/<camera>_map2.yml
+
+
+4.4 Threads & Queues
+Why this structure: We read many sensors at once and still need a steady 20 Hz output. Each sensor (or model) runs in its own thread and passes data through lock‑free SPSC queues. Queues are pre‑sized, so memory is predictable and drops are visible. A single 20 Hz tick thread then picks the latest sample ≤ t_tick, enforcing ≤5 ms skew, 150 ms buffer, and 100 ms late‑drop. Optional sources (only the LiDAR2D) simply don’t start a thread, so the tick logic doesn’t change. The result: parallel capture/inference, with deterministic alignment, fusion, and decisions.
+4.4.1 Queues (Lock‑Free SPSC, Preallocated)
+                                    * Q.Cam.FrontCam.Frame        : CameraFrame  (cap 8)
+                                    * Q.Cam.RearCam.Frame        : CameraFrame  (cap 8)
+                                    * Q.Cam.SideCamL.Frame        : CameraFrame  (cap 8)
+                                    * Q.Cam.SideCamR.Frame        : CameraFrame  (cap 8)
+                                    * Q.Det.FrontCam                : DetBatch (cap 8)
+                                    * Q.Det.RearCam                : DetBatch (cap 8)
+                                    * Q.Det.SideCamL                : DetBatch (cap 8)
+                                    * Q.Det.SideCamR                : DetBatch (cap 8)
+                                    * Q.Radar.FrontRadar                : RadarTargets (cap 8)
+                                    * Q.Radar.RearCornerRadarL          : RadarTargets (cap 8)
+                                    * Q.Radar.RearCornerRadarR          : RadarTargets (cap 8)
+                                    * Q.IMU                                     : ImuSample (cap 32)
+                                    * Q.LiDAR                                   : LidarDetections (cap 4)
+                                    * Q.Tick.Fused                              : FusedFrame (cap 4)
+                                    * Q.Tick.Alerts                             : std::vector<Alert> (cap 4)
+4.4.2 Threads (Producers → Consumers) [25]
+                                    * T.Cam.Front.Capture         → Q.Cam.FrontCam.Frame
+                                    * T.Cam.Rear.Capture          → Q.Cam.RearCam.Frame
+                                    * T.Cam.SideL.Capture        → Q.Cam.SideCamL.Frame
+                                    * T.Cam.SideR.Capture        → Q.Cam.SideCamR.Frame
+                                    * T.Infer.Front  : Q.Cam.FrontCam.Frame  → undistort+preproc+TRT+DNN‑fallback+NMS → Q.Det.FrontCam
+                                    * T.Infer.Rear  : Q.Cam.RearCam.Frame   → … → Q.Det.RearCam
+                                    * T.Infer.SideL  : Q.Cam.SideCamL.Frame  → … → Q.Det.SideCamL
+                                    * T.Infer.SideR  : Q.Cam.SideCamR.Frame  → … → Q.Det.SideCamR
+                                    * Each owns one TRT engine/context + CUDA stream.
+                                    * T.Radar.Front  → Q.Radar.FrontRadar
+                                    * T.Radar.RearCornerL → Q.Radar.RearCornerRadarL
+                                    * T.Radar.RearCornerR → Q.Radar.RearCornerRadarR
+                                    * T.IMU  → Q.IMU
+                                    * T.LiDAR → Q.LiDAR (only started if LiDAR present; otherwise absent; policy gating <20 kph)
+                                    * T.Tick20Hz (Fusion+Decision) consumes at each tick (≤5 ms skew, D‑002): Q.Det.FrontCam, Q.Det.RearCam, Q.Det.SideCamL, Q.Det.SideCamR, Q.Radar.FrontRadar, Q.Radar.RearCornerRadarL, Q.Radar.RearCornerRadarR, Q.IMU (interpolated), Q.LiDAR (if present & <20 kph) → produces Q.Tick.Fused and Q.Tick.Alerts.
+                                    * T.Logger/Replayer taps all queues; in replay, replaces capture/poll threads by pushing recorded samples with original t_ingest_ns.
+4.5 Stages (Expanded) + Parallelism
+4.5.1 Stage A — Ingest & Timestamp (Parallel)
+Responsibility: Get raw samples from each physical device, stamp them with a timestamp (authoritative), and feed it into the correct per-sensor queue. This stage is where we know the timing and health per sensor. All threads will capture/poll from device SDKs and dump outputs + timestamp into the correct queue.
+
+
+Steps:
+                                    1. Decode/grab raw data: Then stamp it with a Header (recall {t_ingest_ns, mount, seq, healthy})
+                                    2. For Cameras: Fix resolution from intrinsics measured in the respective YAML file; push CameraFrame to the queue.
+                                    3. For Radars: Parse points or targets; IMU at ~100Hz; And LiDAR is active.
+
+
+Produces: CameraFrame, RadarTargets, ImuSample, LidarDetections (each with Header).
+4.5.2 Stage B — Camera Preproc + Inference (Parallel: 4 Threads/4 CUDA Streams)
+Responsibility: This stage turns the raw camera frames into clean, normalized detections (detections are found with the ONNX model file previously trained + OpenCV) that are ready for fusion. Each camera and thread runs independently, so a slower camera won’t stall others. This stage takes Q.Cam.*.Frame (all camera frames from the queue) and outputs all detections into Q.Det.*.
+
+
+Steps:
+                                    1. Load undistort maps once, and cv::remap each frame.
+                                    2. Resize/letterbox + normalize (manifest mean/std) → TensorRT enqueueV2(stream). If TRT fails, OpenCV DNN is the fallback.
+                                    3. OpenCV NMS → DetBatch{Header, dets}
+
+
+Produces: DetBatch per camera at camera FPS.
+4.5.3 Stage C — Radar Processing (Parallel: 3 Threads)
+Responsibility: This stage converts the vendor radar frames into the stable structure we defined RadarTarget + RadarTargets (so we don’t rely on any proprietary vendor hardware+software combo). Each object carries a range and Doppler for gating/TTC. Measurements should be kept in the radar frame until fusion. Input = vendor frames (radar).
+
+
+Steps:
+                                    1. Parse → cluster to object‑like targets with {range, az, radial_vel, rcs, σ*}. Kept in the radar frame until fusion.
+
+
+Produces: RadarTargets for Front, RearCornerL, and RearCornerR.
+4.5.4 Stage D — LiDAR Processing (Optional, Parallel)
+Responsibility: This stage is skipped/disabled if LiDAR is not present. If present, extract near-field clusters for BSD confidence at low speeds (<20kph). Never acts as the sole trigger for an alert. Turn off/disable when V_ego > 20kph. Input = LiDAR scans.
+
+
+Steps:
+                                    1. Filter ground/noise.
+                                    2. Cluster near-fields/points.
+                                    3. Producer pauses when V_ego > 20kph.
+                                    4. Convert to detections. Note: LiDAR is never the sole trigger (only boosts BSD confidence).
+
+
+Produces: LidarDetections gated by speed policy.
+4.5.5 Stage E — 20 Hz Alignment & Fusion/Tracking (Single Thread for Determinism)
+Responsibility: This stage is the deterministic single thread that aligns all sensor data to the current tick. It also associates all measurements, tracks Track objects using EKF, computes the lane model, estimates ego speed, and emits a consistent snapshot. Inputs = taken at each tick from queues.
+
+
+Steps:
+                                    1. Transform ALL to ego: radar polar {r,az}→(x,y); camera dets → bearing corridors via camera extrinsics; LiDAR {r,θ}→(x,y).
+                                    2. Associate & gate: Mahalanobis gate χ²(2) =< 5.99 (FR34b) between radar targets and camera hypotheses; LiDAR (if present) gates to nearby tracks with low weight.
+                                    3. M/N confirmation: require M=3 out of N=5 before promoting to a live track.
+                                    4. EKF update: Update state [x,y,vx,vy] with constant‑velocity model. And source‑aware confidence per fusion_params.source_weights.
+                                    5. Lane Model v1: FrontCam → undistort → BEV → thresholds/edges → RANSAC poly fit → {lane_width, curvature, quality} → gives lane model.
+                                    6. Ego speed: IMU+GPS.
+                                    7. FINAL: Outputs FusedFrame{t_tick_ns, tracks[], lane} → Q.Tick.Fused.
+
+
+Produces: FusedFrame once per tick (20 Hz) with tracks + lane model.
+4.5.6 Stage F — Decision Logic (Inside Tick Thread, After Fusion, Stage E)
+Responsibility: This stage converts the fused states from Stage E into the alerts that will be sent to the user. It takes as inputs = FusedFrame, zones, fusion_params, V_ego.
+
+
+Steps (alerts to detect):
+                                    1. CW-Front/Rear: select in‑path tracks (zones.in_path + lane); TTC = dist/(V_ego−V_obj); if not closing → ∞; trigger when TTC < threshold and holds for N/M; set direction
+                                    2. LDW: use D_Ego‑Lane; activation>clearing; N/M; 2 s cooldown; suppress on “Lane Unavailable”
+                                    3. BSD: test BSD polygons; 1s cooldown; suppress when V_ego < 1 m/s for 5 s; LiDAR (if present & <20 kph) may raise confidence only.
+                                    4. Each alert includes all FR70 schema fields.
+
+
+Produces: std::vector<Alert> per tick, ready for the main brain/app.
+4.5.7 Stage G — Publish / Main‑brain handoff
+Responsibility: Deliver tick outputs to consumers without blocking the tick. Publish FusedFrame and Alerts on the respective alerts queues/topics. 
+                                    * A small publisher drains Q.Tick.Fused and Q.Tick.Alerts and exposes topics /fused and /alerts for the main brain (Hexagonal main brain) to consume per tick.
+
+
+4.6 Pipeline Architecture Diagram
+  Fig 5: Pipeline architecture diagram
+High Resolution Public Copy: [https://drive.google.com/file/d/1PbZWhErmNnTkfqudCp9BKDnUUFFqYQnS/view?usp=sharing]
+4.7 Toolset for Jetson Board
+                                    * OpenCV 4.12.0 — release: [26]
+                                    * Ultralytics YOLO (export to ONNX) — [27]
+                                    * NVIDIA JetPack 6.2 (TensorRT 10.3) — [28]
+4.8 Main Brain Feature Set & Rationale
+4.8.1 Scope and Role
+The Main Brain part of the software will run on the Jetson board. It consumes the fused perceptions outputs and alerts decisions from the pipeline previously discussed. It also ensures freshness, lifecycle rules, and publishes alerts and status to the phone over BLE.
+
+
+Note: This part of the software does NOT render maps, run heavy ML, or compute phone GPS (these functionalities are delegated to the pipeline and mobile application)
+This is to best align with:
+                                    * FR50-63 having the decision/fusion already made ahead in the pipeline
+                                    * FR70-76 publishing method and constraints
+                                    * FR71/78 regarding BLE pairing (and potential Wi-Fi Direct pairing)
+
+
+4.8.2 Inputs, Contracts, and Constraints
+Queues (authoritative):
+                                    * Q.Tick.Alerts: std::vector<Alert> at 20 Hz. Read-only, SPSC.
+                                    * Q.Tick.Fused: FusedFrame at 20 Hz. Read-only, SPSC.
+Alert schema (FR70):
+                                    * Preserve the semantics and fields from the alert when sending it over BLE
+Timebase:
+                                    * 20 Hz; <= 5ms skew, warm-up period
+Phone UX/GPS (FR72–73, FR74):
+                                    * All indicators are on the phone.
+                                    * Maps and GPS live solely on the phone.
+
+
+4.8.3 Feature Set & Justification
+This section outlines the required feature set for the Main Brain part of the software architecture. Features/functionalities needed were derived from functional requirements, project description and the architecture of the pipeline and mobile application.
+4.8.3.1 F.01 Tick Intake and Freshness
+                                    * Behavior: Pull all alerts and fused frames at 20 Hz from queues. Zero-copy reads.
+                                    * TTL rule: Drop any alert where now_ms - alert.t_ms > alert.ttl_ms.
+                                    * Why: FR70 requires time-bounded messages; TTL at the consumer is the highest leverage single point of truth. It prevents stale bursts after reconnect and keeps replays deterministic.
+4.8.3.2 F.02 Resend Cache (On Reconnect)
+                                    * Behavior: A ring buffer holds the latest 40 ticks of alerts (around 2 seconds). The ring buffer should replay non-expired alerts on reconnect. 
+                                    * TTL rule: TTL rule still applies; Drop any alert where now_ms;  alert.t_ms > alert.ttl_ms.
+                                    * Why: Preserves the user’s context in the case of transient drops without violating TTL.
+4.8.3.3 F.03 BLE Transport (FR71/78)
+                                    * GATT Services: ADAS Core with four characteristics (Characteristic = named data endpoint inside a BLE service; holds bytes, properties, and metadata):
+                                    * ADAS_AlertStream (Notify): one-way, low-latency alert delivery fits Notify; 20 Hz push (if Q.Tick.Alerts is not empty).
+                                    * ADAS_Status (Notify/Read): 1 Hz push; pull for on-demand.
+                                    * ADAS_Command (Write): infrequent app→device control.
+                                    * ADAS_Pair (Write/Notify): setup/pairing endpoint.
+                                    * Phone connects over BLE
+                                    * App writes the 4-digit code to the ADAS_Pair characteristic
+                                    * Then the device compares it with the code on board and notifies with the result:
+                                    * Match → “ok” store this phone as an allowed device.
+                                    * No match → “deny”
+                                    * MTU negotiation: On connect, ATT_MTU is negotiated by the stack. Code queries the granted MTU and fragments payloads accordingly.
+                                    * Example: say MTU = 100 bytes. Then the usable payload_size = MTU - 7 bytes
+                                    * So for a 250-byte alert, it would be sent as 93 bytes, 93 bytes, 64 bytes.
+                                    * Encoding: CBOR on the wire, JSON in logs/dev tools.
+                                    * Why CBOR on wire?
+                                    * CBOR (Concise Binary Object Representation) is a compact form of JSON (RFC 8949 [29])
+                                    * Shown to cut bytes by 30-50% compared to JSON.
+                                    * Retain the JSON on each end for human readability (debugging).
+4.8.3.4 F.04 Status Publisher (FR75–76)
+                                    * Payload (sent every 1 Hz): { t_ms, link_state, cam_fps, model_fps, latency_ms_p50_p95, temp_C, disk_free_GB, mode: live|replay, ttl_drops_total }
+                                    * Why: First hardware proof and fields for future debugging. Low frequency to avoid collisions with more important alerts.
+4.8.3.5 F.05 Alert Output Logging for Latency (FR80–81/83)
+                                    * Record at publish: { t_ms_out, alert_ids[], mtu_used, fragments_emitted, retries }
+                                    * Why: The pipeline already takes care of replaying upstream queues. This output log exists only to measure link latency, serialization, and fragmentation.
+4.8.3.6 F.06 Minimal Command Set (App → Board)
+                                    * Essentials: Ping, Ack
+                                    * Admin/Dev: ForgetAllPairings, LoadReplay, StartReplay, ExitReplay.
+                                    * Dropped: User MuteOn/Off and RequestLogs.
+                                    * Why drop mute: App can mute its own audio/visuals (FR72). Avoids split-brain states.
+                                    * Why drop log pull: In practice, logs will be pulled from the board directly (since not a commercial product).
+4.8.3.7 F.07 Replay Mode (Minimal)
+                                    * Scope: Publish alerts from an alert log to the phone to validate the BLE link and app UX without running the pipeline. Should be disabled if replay is playing on Pipeline. Only for replaying or testing interactions between the Main Brain & the Mobile App.
+                                    * Why: Pipeline replay covers algorithmic correctness; this covers transport/UI. Keeps live vs replay explicit via mode to avoid confusion (FR75).
+4.8.3.8 F.08 Security Check (FR78)
+                                    * Pairing: Done with 4-digit console code. Link once, save device. Require basic encryption after linking. 
+                                    * ForgetAllPairings: if the command is received, all saved devices in the list are purged.
+                                    * Why: Pipeline replay covers algorithmic correctness; this covers transport/UI. Keeps live vs replay explicit via mode to avoid confusion (FR75).
+4.8.3.9 F.09 Failure Handling
+                                    * BLE disconnects: Keep consuming and logging alerts; hold 40 ticks of alerts in the ring buffer; exponential backoff reconnect attempts with (starts at 200ms, capped at 5 seconds)
+                                    * Reconnect backlog handling: Send non-expired alerts; drop expired first, and increment respective counters.
+                                    * MTU changes mid-session: Update MTU and repack next tick (to fit the new Maximum transmission unit size).
+                                    * Invalid command/schema: NACK via Ack with code; log and ignore.
+                                    * Send an acknowledgement via Ack with ok: false and error detail or code.
+                                    * Thermal: Raise status.thermal=warning at vendor threshold; if critical, throttle status to 0.2 Hz and shut off alert transmission and preserve alerts.
+                                    * Disk space low: Flag in status heartbeat; display on mobile UI.
+                                    * Serialization failure: Retry once; then drop that alert tick if it fails again. Increment serialize_fail_total.
+                                    * Ring Buffer Timeliness Rule: Time-bounded ring buffer that pops the oldest ticks without blocking; count evictions by incrementing the respective counter.
+                                    * Watchdog: Pet (send a watchdog keep alive tick) on successful publish or idle loop; on SIGTERM, stop readers, flush, unregister GATT, exit (FR91–96).
+4.8.4 Metrics for QA of Feature Set (FR-Acceptance)
+This section outlines the counters, gauges (dynamic env variables), and timers that the feature set will require.
+
+
+Counters:
+                                    * alerts_sent_total: counts # of alerts serialized and accepted by BLE
+                                    * fragments_emitted_total: counts # of fragments emitted after MTU packing
+                                    * fragments_retried_total: counts # of fragments queued for retransmission.
+                                    * reconnects_total: count # of GATT reconnect events
+                                    * ttl_drops_total: count # of alerts dropped by TTL filter
+                                    * status_publishes_total: count # of status notifications sent
+
+
+Gauges:
+                                    * mtu_active_bytes: the current negotiated value of the MTU of maximum bytes on the link.
+                                    * ring_depth_alerts: counts how full the ring buffer is.
+
+
+Timer:
+                                    * latency_ms: latency measure from dequeue → final fragment submitted; track p50/p95.
+                                    * Example: Use for acceptance guarding p95 (latency_ms < 40 ms)
+
+
+4.9 BLE Alert Framing & Fragmentation
+The purpose of this section is to outline how the Main Brain packages and sends alerts over BLE so the phone gets complete, ordered data with low delay. Here, we define the frame header, CBOR payload, fragmentation rules, and send and receive steps to keep the link reliable.
+4.9.1 Definitions
+                                    * Tick: 20 Hz decision ticks (every 50 ms)
+                                    * Alert batch: All alerts from one tick (50 ms period) – ticks 0..k
+                                    * Tick payload: CBOR payload that wraps one tick’s alerts
+                                    * Frame: One BLE Notify value = Header (4B) + Slice of payload (rest of Bytes)
+                                    * Usable bytes: usable = ATT_MTU - 7 (since 3 B ATT/GATT + 4 B header)
+4.9.2 Frame Header (4 bytes)
+Frame header structure locked in C++:
+struct Header {
+  uint16  tick_id;   // wraps mod 65536 – wraps after around an hour
+  uint8   seq_no;    // 0..seq_max
+  uint8  seq_max;   // 0-based max; fragments per tick = seq_max+1
+}
+                                    * tick_id: floor(t_ms / 50ms) mod 65536. Monotonic per boot.’
+                                    * seq_no: order/sequence of the tick starting from 0; gives the order packets that need to be reassembled in.
+                                    * seq_max: 0-based index of the last fragment for the tick. Total fragments = seq_max + 1.
+
+
+Note: Rename struct to BLEHeader when creating to avoid collision with the Header struct previously defined. The header in this section will refer to the BLEHeader in practice.
+4.9.3 Tick Payload (variable length)
+Tick payload structure locked in C++ (logical schema before CBOR encoding):
+struct TickPayload {
+  uint16_t tick_id;  // same meaning as header
+  uint8_t  seq_max;  // 0-based max; fragments per tick = seq_max+1
+  uint8_t  n;  // number of alerts in this tick (0..k)
+  std::vector<Alert> alerts; // length == n; FR70 alert objects
+};
+                                    * tick_id: floor(t_ms / 50ms) mod 65536. matches Header.tick_id
+                                    * seq_max: matches Header.seq_max; included for integrity checks.
+                                    * n: count of alerts bundled into this tick payload
+                                    * alerts[]: the n alerts bundled for this tick
+
+
+A Slice is a chunk of the CBOR TickPayload. Slices are never sent without an attached Header. Many Slices can be sent under the same header as long as CBOR(TickPayload) < slice_cap in bytes, and the payload isn’t full (send under 1 single frame).
+
+
+4.9.4 Coalescing policy
+The goal of this policy is to minimize the number of frames per tick while delivering all relevant alerts.
+                                    * Default: Put all non-expired alerts of the tick into ONE tick payload with a header and send through the BLE link.
+                                    * Encode all alerts together as one TickPayload
+                                    * Send it. If the payload is bigger than slice_cap, it will be split into multiple frames automatically.
+                                    * Oversized case (extremely rare): If any single alert is oversized, send only that alert this tick. Condition to check if oversized alert: len(alert_CBOR) > slice_cap.
+                                    * All other alerts from the same tick are deferred by one tick (50 ms).
+                                    * The oversized alert will still be split across multiple frames; the header gives seq_no/seq_max for reassembly.
+                                    * Send one oversized alert per tick, largest first.
+                                    * Empty tick: If there are no alerts, send nothing.
+                                    * TTL first: Drop expired alerts before coalescing.
+                                    * On MTU change: Recompute slice_cap on the next tick only
+
+
+4.9.5 Sending Process (each tick @ 20 Hz)
+                                    1. Drain queues and Filter
+                                    1. Read these tick alerts.
+                                    2. Drop any alerts where now_ms - t_ms > ttl_ms
+                                    3. If none, send nothing
+                                    2. Compute sizes
+                                    1. Read current ATT_MTU from stack → slice_cap = ATT_MTU - 7 (accounting for header).
+                                    2. CBOR-encode each alert to know len_i in bytes.
+                                    3. Choose payload (coalescing step)
+                                    1. If any len_i > slice_cap → oversized case: payload = that single alert (pick the largest if several). Defer other alerts one tick.
+                                    2. Else → payload = ALL remaining alerts
+                                    4. Encode tick
+                                    1. Build TickPayload{tick_id, n, alerts[...]}.
+                                    2. CBOR-encode to contiguous buffer B.
+                                    5. Fragment
+                                    1. frag_count = ceil(len(B) / slice_cap).
+                                    2. For i = 0 .. frag_count-1:
+                                    1. Header = {tick_id, seq_no=i, seq_max=frag_count-1}.
+                                    2. Slice = B[i*slice_cap : min((i+1)*slice_cap, len(B))]
+                                    3. gatt_notify(ADAS_AlertStream, Header||Slice).
+                                    6. After sending
+                                    1. Record metrics (alerts sent, fragments, latency).
+                                    2. Store the exact CBOR tick payload B plus tick_id in a small ring for reconnect, resend.
+                                    7. If BLE disconnects mid-tick
+                                    1. Stop sending immediately. Do not retry fragments.
+                                    2. Keep payload B in the ring for resend after reconnect with respect to TTL expiry.
+
+
+Each fragment is sent as Header{tick_id, seq_no, seq_max} || Slice_i. The header repeats on every fragment.
+4.10 Hexagonal architecture for Main Brain [30]
+4.10.1 Justification (best-fit)
+The desirable architectural characteristics/goals of the Main Brain are:
+                                    * Low latency (FR70-76)
+                                    * Determinism (FR80-81/83-96)
+                                    * Reliability (FR70/75–76/91–96)
+                                    * Modifiability (FR71/78)
+                                    * Testability (FR80–81)
+The Hexagonal architecture best meets these goals by using a Reactor that owns BLE I/O to cut queuing and send frames immediately; a single tick payload per 50 ms with fixed rules for TTL, coalescing, and fragmentation (slice_cap = ATT_MTU - 7) so identical inputs yield identical frames; a resend ring and explicit reconnect budget so brief drops recover within ttl_ms, plus watchdog pet on progress for safe restarts; ports that isolate transport, storage, time, and pairing so Wi-Fi Direct or different BLE stacks swap in without touching domain logic; and pure-core logic behind small interfaces so we can unit-test TTL, packing, and fragmentation with fake TickSource/Time/Transport, achieving hardware-free, deterministic tests.
+4.10.2 Alternatives rejected
+                                    * Layered Architecture: Transport callbacks bleed into the domain. Harder to swap BLE to Wi-Fi. Determinism suffers under I/O contention. Clearly less applicable to desired ACs.
+                                    * Microservices Architecture: Extra schedulers and IPC add jitter and failure modes on a single board. No upside with just two external interfaces (queues + BLE). So again, it is clearly less applicable to the desired ACs for the main brain.
+
+
+4.10.3 Style overview and adaptation to context
+Hexagonal = “ports and adapters” around a small core. Reactor = event loop for handling I/O. We are deciding to implement the core as a single class to match team size and the expected scope of the Main Brain. In researching this pattern, often the “core” is split into different smaller parts. Given that the expected scope of the Main Brain is smaller than typical projects using this pattern, we’ve opted for a leaner approach reducing code complexity, but making maintainability a bit more difficult (since it’s a small section, if a rework is required, it may take a tiny bit longer to refactor with the change, but not a significant amount of extra time). 
+                                    * Core (one class): Implements TTL filter, coalescing, CBOR encoding, fragmentation, resend, and metrics. No BLE APIs, no files, no system clocks inside. All external effects go through ports.
+                                    * Ports (interfaces): Inbound (ticks, time, commands). Outbound (transport, status, logs, pair store, watchdog). Keep them tiny. They define what the core needs, not how it’s done (interfaces)
+                                    * Adapters: Implementations of: BLE GATT transport, SPSC queue reader, filesystem logger, pairing store, Linux watchdog.
+                                    * Reactor: A small event loop that owns the transport and timers. It reads app commands, handles connects/MTU changes, and drains a send queue.
+Data flow overview:
+Q.Tick.Alerts → TTL filter → coalesce per tick → CBOR encode → fragment into frames Header{tick_id,seq_no,seq_max} || Slice → ADAS_AlertStream (Notify).
+                                    * In parallel: 1 Hz Status to ADAS_Status. Ring buffer caches recent CBOR TickPayloads for reconnect replay within TTL.
+4.10.4 Ports and adapters (why each is required)
+Inbound ports:
+                                    * ITickSource: Reads Q.Tick.Alerts at 20 Hz. Isolates SPSC specifics (behind interfaces) and makes tick intake mockable. Ties to FR50–63 context.
+                                    * ITime: now_ms(), tick_id(). Single on-board clock for TTL and headers. Needed for FR70 freshness and deterministic replay
+                                    * ICommands: delivers parsed commands (Ping/Ack/admin). Keeps BLE parsing outside the core. Aligns with FR71/78.
+Outbound ports:
+                                    * ITransport: att_mtu_bytes() and sendFrame(tid,seq,seq_max,slice). Uses BLE today; Wi-Fi later is a drop-in adapter. Critical for FR71 link behavior.
+                                    * IStatusSink: Publishes 1 Hz statuses. Keeps debug HUD details out of the core.
+                                    * ILogSink: writes outputted records {t_ms_out, alert_ids[], mtu_used, fragments_emitted, retries} for latency/frag analysis
+                                    * IPairStore: allow/forget device tokens. Satisfies FR78 without coupling to BLE storage.
+                                    * IWatchdog: pet/disable watchdog temporarily. Implements FR91–96 clean restart behavior safely
+Adapters:
+                                    * BLEGattTransport (GATT Notify/Write, MTU callbacks, reconnect).
+                                    * SPSCQueueTickSource (lock-free reads from Q.Tick.*)
+                                    * FsLogger (binary output packet log).
+                                    * PairStorage (store on-disk an allowlist of devices)
+                                    * LinuxWatchdog (utilize chosen Linux distros watchdog and keep it alive/pet after each outputted record)
+4.10.5 Core components (inside the single core class)
+The class groups single responsibility, single purpose methods. They are methods, not separate modules or classes.
+4.10.5.1 Methods/Functions required:
+                                    * ttlFilter(..): drops now_ms − t_ms > ttl_ms. Single point of freshness (FR70).
+                                    * coalesce(...): one TickPayload per tick. If any len(alert_CBOR) > slice_cap, send that alert alone; defer others by one tick. Otherwise, bundle all non-expired alerts (same logic as described in the coalesce policy).
+                                    * toCbor(..): FR70 schema converted to → CBOR bytes (on-wire); JSON only for logs/tools/human viewing.
+                                    * fragmentAndSend(...): slice_cap = att_mtu_bytes() − 7; frag_count = ceil(len(B)/slice_cap); for each i: send Header{tick_id,i,frag_count−1} || Slice_i.
+                                    * cache(...): store {tick_id, CBOR TickPayload, t_ms} in a small ring (40 ticks long) for reconnect replay; purge by TTL rule.
+                                    * buildStatus(...): { t_ms, link_state, cam_fps, model_fps, p50/p95_latency_ms, temp_C, disk_free_GB, mode, ttl_drops_total }
+                                    * onCommand(...): Ping/Ack and admin (ForgetAllPairings, LoadReplay/StartReplay/ExitReplay). NACK via Ack{ok: false, code, msg} for invalids.
+                                    * Watchdog hook: pet on progress; do not pet on hang; graceful SIGTERM (FR91–96).
+                                    * Metric updates hook: Update counters, gauges, and timers respectively as previously described.
+4.10.6 Concurrency model
+                                    * Reactor thread (core): Owns ITransport, timers, reconnect budget, and command handling. Submits frames to BLE immediately. Applies resend pacing after reconnect.
+                                    * Worker A: 20 Hz Alerts: calls onTick(): read → TTL → coalesce → CBOR → fragment → send → cache
+                                    * Worker B: 1 Hz Status: builds status and calls IStatusSink.publish(...)
+
+
+Ownership rules (must be followed):
+                                    * Only the Reactor touches ITransport.
+                                    * Workers allocate immutable buffers, then hand off to Reactor
+                                    * No shared mutable state across threads; no back-pressure to SPSC queues.
+                                    * MTU changes update slice_cap next tick only
+4.10.7 Physical code map:
+/core
+  MainBrainCore.{hpp,cpp}   // all pure logic methods above
+/ports
+  ITickSource.hpp  ITime.hpp  ICommands.hpp  ITransport.hpp   IStatusSink.hpp  ILogSink.hpp  IPairStore.hpp  IWatchdog.hpp
+/adapters
+  BLEGattTransport.{hpp,cpp}
+  SPSCQueueTickSource.{hpp,cpp}
+  FsLogger.{hpp,cpp}
+  PairStore.{hpp,cpp}
+  LinuxWatchdog.{hpp,cpp}
+/app
+  Reactor.{hpp,cpp}    // event loop, MTU/connect events, send budget, reconnect
+  Main.cpp             // DI, wiring, threads, config
+/tests
+  core_tests.cpp       // TTL edges, CBOR round-trip, MTU 23/185/247, oversize rule, deterministic frames
+  adapter_fakes.cpp    // fake transport/time/logger for deterministic tests
+
+
+
+
+  
+
+Fig 6: Hexagonal architecture UML component diagram
+High Resolution Public Copy: [https://drive.google.com/file/d/1KxH4tsEZ_xWIhCVUvrJkVt-jC52Y1aTr/view?usp=sharing]
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+Fig 7: Hexagonal architecture UML class diagram
+High Resolution Public Copy: [https://drive.google.com/file/d/1UUlPS3qExXUFU0SmHYxQp4wsQ6ENbBcg/view?usp=sharing]
+4.11 Artificial Intelligence
+4.11.1 System Overview and Objectives
+The Embedded AI and Computer Vision subsystem forms the intelligence core of the ADAS prototype, enabling the ability to acquire and apply knowledge/information. Its main objective is to identify dangerous scenarios and alert the user accordingly. This is done by processing data from multiple sensors, including cameras, Radar, GPS, and IMU. The identification of dangerous scenarios is done by an accurate perception of the vehicle’s surroundings to identify potential hazards. 
+More specifically, the sensor integration layer synchronizes raw data streams while the AI and Computer Vision layer focuses more on interpreting the data received from the sensors to extract environmental features for danger detection. The system’s sensors are fused to provide synchronized situational awareness under varying conditions from visual, spatial data. Specifically, lane detection, object detection, and tracking, as well as collision risk indication, are what this subsystem is extracting from the sensory data, which is then communicated to the mobile application subsystem to alert the user accordingly. This process will be integrated in a manner that allows for the easy addition of other sensors to the system; this will be reflected in the design of this subsystem. Sensor fusion of camera and radar has been shown to improve detection and tracking accuracy under adverse conditions using EKF-based systems [31].
+Lane detection will be implemented using a forward-facing RGB camera as its primary input, continuously capturing at 30 frames per second. A convolutional neural network (CNN) trained from annotated road imagery will perform lane segmentation by identifying lane markings and drivable areas. The system continuously estimates lane curvatures and offsets in the vehicle to accurately trigger lane-departure warnings when appropriate under varying conditions. Many recent works use CNNs for robust lane detection and segmentation under challenging environmental conditions [32].
+Object detection is the ability of the system to identify vehicles, pedestrians, and other obstacles. The model is trained on automotive datasets such as KITTI to ensure a high enough accuracy for traffic-related objects. Boxes digitally surround the identified objects to visualize the results of the subsystem. At times, certain conditions may affect the monocular camera to provide inaccurate results, which is particularly relevant in depth estimation for collision risk assessment. Fusing a monocular camera and radar (or LiDAR) is a common method to improve depth estimation and reduce errors [33], [34]. A Radar sensor is used in this case to provide accurate 3D positional data, while the camera provides visual context. These inputs will be fused to work hand-in-hand for the system to project the 3D depth points onto the 2D image pixels. This provides more accurate depth data to be used for collision prediction.
+4.11.2 Method of Implementation
+This subsystem’s goal is to provide an accurate and robust perception of the surroundings in real-time. More specifically, lane tracking, object detection, and depth estimation, along with collision risk assessment, are the major topics for this subsystem. The approach taken to tackle these topics involves integrating computer vision algorithms, sensor fusion techniques, and embedded AI optimization on the NVIDIA Jetson Nano. Real-world implementations of EKF / improved Kalman filter-based fusion between sensors have been demonstrated in works that target embedded or real-time systems [31]
+4.11.2.1 Lane Detection
+To design an accurate and robust lane detection algorithm, clean data collection and processing are necessary. This is done by initially computing the camera calibration matrix and distortion coefficients using a set of chessboard images. These are used to apply distortion correction to raw images. The undistorted images are processed through color transforms and gradients to create a thresholded binary image, and then a perspective transform to rectify the binary images to a bird's-eye view is applied. Lane pixels are then detected and fit to find lane boundaries to determine the curvature of the lane and vehicle position with respect to the center. The detected lane boundaries are then warped back onto the original image, and the output visually displays lane boundaries showing numerical estimation of lane curvature and vehicle position. Deep learning-based lane detection with spatial CNN / dual constraints has specifically been shown to improve accuracy under occlusion and poor lighting [32].
+4.11.2.2 Object Detection
+Similar to lane detection, object detection needs accurate data collection and a well-trained object detection model to perform dataset augmentation to then increase resilience to occlusions, varying lighting, and extreme weather conditions. Sensor fusion is also used to fuse 2D object detection with Radar depth data to generate and detect more accurate 3D object positions and distances. Not only do the Radar measurements give depth information, but it is also used to improve velocity estimation and detection reliability in low-visibility conditions. A multi-sensor Kalman filter is paired with the subsystem for the fusion of sensors to track object motion, handle temporary occlusions, and reduce false positives. In fact, experimental results in works combining a monocular camera and radar in EKF or improved filtering show significantly reduced depth estimation error [33].
+4.11.2.3 Sensor fusion
+Sensor fusion is extremely useful for depth estimation and collision risk assessment. The sensor data is again used to be fused, creating a more accurate and reliable depth map. Radar is the primary sensor fused with the monocular camera to refine distance estimates, especially for fast-moving objects, as well as combined with a Kalman filter for accounting for sensor noise and latency.  Other sensors, such as Lidar, can easily be integrated to be included in the sensor fusion process, giving the system additional information, enhancing the overall functionality and reliability. Using this data, relative velocities and distances between the ego frame of the vehicle and the detected objects are calculated. More specifically, the Time-to-Collision for each tracked object is calculated, defining safety thresholds to trigger forward collision warnings (set at 2 seconds), and integrating uncertainty estimates to reduce false positives and prevent unnecessary alerts to the driver.
+This methodology ensures that this Embedded AI and Computer Vision subsystem will accurately detect lanes, track important objects, and provide real-time safety alerts.
+4.12 Mobile App
+This section will outline the mobile application design research for receiving and visualizing Bluetooth-enabled sensor data. The goal of this component is to deliver real-time sensory Bluetooth output data in a graphical user Interface (GUI). The research focuses on identifying suitable Bluetooth communication methods, programming languages for application logic, and strategies for mapping sensor data to a responsive GUI. The findings from this research will determine the design decision for the mobile application architecture to ensure seamless integration with the embedded programs.
+4.12.1 Programming Languages and Environment
+In this section, the candidate programming languages for developing the mobile application will be evaluated. The selected language must support reliable Bluetooth communication, handle real-time data, and be integratable with a GUI framework capable of portraying the surrounding environment and objects. Further criteria used to assess potential programming languages are based on other general requirements, such as platform capability, performance, integration with supported GUI frameworks, and possibly database frameworks, and ease of development. 
+4.12.1.1 Programming Language Selection
+The options evaluated for implementation were:
+Option 1:  Dart 
+Dart is a programming language modeled to be a modern interpretation of the programming language C [35]. The utilization of Dart in this instance is to support the Flutter framework. Flutter is a single code base service that delivers full cross-platform support for Android operating system devices, iOS devices, and even the web [36]. Dart, used with the Flutter framework, supports full cross-platform development for both Android and IOS and aligns well with live data visualization with its reactive model. It is also able to utilize Bluetooth functionality through third-party plug-ins. The disadvantage in using Dart with Flutter is, it is a generally unfamiliar language, and finding support for potential issues and bugs that arise may prove difficult.
+Option 2: Java
+Java is an object-oriented programming language where programs are built from classes [37]. Java was considered for its large community, helpful resources, and massive application programming interface (API) library, which contains many importable classes that can help with feature building on the app. Some of these APIs are Bluetooth-related and allow Bluetooth functionality in the application. The disadvantage of using Java was that, as a language, it is verbose, and the supported GUI frameworks were somewhat outdated. 
+Option 3: Kotlin
+Kotlin is a modern programming language created by JetBrains professionals that fixes Java’s verbosity based on best usage guidelines and developer experience. [38] Kotlin was officially supported by Google in 2017 and has an active community [38]. It is interoperable with Java and was designed to work side by side with Java, having access to all of Java’s libraries and frameworks [34]. As a result, Kotlin can utilize the same Bluetooth libraries offered to Java. The disadvantage of using Kotlin is that the support is smaller than that of Java, and it has far less cross-platform support for IOS.
+For the mobile application of the ADAS, the final verdict is to use Kotlin with snippets of Java incorporated with the system to achieve the desired application, as this structure has the most benefits with the least drawbacks.
+4.12.1.2 Integrated Development Environment
+Android Studio is the official integrated development environment (IDE) for building Android applications with Android-specific tools and workflows [39]. Due to the selection of Kotlin as the programming language, Android Studio was also selected as the IDE, as the application will be primarily Android native. Android Studio provides compatibility with Android’s Software development kits (SDK) and has an integrated build and workflow system [39]. The instant user interface (UI) rendering feedback ensures we can iterate dynamically and seamlessly on user interface designs, which is important for UI upscale when adding more features to the application [39].
+4.12.1.3 Build System 
+The build system used will be Gradle, as it is an open-source build automation system that uses a domain-specific language (DSL), which in our case is Kotlin,  to define how projects are built, tested, and packaged [40]. With the selection of our IDE being Android Studio, Gradle works in tandem and is built in as the standard build tool for Android applications. It offers Android-specific build types, product flavours, variant management, dependency resolution, and signing configuration [40]. Gradle provides automated continuous integration environments for Gradle scripts, which are essential for incremental development where mobile features will be tested, packaged, and deployed one at a time [40].
+4.12.2 Mobile Bluetooth Framework
+In the selection process for the Bluetooth communication framework, several options were considered that were dependent on the programming language and format of data being sent from the onboard device. The sensor data can be packaged and sent via Bluetooth through a stream of bytes, JavaScript Object Notation (JSON), Concise Binary Object Representation(CBOR), or a comma-separated value CSV) file, which all affect which Bluetooth framework would be used. Since the app is being developed with Kotlin, potential frameworks include Android’s native Bluetooth Application Programming Interface (API ), RxAndroidBLE, or Kable. The sensor data will be transferred as compressed JSON in CBOR format through Bluetooth Low Energy (BLE) channels due to how easily it can be parsed into JSON objects representing packets of alerts every tick. As a result, the team decided to use Android’s native Bluetooth API. The framework is capable of handling data deserialization and parsing in Kotlin and integrates seamlessly with Android Studio. 
+4.12.3 Mobile Architecture
+This section outlines the software architecture used to compose the application’s structure. The tasks handled by the application layer of the system include reception and management of real-time packaged CBOR Bluetooth data from the Jetson nano, alert tiering, organizing priority, relaying alerts and updates to the GUI, and managing potential input and configuration from the user. 
+4.12.3.1 Software Architecture Patterns
+In selecting the appropriate software design architectural pattern for the application, two prominent architectural patterns were considered: Model-View-Controller (MVC) and Model-View-ViewModel (MVVM). MVC was first considered as it separates the application into three components: model, view, and controller. The model manages the data and application logic, the view handles the user interface (UI) presentation, and the controller handles user input and updates the view and model [41]. 
+  
+
+Fig 8: Model View Controller Design Diagram [41]
+However, in this context, due to tight coupling between the view and controller, and given that the system operates in real-time with lifecycle handling, we opted for the MVVM design.
+  
+
+Fig 9: Model View ViewModel design architecture diagram [42]
+The model represents the received Jetson Nano data management and handling, and passes the data to the view model. The ViewModel maintains the application state and updates the ui with data passed from the model [42]. The view renders the UI based on the Viewmodel state and receives user interaction to then be handled by the viewmodel [42]. 
+4.12.3.2 Mobile Data Flow Sequence
+The flow of data will follow the sequence of tasks as shown in Figure 10. 
+  
+
+Fig 10: High-level data flow diagram for the mobile application 
+The Jetson Nano will establish a Bluetooth connection via BLE channels with the Bluetooth mobile endpoint portion of the mobile application. The Bluetooth mobile endpoint is a collection of classes that will be used to receive the compressed JSON files as CBOR Bluetooth data, quickly deserialize and process them via an algorithm, and pass data directly as JSON for the application model to analyze and handle. The application model passes each individual alert to the application ViewModel so that it can map the alert to the application view and GUI to relay information to the user. 
+4.12.3.3 Mobile User Interface Design
+The user interface (UI) of the mobile application is designed to be concise and practical for the user to minimize distractions and maximize usefulness and safety. The goal is to present real-time data updates and object identification and relay that information to the user through area mapping, icons, and simple system alerts in a clear, non-distracting, and aesthetically cohesive manner. The interface is tailored for in-vehicle use, prioritizing driver focus and rapid comprehension.
+  
+
+Fig 11: User Interface Diagram for the mobile application
+The display is divided into three main regions: top, middle, and bottom. The top of the screen will be used for displaying the status of the system's sensors and cameras. The middle of the screen will be where the user will see their vehicle and the surrounding environment with real-time updates on objects in their proximity. This could possibly include object visualization, vehicle outlining, object tracking, lane departure detection, and potential collision zones. Depending on which sensors picked up the alert, the corresponding sections of the display will change colours or flash to relay information to the user. The bottom of the display will show dynamic pop-up warning or alert messages with relevant alert descriptions, colour-coded alert hierarchy, vehicle speed, and allow for user interaction with the system, including a settings button, Bluetooth reset button, and a user personalization button.
+4.13 DevOps
+DevOps is a set of practices that combines software development (Dev) and IT operations (Ops) to shorten the development lifecycle while ensuring high software quality and system reliability. In this project, DevOps principles will be applied to automate testing, streamline integration, and facilitate consistent deployment across all development environments.
+The ADAS Demonstrator project benefits greatly from a DevOps-oriented approach because it integrates multiple hardware and software subsystems, including embedded components, artificial intelligence models, and mobile applications, that must work together seamlessly. The following tools and practices are implemented to support this workflow.
+4.13.1 GitHub
+GitHub serves as the central platform for version control, collaborative development, and integration throughout the project. All six team members contribute code concurrently using feature branches to reduce code conflicts and ensure controlled merging into the main branch. This approach maintains the stability of the main branch while allowing the team to track progress and review updates effectively over time.
+Sensor drivers and integration code are managed using branches that allow team members to inspect and test logic before merging. Artificial intelligence models, including training scripts, model architectures, and preprocessing pipelines, are also stored on GitHub, where tags and releases can be used to manage model versions as they evolve. The mobile application code is similarly hosted in the same repository for consistency.
+To enhance collaboration, GitHub Actions is used to automate testing pipelines, ensuring that code from each branch passes basic checks before merging. While automation may be a lower-priority feature early in the project, it provides a valuable foundation for improving reliability in later development stages. Documentation, such as README files and architecture markdown documents also hosted within the repository to help new members and future teams easily set up and understand the project structure.
+To support this workflow, the project adopts a monorepo structure, illustrated in Figure 12, which organizes all major subsystems, including Artificial Intelligence, Embedded, Mobile, and DevOps, within a single repository. This structure clearly separates components while maintaining tight integration, making it easier to coordinate development across subsystems and support onboarding for future team members.
+  
+
+Fig 12: Mono-repository for ADAS
+Although the project uses a single monorepo, each subsystem remains independently deployable. The embedded component, which includes sensor integration and fusion logic, can be built and deployed directly to the Jetson Nano through platform-specific deployment scripts contained in the embedded directory. The artificial intelligence models, stored within the AI directory, can be exported and loaded onto the Jetson Nano in a Docker container for inference during runtime. The mobile application, located in its own folder within the same repository, is deployed separately to Android or iOS devices through standard build tools such as Gradle. This structure ensures that while all components share a unified version control system, they can be developed, built, and deployed independently based on their specific runtime environments.
+In addition to repository organization, the team employs branching and automated continuous integration and deployment workflows to maintain code quality and streamline deployment. As shown in Figure 13, when developers push code to the remote repository, GitHub Actions automatically runs testing and builds pipelines. Pull requests are reviewed and integrated only after passing these checks. Successful builds are packaged into Docker containers, which are then deployed to the Jetson Nano for testing and demonstration. This process ensures that all subsystems remain synchronized and that the deployed environment is consistent across team members [43].
+  
+
+Fig 13. GitHub workflow from development to Jetson Nano deployment
+4.13.2 Docker
+Docker provides a containerization platform that enables consistent development and deployment environments across team members. Each container includes the necessary runtime, libraries, and system dependencies, allowing the same build to execute seamlessly on local machines and the Jetson Nano.
+This approach eliminates discrepancies between development environments, which can occur when different team members run slightly different configurations. By packaging the C++ perception software and artificial intelligence modules inside Docker containers, the team can ensure reproducibility and portability during testing and demonstration. Docker also allows developers to simulate the Jetson Nano environment locally before deployment. This helps validate performance, dependency management, and communication between subsystems without requiring constant access to hardware resources [44]. 
+4.13.3 Databases
+The project uses a combination of JSON and SQLite for data management on the Jetson Nano. JSON is used for lightweight data exchange between the embedded subsystem and the mobile application. It provides a structured and human-readable format for transmitting sensor values, alerts, and configuration data in real time. Since JSON is language-independent and easy to parse in both C++ and Java, it is ideal for ensuring consistent communication between the Jetson Nano and Android devices. 
+For local storage, SQLite is used as the primary data management solution. SQLite is a lightweight file-based relational database that requires no server installation and provides efficient SQL querying. It supports structured storage for sensor logs, diagnostic data, and test results while maintaining minimal computational overhead. SQLite is deployed directly on the Jetson Nano to handle temporary data logging and debugging tasks. During active operation, data is streamed through JSON messages for real-time use by the mobile application, while SQLite logs provide historical data for analysis and validation. This dual approach ensures both efficient communication and reliable data persistence without introducing unnecessary system complexity [45].
+5.0 Relation to Course
+This project will be completed by a team of six students from Carleton University's Engineering program. The team consists of Ajen Srisivapalan, Damon Ricci, Jason Keah, and John Guo, who are Software Engineering students; Rami Mrad, who is an Electrical Engineering student; and Ryan Page, who is a Computer Systems Engineering student. Each degree has its own specialization, which can be related to the customizable AI-enabled ADAS demonstrator project. 
+5.1 Computer Systems Engineering
+This project contains several components that can be related to the Computer Systems Engineering program. These components include the embedded programming, real-time operating system, concurrent/threaded programming, and hardware software integration.
+Experience and knowledge of embedded systems, microcontroller programming, and real-time computing will be crucial to setting up and developing the code for the Jetson board. This will ensure that the board can reliably receive and process sensor data, which is essential for the ADAS, as well as ensuring that. These skills will also be used to develop and test the ADAS’s embedded control logic, particularly in managing multi-threaded sensor data streams.
+The role of setting up the sensors and integrating the sensors into the Jetson board will require several of the skills developed in the Computer Systems Engineering program. These skills include hardware and software integration, ensuring that sensor data is received and processed as expected, hardware wiring for proper communication and connectivity, and knowledge of circuits to connect the sensors to the proper ports on the Jetson board. 
+________________
+5.2 Electrical Engineering
+This project aligns with various areas and competencies learned within the Electrical Engineering program, such as but not limited to sensors and instrumentation, signal processing, control systems, and embedded systems. The main tasks tackled in this project are sensor setup and fusion, as well as integration with the system’s computer, and efficient computer vision design for object detection and tracking. 
+This project will use various sensors, including cameras, Radar, and inertial sensors. The Electrical Engineering program provides the background knowledge needed to understand how these sensors work and how to integrate them into projects like this one. These sensors will be interfacing with the embedded system to process, filter, and transmit information cleanly and efficiently in real-time. 
+The necessary knowledge for signal processing and communications was learned through the Electrical Engineering program. This will serve for the computer vision and sensor fusion aspects of the project. Refining and cleaning of sensor data, as well as feature extraction techniques and exchange of sensor information between system modules, is developed and expanded upon the foundational knowledge of signal processing and communications. 
+Hence, the Electrical Engineering program provides a wide range of skills and background knowledge to engage in many topics and areas within this project.
+5.3 Software Engineering
+This project contains many roles that can be associated with the skills and expertise developed through the Software Engineering program. Several such roles include the embedded systems developer, application developer, and machine learning and computer vision developer.
+The application developer will create a mobile application displaying alerts from the ADAS system. This role will use several skills from the Software Engineering program: good programming skills will be used to create well documented and maintainable code, web development skills will be used to create a user friendly design, software development life cycle skills will be used to plan, design and ensure the application is completed on time, and software testing skills will be used to ensure the robustness of the system.
+The embedded system developer will program the main board/CPU of the project. This role will require skills from the Software Engineering program: real-time programming skills will be used to ensure task priorities and task scheduling for the system, low-level programming skills will be required to interact directly with hardware components, such as receiving and processing sensor data, and memory management to ensure proper performance of the embedded system. 
+The machine learning and computer vision developer will create AI models that process images to identify objects in the image. This role will use skills from software engineering, such as an understanding of machine learning and computer vision to design and train the AI model, software testing to ensure the model works as intended, and system integration skills to incorporate the AI model into the system.
+
+
+6.0 Team Skills
+Each member of the team brings complementary strengths to the project, ensuring their collective ability to tackle the technical and operational challenges of building a customizable AI-enabled driver assistance system. A key component of their collaboration involves a shared understanding of embedded systems, sensor fusion, and mobile software development, allowing them to configure and integrate subsystems that meet the real-time demands of vehicular safety applications.
+ By working collaboratively, the team will divide tasks efficiently across four subsystems: Pipeline (Sensor I/O), Main Brain (Reactor/Core), Mobile App + HMI, and DevOps/CI/CD & Tests. All while maintaining continuous progress toward key milestones described in section 7.0. This iterative development approach will allow for rapid prototyping, performance benchmarking, and refinement of each subsystem. 
+Table 3: Outline of main project areas and the assigned members for each subsystem.
+
+
+	High-Level Task
+	Members Responsible
+	Pipeline (Sensor I/O)
+	Sensor ingest, timestamps, ordering, TTL drops, queues, ego frame transformations (GPS, Camera, Radar, LiDAR, IMU)
+	                                    * Rami Mrad
+                                    * Ryan Page
+                                    * Damon Ricci
+	Main Brain (Reactor/Core)
+	Fusion + tracking, gating, TTC, LDW/BSD/FCW/RCW logic, cooldowns, degraded modes, health.
+(OpenCV, TensorFlow Lite, PyTorch)
+	                                    * Ajen Srisivapalan
+                                    * Rami Mrad
+                                    * Jason Keah
+                                    * Damon Ricci
+	Mobile App + HMI
+	Mobile Application Development
+(Kotlin, Android)
+	                                    * Jason Keah
+                                    * Ajen Srisivapalan
+                                    * John Guo
+                                    * Damon Ricci
+	DevOps/CI/CD & Tests
+	Embedded Programming & Control
+(C/C++, Python, Linux)
+	                                    * John Guo
+                                    * Ryan Page
+	
+
+Rami, Ryan, and Damon bring strong technical backgrounds in sensor interfacing and embedded systems. Rami’s electrical engineering expertise ensures precise calibration and signal processing across the different sensor components. Ryan (Computer Engineering) and Damon (Software Engineering) both contribute hands-on experience with hardware integration, but their strengths are with embedded platforms and low-level programming. This allows them to synchronize multi-sensor inputs and optimize data for accurate environmental awareness. Together, the trio is well-equipped to implement robust sensor fusion techniques that mitigate environmental noise and ensure reliable input for downstream AI processing.
+Ajen, Rami, Damon, and Jason collaborate on the intelligence core of the ADAS system. Their combined knowledge of machine learning frameworks enables them to design and deploy models for lane detection, object tracking, and collision prediction. All three members have prior co-op experience, with some working on projects that included the use of OpenCV for computer vision tasks such as object detection and object recognition. Rami’s dual role bridges sensor data with AI interpretation, while Jason and Ajen focus on training and optimizing neural networks for real-time responsiveness. 
+Jason, Ajen, Damon, and John lead the development of the mobile interface that visualizes ADAS alerts. Jason’s experience with Kotlin and Android development ensures a responsive and intuitive GUI. Ajen contributes cross-platform design insights and Bluetooth communication logic, while John focuses on integrating sensor data streams into the app’s architecture. Their collaboration will result in a seamless user experience, allowing drivers to receive timely warnings and system feedback through a clean, real-time dashboard.
+John and Ryan are responsible for DevOps/CI/CD & tests. Both come from Software Engineering backgrounds and bring complementary strengths in embedded programming and system-level development. Together, this duo will design and implement build and test pipelines, manage hardware–software integration in CI, and maintain system stability under dynamic operating conditions.
+Regular meetings with their supervisor, Dr. Mohamed Atia, will provide technical guidance and ensure alignment with academic and industry standards. Open communication and cross-functional support within the team will keep all aspects of the project synchronized and moving forward.
+
+
+________________
+7.0 Timetable
+  
+
+Fig 13: Work Breakdown Structure
+The Work Breakdown Structure (WBS) for the Customizable AI-Enabled ADAS Demonstrator divides the project into five phases: Initial Research, Prototype Development, Prototype Demo and Testing, Product Finalization and Documentation, and Product Demonstration. Each phase includes clearly defined deliverables, such as progress reports, oral presentations, and system demonstrations, ensuring the project advances in structured stages from planning to deployment. Tasks are distributed among team members based on technical expertise, with progress tracked using milestone reviews and shared online tools to maintain accountability and schedule alignment.
+To ensure effective coordination, the team will hold weekly meetings with Professor Mohamed Atia for feedback and guidance, supported by internal weekly online meetings for task planning and review. Short daily standups, conducted through Discord or video conferencing, will be used to track daily progress and identify blockers. Discord will also serve as the primary platform for continuous communication, enabling quick troubleshooting, organized discussion channels for each subsystem, and real-time updates on milestones. This structured workflow ensures consistent collaboration, early issue detection, and steady progress toward successful project completion.
+________________
+8.0 Components and Facilities Required
+This project requires several specialized components to be created. The main components are the variety of sensors required to gather data from the environment and the main board, which will run code, process sensor data, and send alerts to the mobile application.
+Table 4: List of components required for ADAS
+Component 
+	Price 
+	Quantity
+	Purchase Link
+	NVIDIA Jetson Orin Nano Super Developer Kit
+	$366.14 (USD)
+	1 
+	NVIDIA Jetson Orin Nano Super Developer Kit - Redefine Edge AI 
+	OmniPreSense OPS243-A Doppler Radar Sensor
+	$219.00 (USD)
+	1
+	OPS243-A Doppler Radar Sensor - OmniPreSense 
+	DFRobot C4001 mmWave Presence Sensor (25m)
+	$19.86 (CAD)
+	2
+	DFRobot mmWave C4001 24GHz Human Presence Detection Sensor (25 Meters, UART) - RobotShop 
+	InnoMaker U20CAM-1080P USB Camera
+	$18.69 (USD)
+	4
+	U20CAM-1080P – INNOMAKER - USB Cameras 
+	Adafruit BNO085 9-DoF Orientation Sensor
+	$24.95 (USD)
+	1
+	Adafruit 9-Dof Orientation Imu Fusion Breakout - Bno085 (Bno080) - Stemma QT/Qwiic 
+	SLAMTEC RPLIDAR C1 360° DTOF Laser Scanner
+	$93.64 (CAD)
+	1
+	SLAMTEC RPLIDAR C1 360° DTOF Laser Scanner - RobotShop 
+	
+
+This project will require some specialized facilities to build and test the ADAS. Building and setting up the ADAS will require a lab location that has access to soldering tools, a power supply, and storage for all the hardware components. Testing the ADAS will require a location where the sensors can be installed and calibrated on the test vehicle. A location will also be required where the test vehicle can be driven safely with enough surrounding objects to test the sensors. 
+________________
+9.0 References
+[1] “Canadian Motor Vehicle Traffic Collision Statistics: 2023.” Transport Canada. https://tc.canada.ca/en/road-transportation/statistics-data/canadian-motor-vehicle-traffic-collision-statistics/2023/canadian-motor-vehicle-traffic-collision-statistics-2023, (accessed Oct. 17, 2025).
+[2] “Road traffic injuries.” World Health Organization.  https://www.who.int/news-room/fact-sheets/detail/road-traffic-injuries, (accessed Oct. 17, 2025).
+[3] A. P. Penumaka, G. Savino, N. Baldanzini, and M. Pierini, “In-depth investigations of PTW-car accidents caused by human errors,” Safety Science, vol. 68, pp.212-221, Oct. 2014, doi: https://doi.org/10.1016/j.ssci.2014.04.004
+[4] B. A. Jumaa, A. M. Abdulhassan, and A. M. Abdulhassan, “Advanced Driver Assistance System (ADAS): A Review of Systems and Technologies,” International Journal of Advanced Research in Computer Engineering & Technology (IJARCET), vol. 8, no. 6, pp. 231-234, June 2019, doi: 10.1063/1.5012394
+[5] F. Zhang, C. R. M. Rundus, E. Alshaikh, C. Peek-Asa, and J. Yang, “Vehicle Age and Driver Assistance Technologies in Fatal Crashes Involving Teen and Middle-Aged Drivers,” Jama Netw Open, vol. 8, no. 5, May 2025, doi:10.1001/jamanetworkopen.2025.8942
+[6] T. L. Miller, W. T. Davis, G. D. Reed, P. Doraiswamy, and A. Tang, “Effect of County-Level Income on Vehicle Age Distribution and Emissions,” Transportation Research Record: Journal of the Transportation Research Board, vol. 1815, no. 1, pp. 47-53, doi: https://doi.org/10.3141/1815-06 
+[7] A. Novikov, I. Novikov, and A. Shevtsova, “Friction coefficients for varying types of road surfaces in satisfactory condition,” figure in “Study of the impact of type and condition of the road surface on parameters of signalized intersection,” ResearchGate, Jan. 2018. [Online]. Available: https://www.researchgate.net/figure/Friction-coefficients-for-varying-types-of-road-surfaces-in-satisfactory-condition_tbl1_330012787. Accessed: Oct. 17, 2025.
+[8] “Stopping Distance,” Corada—Characteristics of Emerging Road and Trail Users and Their Safety. [Online]. Available: https://www.corada.com/documents/characteristics-road-trail-users-safety/stopping-distance. Accessed: Oct. 17, 2025.
+[9] A. A. Housein, G. Xingyu, W. Li, and Y. Huang, “Extended Kalman filter sensor fusion in practice for mobile robot localization,” International Journal of Advanced Computer Science and Applications (IJACSA), vol. 13, no. 2, pp. 33–38, 2022. [Online]. Available: https://thesai.org/Downloads/Volume13No2/Paper_4-Extended_Kalman_Filter_Sensor_Fusion_in_Practice.pdf. Accessed: Oct. 17, 2025.
+[10] Highway Traffic Act, R.S.O. 1990, c. H.8. (2025, Oct. 14). [Online]. Available : https://www.ontario.ca/laws/statute/90h08 
+[11] Motor Vehicle Safety Act (S.C. 1993, c. 16). (2023, July. 01) [Online]. Available: https://laws-lois.justice.gc.ca/eng/acts/m-10.01/ 
+[12] Motor Vehicle Safety Regulations (C.R.C., c. 1038). (2025, Jan. 01) [Online]. Available: https://laws-lois.justice.gc.ca/eng/regulations/C.R.C.,_c._1038/ 
+[13] Personal Information Protection and Electronic Documents Act (S.C. 2000, c. 5). (2025, Mar. 04) [Online]. Available: https://laws-lois.justice.gc.ca/eng/acts/p-8.6/ 
+[14] Criminal Code (R.S.C., 1985, c. C-46) (2025, Apr. 08). [Online]. Available: https://laws-lois.justice.gc.ca/eng/acts/c-46/ 
+[15] “Transport Canada Guidelines to Limit Distraction from Visual Displays in Vehicles” Transport Canada. https://tc.canada.ca/en/road-transportation/stay-safe-when-driving/transport-canada-guidelines-limit-distraction-visual-displays-vehicles,  (accessed Oct. 17, 2025).
+[16] NVIDIA, "Jetson Orin Nano Developer Kit Gets a 'Super' Boost," NVIDIA Developer Blog, Dec. 17, 2024. [Online]. Available: https://developer.nvidia.com/blog/nvidia-jetson-orin-nano-developer-kit-gets-a-super-boost/
+[17] NVIDIA, "Jetson Orin Nano Developer Kit User Guide - Hardware Specifications," NVIDIA Developer. [Online]. Available: https://developer.nvidia.com/embedded/learn/jetson-orin-nano-devkit-user-guide/hardware_spec.html
+[18] NVIDIA, "Jetson Orin Nano Developer Kit User Guide," NVIDIA Developer. [Online]. Available: https://developer.nvidia.com/embedded/learn/jetson-orin-nano-devkit-user-guide/index.html
+[19] OmniPreSense, “OPS243-A Doppler Radar Sensor,” OmniPreSense, Accessed Oct. 17, 2025. [Online]. Available: https://omnipresense.com/product/ops243-doppler-radar-sensor/ 
+[20] DFRobot, “SEN0609 C4001 mmWave Presence Sensor (25m),” DFRobot Wiki, Accessed Oct. 17, 2025. [Online]. Available: https://wiki.dfrobot.com/SKU_SEN0609_C4001_mmWave_Presence_Sensor_25m 
+[21] InnoMaker, “U20CAM-1080P USB Camera,” InnoMaker, Accessed Oct. 17, 2025. [Online]. Available: https://www.inno-maker.com/product/u20cam-1080p/ 
+[22] Adafruit, “Adafruit 9-DOF Orientation IMU Fusion Breakout - BNO085 (BNO080) - STEMMA QT / Qwiic,” Adafruit, Accessed Oct. 17, 2025. [Online]. Available: https://www.adafruit.com/product/4754 
+[23] RobotShop Canada, “SLAMTEC RPLIDAR C1 360° DTOF Laser Scanner,” RobotShop, Accessed Oct. 17, 2025. [Online]. Available: https://ca.robotshop.com/products/slamtec-rplidar-c1-360-dtof-laser-scanner
+[24] C. V. Ramamoorthy and H. F. Li, “Pipeline architecture,” ACM Computing Surveys, vol. 9, no. 1, pp. 61–102, Mar. 1977, doi: 10.1145/356683.356687.
+[25] S. N. Mehmood, N. Haron, V. Akhtar, and Y. Javed, “Implementation and experimentation of producer–consumer synchronization problem,” International Journal of Computer Applications, vol. 14, no. 3, pp. 32–37, Jan. 2011. [Online]. Available: https://d1wqtxts1xzle7.cloudfront.net/46396207/pxc3872398-libre.pdf?1465647302=&response-content-disposition=inline%3B+filename%3DImplementation_and_Experimentation_of_Pr.pdf&Expires=1760737610&Signature=P~W0JMOs5Hlt-W9Eu0aTafs4QzT5BWJxBiiLnMBvZrjnIxOB1p67EPytKV-3dDtJSPkJ-PC0Msdozr0a2uZC4LPP-4wzH0PI4T156ItbSwJX8OB7Trqvc8fsgPv403yxsfrE6~nS-Hvas9Jjggn6JO~l9OeqFlSQouhjutKAlcM-Z0g5buC-zUU3P6UJxlS2I-zzA7yE7tQNOzE2yAaaKMnB5CrBCd5ue2x3uTMG~~xZ8~XbEJGVOJPndWbgdQFlMMwcJxFKl03-32qWqbzg7-5T7KZv2kjO47D5MhN6UzEyL-3iZzPdnwrmfQBfxOLMHXAxJMFCPUSbE0G5gihe3g__&Key-Pair-Id=APKAJLOHF5GGSLRBV4ZA. Accessed: Oct. 17, 2025.
+[26] OpenCV.org, “OpenCV – 4.12.0,” OpenCV Releases. [Online]. Available: https://opencv.org/releases. Accessed: Oct. 17, 2025.
+[27] Ultralytics, “Model Export with Ultralytics YOLO,” Ultralytics YOLO Docs. [Online]. Available: https://docs.ultralytics.com/modes/export. Accessed: Oct. 17, 2025.
+[28] NVIDIA, “JetPack SDK 6.2,” NVIDIA Developer. [Online]. Available: https://developer.nvidia.com/embedded/jetpack-sdk-62. Accessed: Oct. 17, 2025.
+[29] C. Bormann and P. Hoffman, “Concise Binary Object Representation (CBOR),” RFC 8949, STD 94, Nov. 2020. [Online]. Available: https://www.rfc-editor.org/v3test/rfc8949.pdf. Accessed: Oct. 17, 2025.
+[30] A. Cockburn and J. M. Garrido de Paz, Hexagonal Architecture Explained: How the Ports & Adapters Architecture Simplifies Your Life, and How to Implement It, Updated 1st ed. Humans and Technology Press, 2025. [Online]. Available: https://alistaircockburn.com/hexarch%20v1.1b%20DIFFS%2020250420-1012%20paper%2Bepub.docx.pdf. Accessed: Oct. 17, 2025.
+[31] R. Zhang and S. Cao, “Extending reliability of mmwave radar tracking and detection via fusion with camera,” IEEE Access, vol. 7, pp. 137065-137079, 2019.
+[32] S. Yang, M. Choi, S. Han, K.Choi, K. Kim,“4D Radar-Camera Sensor Fusion for Robust Vehicle Pose Estimation in Foggy Environments,” IEEE Access, vol. 12, pp. 16178-16188, 2023.
+[33] Y. Feng, S. Pickering, E. Chappell, P. Iravani, and C. Brace, “Distance Estimation by Fusing Radar and Monocular Camera with Kalman Filter,” in SAE Intelligent & Connected Vehicles Symposium, 2017.
+[34] Z. Liu, Y. Cai, H. Wang et al., “Surrounding Objects Detection and Tracking for Autonomous Driving Using LiDAR and Radar Fusion,” Chinese Journal of Mechanical Engineering, vol. 34, article 117, 2021.
+[35] G. Bracha, The Dart Programming Language. Boston, MA, USA: Addison‑Wesley Professional, 2015. Available: https://books.google.ca/books?hl=en&lr=&id=UHAlCwAAQBAJ&oi=fnd&pg=PT14&dq=dart+programming+language&ots=Pq2TgWFdGU&sig=tsUdtBuDE3FvGuSNWrDJanvuJpo&redir_esc=y#v=onepage&q=dart%20programming%20language&f=false
+[36] T. Bailey and A. Biessek, Flutter for Beginners: Cross‑platform mobile development from Hello, World! to app release with Flutter 3.10+ and Dart 3.x. London, UK: Packt Publishing Ltd, 2023. Available: https://www.google.ca/books/edition/Flutter_for_Beginners/0DXYEAAAQBAJ?hl=en&gbpv=1&dq=flutter+programming+language&printsec=frontcover 
+[37] K. Arnold, J. Gosling, and D. Holmes, The Java™ Programming Language, 4th ed. Boston, MA, USA: Addison‑Wesley Professional, 2005. Available: https://www.acs.ase.ro/Media/Default/documents/java/ClaudiuVinte/books/ArnoldGoslingHolmes06.pdf 
+[38] M. Moskala and I. Wojda, Android Development with Kotlin. Birmingham, UK: Packt Publishing Ltd, 2017.  Available: https://books.google.ca/books?hl=en&lr=&id=PJZGDwAAQBAJ&oi=fnd&pg=PP1&dq=Kotlin&ots=3LhkdzMVxD&sig=bWgN-l_uelVqfcRYW0xOEEzu-Qg&redir_esc=y#v=onepage&q=Kotlin&f=false 
+[39] J. F. DiMarzio, Android Studio Development Essentials. e‑book, Payload Media, 22 Sep. 2016. Available: https://books.google.ca/books?hl=en&lr=&id=9ukkDQAAQBAJ&oi=fnd&pg=PP2&dq=Android+studio&ots=BXjcUanaHN&sig=h1gWaRXJrqDupRrGKxS12ZSgQRY&redir_esc=y#v=onepage&q=Android%20studio&f=false
+[40] K. Pelgrims, Gradle for Android. e-book, Packt Publishing, 21 Jul. 2015. Available: https://books.google.ca/books?id=Uyw0CgAAQBAJ
+[41] T. Dey, "A Comparative Analysis on Modeling and Implementing with MVC Architecture," Proceedings of the International Conference on Web Services Computing (ICWSC), 2011. Available: https://d1wqtxts1xzle7.cloudfront.net/103830808/wsc009-libre.pdf 
+[42] P. Nijs, The MVVM Pattern in .NET MAUI: The definitive guide to essential patterns, best practices, and techniques for cross‑platform app development. Birmingham, UK: Packt Publishing, 1st ed., Nov. 2023. ISBN: 978‑1805120704 Available: The MVVM Pattern in .NET MAUI - Google Books 
+[43] Tsitoara, M. (2024). Beginning Git and GitHub: Version Control, Project Management and Teamwork for the New Developer (2nd ed.). Springer Nature.
+[44] Miell, I., & Sayers, A. (2021). Docker in Practice (2nd ed.). Manning..
+[45] Revesz, P. (2010). Introduction to databases: From Biological to Spatio-Temporal. Springer London.
+
+
+
+
+Carleton University – SYSC 4907A – Customizable AI-Enabled ADAS Demonstrator – Page  of 80

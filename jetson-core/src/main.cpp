@@ -6,10 +6,14 @@
 #include "adas/stage_a/IngestManager.hpp"
 #include "adas/stage_b/CameraPipeline.hpp"
 
+#include <chrono>
 #include <csignal>
+#include <iomanip>
 #include <iostream>
 #include <memory>
+#include <sstream>
 #include <string>
+#include <thread>
 
 namespace {
 
@@ -19,11 +23,74 @@ std::unique_ptr<adas::StageBManager> g_stage_b_manager;
 std::atomic<bool> g_shutdown_requested{false};
 std::atomic<bool> g_pipeline_running{false};
 
+// Status bar thread
+std::thread g_status_thread;
+std::atomic<bool> g_status_running{false};
+std::chrono::steady_clock::time_point g_pipeline_start_time;
+
 // Detection output queues (Stage B -> Stage E)
 adas::SPSCQueue<adas::DetBatch, 8> g_det_front_queue;
 adas::SPSCQueue<adas::DetBatch, 8> g_det_side_l_queue;
 adas::SPSCQueue<adas::DetBatch, 8> g_det_side_r_queue;
 adas::SPSCQueue<adas::DetBatch, 8> g_det_rear_queue;
+
+std::string formatUptime(std::chrono::seconds uptime) {
+    int hours = uptime.count() / 3600;
+    int minutes = (uptime.count() % 3600) / 60;
+    int seconds = uptime.count() % 60;
+    
+    std::ostringstream ss;
+    if (hours > 0) {
+        ss << hours << "h " << minutes << "m";
+    } else if (minutes > 0) {
+        ss << minutes << "m " << seconds << "s";
+    } else {
+        ss << seconds << "s";
+    }
+    return ss.str();
+}
+
+void statusBarThread() {
+    while (g_status_running.load() && !g_shutdown_requested.load()) {
+        if (!g_ingest_manager) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            continue;
+        }
+        
+        auto health = g_ingest_manager->getHealth();
+        
+        // Get individual sensor health
+        bool front_cam_ok = false;
+        bool front_radar_ok = false;
+        bool imu_ok = false;
+        
+        auto& sh = health.sensor_health;
+        if (sh.find(adas::Mount::FrontCam) != sh.end()) {
+            front_cam_ok = sh[adas::Mount::FrontCam];
+        }
+        if (sh.find(adas::Mount::FrontRadar) != sh.end()) {
+            front_radar_ok = sh[adas::Mount::FrontRadar];
+        }
+        if (sh.find(adas::Mount::IMU) != sh.end()) {
+            imu_ok = sh[adas::Mount::IMU];
+        }
+        
+        // Calculate uptime
+        auto now = std::chrono::steady_clock::now();
+        auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - g_pipeline_start_time);
+        
+        // Format status bar
+        std::cout << "\r[ADAS] "
+                  << "FrontCam:" << (front_cam_ok ? "\033[32m✓\033[0m" : "\033[31m✗\033[0m") << " "
+                  << "FrontRadar:" << (front_radar_ok ? "\033[32m✓\033[0m" : "\033[31m✗\033[0m") << " "
+                  << "IMU:" << (imu_ok ? "\033[32m✓\033[0m" : "\033[31m✗\033[0m") << " | "
+                  << "Drops:" << health.total_drops << " | "
+                  << formatUptime(uptime) << "     " << std::flush;
+        
+        std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+    std::cout << "\n";  // Clean line after stopping
+}
 
 void signalHandler(int signum) {
     std::cout << "\n[Main] Received signal " << signum << ", initiating shutdown...\n";
@@ -45,6 +112,9 @@ void printBanner() {
                                                                        
     ===========================================================================
     )" << std::endl;
+    
+    // Pause for 2 seconds so users can see the banner
+    std::this_thread::sleep_for(std::chrono::seconds(2));
 }
 
 void printMenu() {
@@ -103,8 +173,14 @@ void startPipeline(const adas::Config& config, const adas::HardwareMap& hw_map,
     g_stage_b_manager->start();
     
     g_pipeline_running.store(true);
+    g_pipeline_start_time = std::chrono::steady_clock::now();
+    
+    // Start status bar thread
+    g_status_running.store(true);
+    g_status_thread = std::thread(statusBarThread);
+    
     std::cout << "\n[Main] Pipeline started successfully!\n";
-    std::cout << "[Main] Press '3' to view status, '2' to stop\n";
+    std::cout << "[Main] Press '3' to view status, '2' to stop\n\n";
 }
 
 void stopPipeline() {
@@ -114,6 +190,12 @@ void stopPipeline() {
     }
     
     std::cout << "\n[Main] Stopping pipeline...\n";
+    
+    // Stop status bar thread first
+    g_status_running.store(false);
+    if (g_status_thread.joinable()) {
+        g_status_thread.join();
+    }
     
     // Stop in reverse order
     if (g_stage_b_manager) {
@@ -271,7 +353,8 @@ int main(int argc, char *argv[]) {
                     if (g_pipeline_running.load()) {
                         std::cout << "[Main] Please stop the pipeline first\n";
                     } else {
-                        adas::DeviceWizard::registerNetworkDevices(hw_map_path);
+                        // Hardcoded Pi IP for static ethernet-to-ethernet connection
+                        adas::DeviceWizard::registerNetworkDevices(hw_map_path, "192.168.55.2");
                     }
                     break;
                     
