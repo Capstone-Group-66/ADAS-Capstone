@@ -254,13 +254,35 @@ void NetworkReceiver::radarRThread() {
 
 void NetworkReceiver::imuThread() {
     std::vector<uint8_t> buffer(256);
+    
+    // Debug: track samples received in last 5 seconds
+    auto last_debug_time = std::chrono::steady_clock::now();
+    uint64_t samples_in_window = 0;
+    uint64_t errors_in_window = 0;
+    float last_accel_z = 0.0f;
 
     while (running_.load()) {
         int len = zmq_recv(imu_socket_, buffer.data(), buffer.size(), 0);
-        if (len < 0) continue;
+        if (len < 0) {
+            // Check debug timer even on timeout
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_debug_time).count();
+            if (elapsed >= 5) {
+                std::cout << "\n[IMU DEBUG] Last 5s: received=" << samples_in_window 
+                          << ", errors=" << errors_in_window
+                          << ", total_samples=" << stats_.imu_samples
+                          << ", total_errors=" << stats_.errors
+                          << ", last_accel_z=" << last_accel_z << "\n" << std::flush;
+                samples_in_window = 0;
+                errors_in_window = 0;
+                last_debug_time = now;
+            }
+            continue;
+        }
 
         if (static_cast<size_t>(len) < sizeof(PiMessageHeader) + sizeof(ImuPayload)) {
             stats_.errors++;
+            errors_in_window++;
             continue;
         }
 
@@ -270,6 +292,7 @@ void NetworkReceiver::imuThread() {
         if (!validateHeader(header) ||
             static_cast<MessageType>(header.msg_type) != MessageType::IMU_SAMPLE) {
             stats_.errors++;
+            errors_in_window++;
             continue;
         }
 
@@ -295,9 +318,25 @@ void NetworkReceiver::imuThread() {
             sample.calibration_status = imu_payload.calibration_status;
 
             imu_queue_->try_push(std::move(sample));
+            last_accel_z = imu_payload.accel_z;
         }
 
         stats_.imu_samples++;
+        samples_in_window++;
+        
+        // Debug output every 5 seconds
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_debug_time).count();
+        if (elapsed >= 5) {
+            std::cout << "\n[IMU DEBUG] Last 5s: received=" << samples_in_window 
+                      << ", errors=" << errors_in_window
+                      << ", total_samples=" << stats_.imu_samples
+                      << ", total_errors=" << stats_.errors
+                      << ", last_accel_z=" << last_accel_z << "\n" << std::flush;
+            samples_in_window = 0;
+            errors_in_window = 0;
+            last_debug_time = now;
+        }
     }
 }
 
