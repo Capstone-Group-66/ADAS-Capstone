@@ -50,11 +50,11 @@ class ObjectDetector {
         int num_classes;
         
         Config() 
-            : model_path("models/yolov5n_320.engine")
+            : model_path("models/yolov5n.engine")
             , confidence_threshold(0.25f)
             , nms_threshold(0.45f)
-            , input_width(320)
-            , input_height(320)
+            , input_width(640)
+            , input_height(640)
             , num_classes(80) {}
     };
 
