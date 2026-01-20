@@ -52,7 +52,6 @@ adas::SPSCQueue<adas::RadarTargets, 4> g_radar_front_queue;
 std::unique_ptr<adas::SensorFusion> g_sensor_fusion;
 std::unique_ptr<adas::FCWMonitor> g_fcw_monitor;
 std::atomic<bool> g_fcw_alert_active{false};
-std::atomic<bool> g_fcw_alert_active{false};
 std::atomic<int> g_fcw_ttc_ms{0}; // TTC in milliseconds (avoids float atomic availability issues)
 
 std::string formatUptime(std::chrono::seconds uptime) {
