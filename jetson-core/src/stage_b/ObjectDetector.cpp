@@ -95,6 +95,15 @@ void ObjectDetector::loadEngine() {
     
     loaded_ = true;
     std::cout << "[ObjectDetector] TensorRT engine loaded successfully\n";
+    
+    // Debug: Print binding dimensions
+    int nbBindings = engine_->getNbBindings();
+    for (int i = 0; i < nbBindings; i++) {
+        nvinfer1::Dims dims = engine_->getBindingDimensions(i);
+        std::cout << "[ObjectDetector] Binding " << i << " (" << (engine_->bindingIsInput(i) ? "Input" : "Output") << ") Dims: ";
+        for (int d = 0; d < dims.nbDims; d++) std::cout << dims.d[d] << " ";
+        std::cout << "\n";
+    }
 }
 
 void ObjectDetector::allocateBuffers() {
@@ -207,9 +216,9 @@ std::vector<Detection> ObjectDetector::postprocess(float* output, const cv::Size
     std::vector<float> confidences;
     std::vector<cv::Rect> boxes;
     
-    // YOLOv5 output: [25200, 85]
+    // YOLOv5 output: [1, num_anchors, 85]
     // Row format: cx, cy, w, h, obj_conf, class_scores[80]
-    const int num_detections = 25200;
+    const int num_detections = output_elements_ / 85;
     const int num_outputs = 85;
     
     float x_scale = static_cast<float>(original_size.width) / config_.input_width;
