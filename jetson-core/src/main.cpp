@@ -1,5 +1,5 @@
 // File: src/main.cpp
-// ADAS Pipeline Entry Point - Interactive CLI with Stages A, B
+// ADAS Pipeline Entry Point - Interactive CLI with Stages A, B, E
 #include "adas/common/Clock.hpp"
 #include "adas/common/Config.hpp"
 #include "adas/common/Globals.hpp"
@@ -7,6 +7,8 @@
 #include "adas/stage_a/IngestManager.hpp"
 #include "adas/stage_b/CameraPipeline.hpp"
 #include "adas/stage_b/ObjectDetector.hpp"  // For class name lookup
+#include "adas/stage_e/SensorFusion.hpp"
+#include "adas/stage_e/FCWMonitor.hpp"
 
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
@@ -42,6 +44,15 @@ adas::SPSCQueue<adas::DetBatch, 8> g_det_front_queue;
 adas::SPSCQueue<adas::DetBatch, 8> g_det_side_l_queue;
 adas::SPSCQueue<adas::DetBatch, 8> g_det_side_r_queue;
 adas::SPSCQueue<adas::DetBatch, 8> g_det_rear_queue;
+
+// Radar data queue (Stage A -> Stage E)
+adas::SPSCQueue<adas::RadarTargets, 4> g_radar_front_queue;
+
+// Stage E: Fusion + FCW
+std::unique_ptr<adas::SensorFusion> g_sensor_fusion;
+std::unique_ptr<adas::FCWMonitor> g_fcw_monitor;
+std::atomic<bool> g_fcw_alert_active{false};
+float g_fcw_ttc = 0.0f;
 
 std::string formatUptime(std::chrono::seconds uptime) {
     int hours = uptime.count() / 3600;
@@ -88,37 +99,79 @@ void visualizationThread() {
             got_frame = true;
         }
         
+        // Get latest radar data
+        adas::RadarTargets radar;
+        while (g_radar_front_queue.try_pop(radar)) {
+            // Keep draining to get latest
+        }
+        
         if (got_frame && !batch.frame.empty()) {
-            // Draw directly on the frame (no clone needed - we consumed it)
+            // Run Stage E fusion
+            std::vector<adas::FusedObject> fused;
+            if (g_sensor_fusion) {
+                fused = g_sensor_fusion->fuse(batch, radar);
+            }
+            
+            // Check for FCW alerts
+            std::optional<adas::FCWAlert> fcw_alert;
+            if (g_fcw_monitor && !fused.empty()) {
+                fcw_alert = g_fcw_monitor->check(fused, adas::Clock::nowNs());
+            }
+            
+            // Draw directly on the frame
             cv::Mat& vis = batch.frame;
             
-            // Draw detections
-            for (const auto& det : batch.dets) {
+            // Draw fused detections with TTC
+            for (const auto& obj : fused) {
                 cv::Scalar color(
-                    (det.cls * 50) % 255, 
-                    (det.cls * 80 + 100) % 255, 
-                    (det.cls * 120 + 200) % 255
+                    (obj.object_class * 50) % 255, 
+                    (obj.object_class * 80 + 100) % 255, 
+                    (obj.object_class * 120 + 200) % 255
                 );
                 
-                cv::rectangle(vis, det.box_px, color, 2);
+                cv::rectangle(vis, obj.box_px, color, 2);
                 
-                std::string class_name = adas::ObjectDetector::getClassName(det.cls);
+                std::string class_name = adas::ObjectDetector::getClassName(obj.object_class);
                 std::string label = class_name + " " + 
-                                    std::to_string(static_cast<int>(det.score * 100)) + "%";
+                                    std::to_string(static_cast<int>(obj.score * 100)) + "%";
+                
+                // Add TTC if radar matched
+                if (obj.has_radar && obj.ttc_s < 100.0f) {
+                    label += " R:" + std::to_string(static_cast<int>(obj.range_m)) + "m TTC:" + 
+                             std::to_string(static_cast<int>(obj.ttc_s)) + "s";
+                }
                                     
                 int baseLine;
                 cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
                 
                 cv::rectangle(vis, 
-                    cv::Point(det.box_px.x, det.box_px.y - labelSize.height - 2),
-                    cv::Point(det.box_px.x + labelSize.width, det.box_px.y),
+                    cv::Point(obj.box_px.x, obj.box_px.y - labelSize.height - 2),
+                    cv::Point(obj.box_px.x + labelSize.width, obj.box_px.y),
                     color, cv::FILLED);
                     
                 cv::putText(vis, label, 
-                    cv::Point(det.box_px.x, det.box_px.y - 2),
+                    cv::Point(obj.box_px.x, obj.box_px.y - 2),
                     cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0,0,0), 1);
                     
-                cv::circle(vis, det.centroid, 3, cv::Scalar(0, 255, 0), -1);
+                cv::circle(vis, obj.centroid_px, 3, cv::Scalar(0, 255, 0), -1);
+            }
+            
+            // Draw FCW alert overlay if active
+            if (fcw_alert.has_value()) {
+                g_fcw_alert_active.store(true);
+                g_fcw_ttc = fcw_alert->ttc_s;
+                
+                // Red border flash
+                cv::rectangle(vis, cv::Point(0, 0), cv::Point(vis.cols, vis.rows), 
+                              cv::Scalar(0, 0, 255), 8);
+                
+                // FCW warning text
+                std::string fcw_text = "FCW ALERT! TTC: " + 
+                                       std::to_string(static_cast<int>(fcw_alert->ttc_s * 10) / 10.0) + "s";
+                cv::putText(vis, fcw_text, cv::Point(vis.cols/2 - 150, 60), 
+                            cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 0, 255), 3);
+            } else {
+                g_fcw_alert_active.store(false);
             }
             
             // Calculate FPS
@@ -134,7 +187,8 @@ void visualizationThread() {
             // Draw info overlay
             std::string info = "Inf: " + std::to_string(static_cast<int>(batch.inference_time_us / 1000)) + 
                                "ms | FPS: " + std::to_string(static_cast<int>(fps)) +
-                               " | Det: " + std::to_string(batch.dets.size());
+                               " | Det: " + std::to_string(fused.size()) +
+                               " | Radar: " + std::to_string(radar.targets.size());
             cv::putText(vis, info, cv::Point(10, 25), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
             
             // Rate-limit display to 5 FPS to reduce stuttering
@@ -289,6 +343,12 @@ void startPipeline(const adas::Config& config, const adas::HardwareMap& hw_map,
     */
     
     g_stage_b_manager->start();
+    
+    // Stage E: Fusion + FCW
+    g_sensor_fusion = std::make_unique<adas::SensorFusion>();
+    g_fcw_monitor = std::make_unique<adas::FCWMonitor>();
+    std::cout << "[Main] Stage E fusion initialized (TTC threshold: " 
+              << g_fcw_monitor->getThreshold() << "s)\n";
     
     g_pipeline_running.store(true);
     g_pipeline_start_time = std::chrono::steady_clock::now();

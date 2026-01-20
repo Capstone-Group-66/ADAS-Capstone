@@ -65,6 +65,11 @@ set(STAGE_B_SOURCES
     src/stage_b/CameraPipeline.cpp
 )
 
+set(STAGE_E_SOURCES
+    src/stage_e/SensorFusion.cpp
+    src/stage_e/FCWMonitor.cpp
+)
+
 # ══════════════════════════════════════════════════════════════════════════════
 #                              MAIN EXECUTABLE
 # ══════════════════════════════════════════════════════════════════════════════
@@ -73,6 +78,7 @@ add_executable(jetson_core
     ${COMMON_SOURCES}
     ${STAGE_A_SOURCES}
     ${STAGE_B_SOURCES}
+    ${STAGE_E_SOURCES}
 )
 
 target_link_libraries(jetson_core
