@@ -1,5 +1,8 @@
 // File: src/stage_e/SensorFusion.cpp
 // Camera-Radar fusion implementation
+// Note: OPS243-A is a 1D ranging radar (no azimuth), so we use a simplified
+// fusion approach: match the closest radar target to camera detections
+// that are near the center of the frame (boresight assumption).
 #include "adas/stage_e/SensorFusion.hpp"
 
 #include <algorithm>
@@ -15,26 +18,37 @@ SensorFusion::SensorFusion(const FusionConfig& config) : config_(config) {}
 
 float SensorFusion::pixelToAzimuth(float pixel_x) const {
     // Boresight assumption: camera center = 0 azimuth
-    // Left of center = positive azimuth, right = negative
-    // This matches radar convention
     float center_x = config_.cam_width_px / 2.0f;
     float normalized = (center_x - pixel_x) / config_.cam_width_px;
     return normalized * config_.cam_fov_h_rad;
 }
 
 int SensorFusion::findRadarMatch(float cam_azimuth, const RadarTargets& radar) const {
-    int best_idx = -1;
-    float best_diff = config_.azimuth_match_threshold_rad;
+    // For 1D radar (OPS243-A), we ignore azimuth and just check if we have any targets
+    // Return the closest target (smallest range) if there are any
+    if (radar.targets.empty()) {
+        return -1;
+    }
     
-    for (size_t i = 0; i < radar.targets.size(); ++i) {
-        float diff = std::abs(radar.targets[i].azimuth_rad - cam_azimuth);
-        if (diff < best_diff) {
-            best_diff = diff;
-            best_idx = static_cast<int>(i);
+    // For a 1D forward-facing radar, assume the closest target is the one of interest
+    int closest_idx = 0;
+    float closest_range = radar.targets[0].range_m;
+    
+    for (size_t i = 1; i < radar.targets.size(); ++i) {
+        if (radar.targets[i].range_m < closest_range) {
+            closest_range = radar.targets[i].range_m;
+            closest_idx = static_cast<int>(i);
         }
     }
     
-    return best_idx;
+    // Only match if camera detection is reasonably centered (within ~30 degrees of center)
+    // This is the "boresight cone" where the 1D radar is also pointing
+    const float center_tolerance = 30.0f * M_PI / 180.0f;  // 30 degrees
+    if (std::abs(cam_azimuth) < center_tolerance) {
+        return closest_idx;
+    }
+    
+    return -1;
 }
 
 float SensorFusion::computeTTC(float range_m, float radial_vel_mps) const {
@@ -52,6 +66,13 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch& camera,
     std::vector<FusedObject> fused;
     fused.reserve(camera.dets.size());
     
+    // Log radar status once
+    if (g_verbose_mode.load() && !radar.targets.empty()) {
+        std::cout << "[Fusion] Radar has " << radar.targets.size() << " targets. "
+                  << "Closest: range=" << radar.targets[0].range_m << "m, "
+                  << "speed=" << radar.targets[0].radial_vel_mps << "m/s\n";
+    }
+    
     for (const auto& det : camera.dets) {
         FusedObject obj;
         
@@ -63,7 +84,7 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch& camera,
         obj.cam_azimuth_rad = pixelToAzimuth(det.centroid.x);
         obj.sources = SRC_CAM_F;
         
-        // Try to match with radar
+        // Try to match with radar (uses 1D radar logic)
         int radar_idx = findRadarMatch(obj.cam_azimuth_rad, radar);
         
         if (radar_idx >= 0) {
@@ -79,10 +100,10 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch& camera,
             obj.ttc_s = computeTTC(target.range_m, target.radial_vel_mps);
             
             if (g_verbose_mode.load()) {
-                std::cout << "[Fusion] Matched cam_det (cls=" << det.cls 
-                          << ") with radar: range=" << target.range_m << "m"
+                std::cout << "[Fusion] Matched " << (det.cls == 0 ? "person" : "object")
+                          << " with radar: range=" << target.range_m << "m"
                           << ", vel=" << target.radial_vel_mps << "m/s"
-                          << ", TTC=" << obj.ttc_s << "s\n";
+                          << ", TTC=" << (obj.ttc_s < 100 ? std::to_string((int)obj.ttc_s) + "s" : "inf") << "\n";
             }
         } else {
             // Camera only - no range/velocity data
