@@ -3,6 +3,7 @@
 #include "adas/stage_b/ObjectDetector.hpp"
 
 #include <opencv2/imgproc.hpp>
+#include <opencv2/dnn.hpp>  // For cv::dnn::NMSBoxes
 
 #include <algorithm>
 #include <chrono>
