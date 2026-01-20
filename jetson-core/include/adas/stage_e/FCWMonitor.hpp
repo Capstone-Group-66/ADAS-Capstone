@@ -26,11 +26,11 @@ struct FCWAlert {
 class FCWMonitor {
 public:
     struct Config {
-        float ttc_threshold_s = 3.0f;   // Alert if TTC below this (FR20)
-        float min_range_m = 0.5f;       // Ignore if closer than this (already hit)
-        float max_range_m = 50.0f;      // Ignore if too far
+        float ttc_threshold_s;   // Alert if TTC below this (FR20)
+        float min_range_m;       // Ignore if closer than this (already hit)
+        float max_range_m;       // Ignore if too far
         
-        Config() = default;
+        Config() : ttc_threshold_s(3.0f), min_range_m(0.5f), max_range_m(50.0f) {}
     };
     
     explicit FCWMonitor(const Config& config = Config());

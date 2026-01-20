@@ -122,7 +122,7 @@ void visualizationThread() {
             // Check for FCW alerts
             std::optional<adas::FCWAlert> fcw_alert;
             if (g_fcw_monitor && !fused.empty()) {
-                fcw_alert = g_fcw_monitor->check(fused, adas::Clock::nowNs());
+                fcw_alert = g_fcw_monitor->check(fused, adas::Clock::now_ns());
             }
             
             // Draw directly on the frame
