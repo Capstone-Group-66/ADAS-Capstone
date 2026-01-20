@@ -99,10 +99,17 @@ void visualizationThread() {
             got_frame = true;
         }
         
-        // Get latest radar data
+        // Get latest radar data from IngestManager
         adas::RadarTargets radar;
-        while (g_radar_front_queue.try_pop(radar)) {
-            // Keep draining to get latest
+        if (g_ingest_manager) {
+            try {
+                auto& radar_queue = g_ingest_manager->getRadarQueue(adas::Mount::FrontRadar);
+                while (radar_queue.try_pop(radar)) {
+                    // Keep draining to get latest
+                }
+            } catch (...) {
+                // FrontRadar not configured, radar.targets will be empty
+            }
         }
         
         if (got_frame && !batch.frame.empty()) {
