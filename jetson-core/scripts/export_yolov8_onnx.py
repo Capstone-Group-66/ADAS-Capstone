@@ -19,11 +19,11 @@ def main():
     print("[Export] Loading YOLOv8n pretrained model...")
     model = YOLO('yolov8n.pt')
     
-    print("[Export] Exporting to ONNX with opset=11 (Jetson Nano/OpenCV 4.1.1 fix)...")
+    print("[Export] Exporting to ONNX with opset=9 (Nuclear Option for Legacy OpenCV)...")
     model.export(
         format='onnx',
-        opset=11,           # Opset 11 is required for correct convolution graph
-        half=False,         # FP32 weights required to prevent raw_data() assert
+        opset=9,            # Opset 9 forces weights into legacy fields
+        half=False,         # FP32 weights required 
         simplify=True,      # Simplify removes unsupported operators
         dynamic=False,      # Static input shape
         imgsz=640,          # Input size
