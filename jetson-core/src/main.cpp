@@ -6,6 +6,7 @@
 #include "adas/stage_a/DeviceWizard.hpp"
 #include "adas/stage_a/IngestManager.hpp"
 #include "adas/stage_b/CameraPipeline.hpp"
+#include "adas/stage_b/ObjectDetector.hpp"  // For class name lookup
 
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
@@ -82,8 +83,9 @@ void visualizationThread() {
                     // Draw box
                     cv::rectangle(vis, det.box_px, color, 2);
                     
-                    // Draw label
-                    std::string label = std::to_string(det.cls) + " " + 
+                    // Draw label with class name
+                    std::string class_name = adas::ObjectDetector::getClassName(det.cls);
+                    std::string label = class_name + " " + 
                                         std::to_string(static_cast<int>(det.score * 100)) + "%";
                                         
                     int baseLine;
