@@ -86,9 +86,14 @@ void visualizationThread() {
     
     auto last_fps_time = std::chrono::steady_clock::now();
     auto last_display_time = std::chrono::steady_clock::now();
+    auto fcw_alert_until = std::chrono::steady_clock::now();  // FCW hold timer
     const auto display_interval = std::chrono::milliseconds(200); // 5 FPS cap for display
+    const auto fcw_hold_duration = std::chrono::seconds(2);  // Hold FCW alert for 2 seconds
+    const float fcw_proximity_threshold_m = 1.5f;  // Trigger FCW if object within this range
     int frame_count = 0;
     double fps = 0.0;
+    float last_fcw_ttc = 0.0f;
+    float last_fcw_range = 0.0f;
     
     while (g_visualizer_running.load() && !g_shutdown_requested.load()) {
         adas::DetBatch batch;
@@ -119,10 +124,35 @@ void visualizationThread() {
                 fused = g_sensor_fusion->fuse(batch, radar);
             }
             
-            // Check for FCW alerts
+            // Check for FCW alerts (TTC-based)
             std::optional<adas::FCWAlert> fcw_alert;
             if (g_fcw_monitor && !fused.empty()) {
                 fcw_alert = g_fcw_monitor->check(fused, adas::Clock::now_ns());
+            }
+            
+            // Also check for proximity-based FCW (any object within 1.5m)
+            bool proximity_alert = false;
+            float closest_range = 999.0f;
+            for (const auto& obj : fused) {
+                if (obj.has_radar && obj.range_m < fcw_proximity_threshold_m && obj.range_m > 0.1f) {
+                    proximity_alert = true;
+                    if (obj.range_m < closest_range) {
+                        closest_range = obj.range_m;
+                    }
+                }
+            }
+            
+            // Update FCW hold timer if we have an alert
+            auto now_time = std::chrono::steady_clock::now();
+            if (fcw_alert.has_value() || proximity_alert) {
+                fcw_alert_until = now_time + fcw_hold_duration;
+                if (fcw_alert.has_value()) {
+                    last_fcw_ttc = fcw_alert->ttc_s;
+                    last_fcw_range = fcw_alert->range_m;
+                } else {
+                    last_fcw_ttc = closest_range / 1.0f;  // Assume 1 m/s approach
+                    last_fcw_range = closest_range;
+                }
             }
             
             // CRITICAL: Clone the frame to get our own memory buffer
@@ -186,42 +216,27 @@ void visualizationThread() {
                 cv::circle(vis, safe_centroid, 3, cv::Scalar(0, 255, 0), -1);
             }
             
-            // Draw FCW alert overlay if active
-            if (fcw_alert.has_value()) {
-                std::cerr << "[VIS-DEBUG] FCW has_value=true, entering draw\n" << std::flush;
-                try {
-                    g_fcw_alert_active.store(true);
-                    std::cerr << "[VIS-DEBUG] Stored alert active\n" << std::flush;
-                    g_fcw_ttc_ms.store(static_cast<int>(fcw_alert->ttc_s * 1000.0f));
-                    std::cerr << "[VIS-DEBUG] Stored TTC ms\n" << std::flush;
-                    
-                    // Red border flash
-                    if (vis.cols > 10 && vis.rows > 10) {
-                        std::cerr << "[VIS-DEBUG] Drawing red border\n" << std::flush;
-                        cv::rectangle(vis, cv::Point(4, 4), cv::Point(vis.cols - 5, vis.rows - 5), 
-                                      cv::Scalar(0, 0, 255), 8);
-                        std::cerr << "[VIS-DEBUG] Red border done\n" << std::flush;
-                    }
-                    
-                    // FCW warning text - simple formatting
-                    int ttc_deciseconds = static_cast<int>(fcw_alert->ttc_s * 10);
-                    std::string fcw_text = "FCW! TTC:" + std::to_string(ttc_deciseconds / 10) + 
-                                           "." + std::to_string(ttc_deciseconds % 10) + "s";
-                    int text_x = std::max(10, vis.cols / 2 - 100);
-                    std::cerr << "[VIS-DEBUG] Drawing FCW text\n" << std::flush;
-                    cv::putText(vis, fcw_text, cv::Point(text_x, 60), 
-                                cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 0, 255), 3);
-                    std::cerr << "[VIS-DEBUG] FCW text done\n" << std::flush;
-                } catch (const std::exception& e) {
-                    std::cerr << "[VIS-DEBUG] Exception: " << e.what() << "\n" << std::flush;
-                } catch (...) {
-                    std::cerr << "[VIS-DEBUG] Unknown exception\n" << std::flush;
+            // Draw FCW alert overlay if active (with 2-second hold)
+            if (now_time < fcw_alert_until) {
+                g_fcw_alert_active.store(true);
+                g_fcw_ttc_ms.store(static_cast<int>(last_fcw_ttc * 1000.0f));
+                
+                // Red border
+                if (vis.cols > 10 && vis.rows > 10) {
+                    cv::rectangle(vis, cv::Point(4, 4), cv::Point(vis.cols - 5, vis.rows - 5), 
+                                  cv::Scalar(0, 0, 255), 8);
                 }
+                
+                // FCW warning text with range
+                std::string fcw_text = "FCW ALERT! Range:" + 
+                                       std::to_string(static_cast<int>(last_fcw_range * 10) / 10) + "." +
+                                       std::to_string(static_cast<int>(last_fcw_range * 10) % 10) + "m";
+                int text_x = std::max(10, vis.cols / 2 - 150);
+                cv::putText(vis, fcw_text, cv::Point(text_x, 60), 
+                            cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 0, 255), 3);
             } else {
                 g_fcw_alert_active.store(false);
             }
-            
-            std::cerr << "[VIS-DEBUG] Post FCW block\n" << std::flush;
             
             // Calculate FPS
             frame_count++;
@@ -233,7 +248,6 @@ void visualizationThread() {
                 last_fps_time = now;
             }
             
-            std::cerr << "[VIS-DEBUG] Drawing info overlay\n" << std::flush;
             // Draw info overlay
             std::string info = "Inf: " + std::to_string(static_cast<int>(batch.inference_time_us / 1000)) + 
                                "ms | FPS: " + std::to_string(static_cast<int>(fps)) +
@@ -241,12 +255,10 @@ void visualizationThread() {
                                " | Radar: " + std::to_string(radar.targets.size());
             cv::putText(vis, info, cv::Point(10, 25), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
             
-            std::cerr << "[VIS-DEBUG] About to imshow\n" << std::flush;
             // Rate-limit display to 5 FPS to reduce stuttering
             auto now_display = std::chrono::steady_clock::now();
             if (now_display - last_display_time >= display_interval) {
                 cv::imshow("Stage B: FrontCam", vis);
-                std::cerr << "[VIS-DEBUG] imshow done\n" << std::flush;
                 last_display_time = now_display;
             }
         }
