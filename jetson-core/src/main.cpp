@@ -127,16 +127,36 @@ void visualizationThread() {
             
             // Draw directly on the frame
             cv::Mat& vis = batch.frame;
+            int vis_width = vis.cols;
+            int vis_height = vis.rows;
             
             // Draw fused detections with TTC
             for (const auto& obj : fused) {
+                // Bounds check - skip invalid detections
+                int x = static_cast<int>(obj.box_px.x);
+                int y = static_cast<int>(obj.box_px.y);
+                int w = static_cast<int>(obj.box_px.width);
+                int h = static_cast<int>(obj.box_px.height);
+                
+                // Clamp to frame bounds
+                x = std::max(0, std::min(x, vis_width - 1));
+                y = std::max(0, std::min(y, vis_height - 1));
+                w = std::max(1, std::min(w, vis_width - x));
+                h = std::max(1, std::min(h, vis_height - y));
+                
+                cv::Rect safe_box(x, y, w, h);
+                cv::Point safe_centroid(
+                    std::max(0, std::min(static_cast<int>(obj.centroid_px.x), vis_width - 1)),
+                    std::max(0, std::min(static_cast<int>(obj.centroid_px.y), vis_height - 1))
+                );
+                
                 cv::Scalar color(
                     (obj.object_class * 50) % 255, 
                     (obj.object_class * 80 + 100) % 255, 
                     (obj.object_class * 120 + 200) % 255
                 );
                 
-                cv::rectangle(vis, obj.box_px, color, 2);
+                cv::rectangle(vis, safe_box, color, 2);
                 
                 std::string class_name = adas::ObjectDetector::getClassName(obj.object_class);
                 std::string label = class_name + " " + 
@@ -151,16 +171,18 @@ void visualizationThread() {
                 int baseLine;
                 cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
                 
+                int label_y = std::max(labelSize.height + 2, y);
+                
                 cv::rectangle(vis, 
-                    cv::Point(obj.box_px.x, obj.box_px.y - labelSize.height - 2),
-                    cv::Point(obj.box_px.x + labelSize.width, obj.box_px.y),
+                    cv::Point(x, label_y - labelSize.height - 2),
+                    cv::Point(std::min(x + labelSize.width, vis_width), label_y),
                     color, cv::FILLED);
                     
                 cv::putText(vis, label, 
-                    cv::Point(obj.box_px.x, obj.box_px.y - 2),
+                    cv::Point(x, label_y - 2),
                     cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0,0,0), 1);
                     
-                cv::circle(vis, obj.centroid_px, 3, cv::Scalar(0, 255, 0), -1);
+                cv::circle(vis, safe_centroid, 3, cv::Scalar(0, 255, 0), -1);
             }
             
             // Draw FCW alert overlay if active
@@ -169,7 +191,7 @@ void visualizationThread() {
                 g_fcw_ttc = fcw_alert->ttc_s;
                 
                 // Red border flash
-                cv::rectangle(vis, cv::Point(0, 0), cv::Point(vis.cols, vis.rows), 
+                cv::rectangle(vis, cv::Point(0, 0), cv::Point(vis.cols - 1, vis.rows - 1), 
                               cv::Scalar(0, 0, 255), 8);
                 
                 // FCW warning text
