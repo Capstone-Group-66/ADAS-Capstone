@@ -243,12 +243,7 @@ std::vector<Detection> ObjectDetector::postprocess(float* output, const cv::Size
         float confidence = obj_conf * max_class_score;
         if (confidence < config_.confidence_threshold) continue;
         
-        // ADAS class filter: only keep relevant road objects
-        // COCO: 0=person, 1=bicycle, 2=car, 3=motorcycle, 5=bus, 7=truck
-        if (max_class_id != 0 && max_class_id != 1 && max_class_id != 2 && 
-            max_class_id != 3 && max_class_id != 5 && max_class_id != 7) {
-            continue;  // Skip non-ADAS classes
-        }
+        // NOTE: Class filter removed - let all detections through for now
         
         // Extract box
         float cx = row[0];
