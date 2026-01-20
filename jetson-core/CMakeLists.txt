@@ -81,6 +81,23 @@ target_link_libraries(jetson_core
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:stdc++fs>
 )
 
+# TensorRT support (Jetson only)
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+    find_library(NVINFER_LIB nvinfer HINTS /usr/lib/aarch64-linux-gnu)
+    find_library(CUDA_RT_LIB cudart HINTS /usr/local/cuda/lib64)
+    
+    if(NVINFER_LIB AND CUDA_RT_LIB)
+        message(STATUS "TensorRT found: ${NVINFER_LIB}")
+        target_link_libraries(jetson_core ${NVINFER_LIB} ${CUDA_RT_LIB})
+        target_include_directories(jetson_core PRIVATE 
+            /usr/include/aarch64-linux-gnu
+            /usr/local/cuda/include
+        )
+    else()
+        message(WARNING "TensorRT not found - ObjectDetector will be disabled")
+    endif()
+endif()
+
 if(MSVC)
     target_compile_definitions(jetson_core PRIVATE _CRT_SECURE_NO_WARNINGS)
 endif()
