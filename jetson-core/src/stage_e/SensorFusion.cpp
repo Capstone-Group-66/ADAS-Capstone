@@ -53,8 +53,8 @@ int SensorFusion::findRadarMatch(float cam_azimuth, const RadarTargets& radar) c
 
 float SensorFusion::computeTTC(float range_m, float radial_vel_mps) const {
     // Negative radial velocity = approaching
-    // Only compute TTC if approaching faster than threshold
-    if (radial_vel_mps < -config_.min_closing_vel_mps) {
+    // Always compute TTC if approaching (any negative velocity)
+    if (radial_vel_mps < -0.1f) {  // Small threshold to filter noise
         float closing_vel = -radial_vel_mps;  // Make positive
         return range_m / closing_vel;
     }
@@ -64,6 +64,12 @@ float SensorFusion::computeTTC(float range_m, float radial_vel_mps) const {
 std::vector<FusedObject> SensorFusion::fuse(const DetBatch& camera, 
                                              const RadarTargets& radar) {
     std::vector<FusedObject> fused;
+    
+    // Early exit: no fusion possible without both camera AND radar data
+    if (camera.dets.empty() || radar.targets.empty()) {
+        return fused;  // Return empty vector
+    }
+    
     fused.reserve(camera.dets.size());
     
     // Always log radar status when we have detections (gated by verbose mode)
