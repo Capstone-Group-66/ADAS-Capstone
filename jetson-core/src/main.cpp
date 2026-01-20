@@ -491,7 +491,7 @@ int main(int argc, char *argv[]) {
     std::string config_path = "config/componentConfig.yaml";
     std::string hw_map_path = "config/hardware_map.json";
     std::string calib_dir = "config/calibration";
-    std::string model_path = "models/yolov5n.engine";
+    std::string model_path = "models/yolov5n_320.engine";
     bool auto_start = false;
 
     for (int i = 1; i < argc; ++i) {
