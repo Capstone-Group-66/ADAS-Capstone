@@ -74,6 +74,8 @@ void visualizationThread() {
     cv::namedWindow("Stage B: FrontCam", cv::WINDOW_AUTOSIZE);
     
     auto last_fps_time = std::chrono::steady_clock::now();
+    auto last_display_time = std::chrono::steady_clock::now();
+    const auto display_interval = std::chrono::milliseconds(200); // 5 FPS cap for display
     int frame_count = 0;
     double fps = 0.0;
     
@@ -135,7 +137,12 @@ void visualizationThread() {
                                " | Det: " + std::to_string(batch.dets.size());
             cv::putText(vis, info, cv::Point(10, 25), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
             
-            cv::imshow("Stage B: FrontCam", vis);
+            // Rate-limit display to 5 FPS to reduce stuttering
+            auto now_display = std::chrono::steady_clock::now();
+            if (now_display - last_display_time >= display_interval) {
+                cv::imshow("Stage B: FrontCam", vis);
+                last_display_time = now_display;
+            }
         }
         
         // Non-blocking waitKey with minimal delay
