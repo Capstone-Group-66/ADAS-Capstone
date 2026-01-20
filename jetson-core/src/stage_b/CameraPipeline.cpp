@@ -105,8 +105,8 @@ void CameraPipeline::threadFunc() {
         static uint64_t last_inference_time = 0;
         
         // Use local counter for logic to avoid atomic overhead in loop
-        // PERF: Run inference every 2nd frame (15 FPS logic) for responsive detection
-        if (frames_processed_.load(std::memory_order_relaxed) % 2 == 0) {
+        // PERF: Run inference every 5th frame (6 FPS logic) for better real-time performance
+        if (frames_processed_.load(std::memory_order_relaxed) % 5 == 0) {
             // Run full inference
             DetBatch res = detector_->detect(image, frame.h);
             
