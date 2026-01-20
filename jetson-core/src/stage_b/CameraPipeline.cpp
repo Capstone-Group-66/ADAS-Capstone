@@ -91,17 +91,38 @@ void CameraPipeline::threadFunc() {
         
         cv::Mat image(frame.height, frame.width, CV_8UC3, frame.data.data());
         
-        // Step 1: Undistortion
-        // PERF: User experiment showed detection is better on raw frames.
-        // Also saves ~15ms on Jetson Nano by skipping remap.
-        // We will re-enable undistortion later for Lane Detection only.
+        // Step 1: Undistortion (Disabled for performance per user experiment)
         // cv::Mat undistorted = preprocessor_->process(image, true);
         
         // Step 2: Object detection (on RAW image)
-        DetBatch detections = detector_->detect(image, frame.h);
+        // PERF: Skip frames to reduce load. Run inference every 3rd frame (10 FPS).
+        DetBatch detections;
+        detections.h = frame.h;
+        detections.frame = image; // Zero-copy ref
         
-        // Save frame for visualization (Raw)
-        detections.frame = image;
+        // Cache detections to reuse on skipped frames
+        static std::vector<Det> last_dets;
+        static uint64_t last_inference_time = 0;
+        
+        // Use local counter for logic to avoid atomic overhead in loop
+        if (frames_processed_.load(std::memory_order_relaxed) % 3 == 0) {
+            // Run full inference
+            DetBatch res = detector_->detect(image, frame.h);
+            
+            // Update cache
+            last_dets = res.dets;
+            last_inference_time = res.inference_time_us;
+            
+            // Set output
+            detections.dets = res.dets;
+            detections.inference_time_us = res.inference_time_us;
+        } else {
+            // SKIP inference - reuse last detections
+            detections.dets = last_dets;
+            // Mark as 0 to indicate valid skip, or accurate last time? 
+            // 0 is better to show it didn't consume resources
+            detections.inference_time_us = 0; 
+        }
         
         // Update statistics
         frames_processed_.fetch_add(1, std::memory_order_relaxed);
