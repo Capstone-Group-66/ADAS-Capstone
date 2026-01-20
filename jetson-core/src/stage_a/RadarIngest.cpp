@@ -238,67 +238,67 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len, uint64_t t
     uint32_t s = seq_.fetch_add(1, std::memory_order_relaxed);
     targets.h = Header(t_ingest, mount_, s, true);
 
-    // OPS243-A API JSON output parsing
-    // The radar outputs JSON lines like:
-    // {"product_id":"OPS243-A","targets":[{"range":1.5,"speed":-0.3},...]}
+    // OPS243-A ASCII output format:
+    // The radar sends ASCII text lines terminated by \r\n:
+    //   "m",2.4     -> range in meters
+    //   "mps",0.1   -> velocity in m/s
     //
-    // For simplicity, we do pattern matching on the raw bytes
-    // A full implementation would use a JSON parser
-    //
-    // Look for "range": and "speed": patterns
+    // Range and velocity come as separate lines, so we parse both
+    // and create a target when we have valid range data.
 
     std::string str(reinterpret_cast<const char *>(data), len);
-
-    // Simple extraction - find range values
-    size_t pos = 0;
-    while ((pos = str.find("\"range\":", pos)) != std::string::npos) {
-        pos += 8; // Skip "range":
-
-        // Extract number
-        size_t num_start = pos;
-        while (pos < str.size() && (std::isdigit(str[pos]) || str[pos] == '.' || str[pos] == '-')) {
-            ++pos;
+    
+    // Static variables to accumulate range/velocity across frames
+    // (since they come on separate lines)
+    static float last_range = 0.0f;
+    static float last_velocity = 0.0f;
+    static bool has_range = false;
+    
+    // Look for range: "m",<value>
+    size_t range_pos = str.find("\"m\",");
+    if (range_pos != std::string::npos) {
+        range_pos += 4;  // Skip "m",
+        size_t num_end = range_pos;
+        while (num_end < str.size() && 
+               (std::isdigit(str[num_end]) || str[num_end] == '.' || str[num_end] == '-')) {
+            ++num_end;
         }
-
-        if (pos > num_start) {
+        if (num_end > range_pos) {
             try {
-                float range = std::stof(str.substr(num_start, pos - num_start));
-
-                // Look for speed in same object
-                float speed = 0.0f;
-                size_t speed_pos = str.find("\"speed\":", pos);
-                if (speed_pos != std::string::npos && speed_pos < pos + 50) {
-                    speed_pos += 8;
-                    size_t speed_end = speed_pos;
-                    while (speed_end < str.size() &&
-                           (std::isdigit(str[speed_end]) || str[speed_end] == '.' ||
-                            str[speed_end] == '-')) {
-                        ++speed_end;
-                    }
-                    if (speed_end > speed_pos) {
-                        speed = std::stof(str.substr(speed_pos, speed_end - speed_pos));
-                    }
-                }
-
-                RadarTarget target;
-                target.range_m = range;
-                target.radial_vel_mps = speed;
-                target.azimuth_rad = 0.0f; // OPS243-A doesn't provide azimuth
-                target.rcs_db = 0.0f;
-                target.sigma_r = 0.1f;
-                target.sigma_v = 0.05f;
-                target.sigma_az = 0.5f;
-
-                targets.targets.push_back(target);
-            } catch (...) {
-                // Parse error, skip
-            }
+                last_range = std::stof(str.substr(range_pos, num_end - range_pos));
+                has_range = true;
+            } catch (...) {}
         }
     }
+    
+    // Look for velocity: "mps",<value>
+    size_t vel_pos = str.find("\"mps\",");
+    if (vel_pos != std::string::npos) {
+        vel_pos += 6;  // Skip "mps",
+        size_t num_end = vel_pos;
+        while (num_end < str.size() && 
+               (std::isdigit(str[num_end]) || str[num_end] == '.' || str[num_end] == '-')) {
+            ++num_end;
+        }
+        if (num_end > vel_pos) {
+            try {
+                last_velocity = std::stof(str.substr(vel_pos, num_end - vel_pos));
+            } catch (...) {}
+        }
+    }
+    
+    // Create a target if we have valid range data
+    if (has_range && last_range > 0.1f) {  // Ignore very close readings
+        RadarTarget target;
+        target.range_m = last_range;
+        target.radial_vel_mps = last_velocity;  // Positive = closing, negative = opening
+        target.azimuth_rad = 0.0f;  // OPS243-A doesn't provide azimuth
+        target.rcs_db = 0.0f;
+        target.sigma_r = 0.1f;
+        target.sigma_v = 0.05f;
+        target.sigma_az = 0.5f;
 
-    if (targets.targets.empty()) {
-        // No targets detected - still valid, just empty
-        targets.h.healthy = true;
+        targets.targets.push_back(target);
     }
 
     return targets;
