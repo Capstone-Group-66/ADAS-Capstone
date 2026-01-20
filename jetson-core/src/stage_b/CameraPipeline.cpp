@@ -91,14 +91,17 @@ void CameraPipeline::threadFunc() {
         
         cv::Mat image(frame.height, frame.width, CV_8UC3, frame.data.data());
         
-        // Step 1: Undistortion (crop to valid ROI to remove lens distortion edges)
-        cv::Mat undistorted = preprocessor_->process(image, true);
+        // Step 1: Undistortion
+        // PERF: User experiment showed detection is better on raw frames.
+        // Also saves ~15ms on Jetson Nano by skipping remap.
+        // We will re-enable undistortion later for Lane Detection only.
+        // cv::Mat undistorted = preprocessor_->process(image, true);
         
-        // Step 2: Object detection
-        DetBatch detections = detector_->detect(undistorted, frame.h);
+        // Step 2: Object detection (on RAW image)
+        DetBatch detections = detector_->detect(image, frame.h);
         
-        // Save frame for visualization
-        detections.frame = undistorted;
+        // Save frame for visualization (Raw)
+        detections.frame = image;
         
         // Update statistics
         frames_processed_.fetch_add(1, std::memory_order_relaxed);
