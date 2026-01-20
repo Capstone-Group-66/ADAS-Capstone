@@ -52,7 +52,8 @@ adas::SPSCQueue<adas::RadarTargets, 4> g_radar_front_queue;
 std::unique_ptr<adas::SensorFusion> g_sensor_fusion;
 std::unique_ptr<adas::FCWMonitor> g_fcw_monitor;
 std::atomic<bool> g_fcw_alert_active{false};
-float g_fcw_ttc = 0.0f;
+std::atomic<bool> g_fcw_alert_active{false};
+std::atomic<int> g_fcw_ttc_ms{0}; // TTC in milliseconds (avoids float atomic availability issues)
 
 std::string formatUptime(std::chrono::seconds uptime) {
     int hours = uptime.count() / 3600;
@@ -189,7 +190,7 @@ void visualizationThread() {
             if (fcw_alert.has_value()) {
                 try {
                     g_fcw_alert_active.store(true);
-                    g_fcw_ttc = fcw_alert->ttc_s;
+                    g_fcw_ttc_ms.store(static_cast<int>(fcw_alert->ttc_s * 1000.0f));
                     
                     // Red border flash
                     if (vis.cols > 10 && vis.rows > 10) {
