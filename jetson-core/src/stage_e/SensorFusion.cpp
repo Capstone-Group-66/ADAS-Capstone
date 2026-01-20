@@ -52,11 +52,10 @@ int SensorFusion::findRadarMatch(float cam_azimuth, const RadarTargets& radar) c
 }
 
 float SensorFusion::computeTTC(float range_m, float radial_vel_mps) const {
-    // Negative radial velocity = approaching
-    // Always compute TTC if approaching (any negative velocity)
-    if (radial_vel_mps < -0.1f) {  // Small threshold to filter noise
-        float closing_vel = -radial_vel_mps;  // Make positive
-        return range_m / closing_vel;
+    // OPS243-A convention: positive radial velocity = approaching
+    // Threshold: must be closing at least 0.1 m/s to avoid noise
+    if (radial_vel_mps > 0.1f) {
+        return range_m / radial_vel_mps;
     }
     return std::numeric_limits<float>::infinity();
 }
