@@ -91,11 +91,14 @@ void CameraPipeline::threadFunc() {
         
         cv::Mat image(frame.height, frame.width, CV_8UC3, frame.data.data());
         
-        // Step 1: Undistortion
-        cv::Mat undistorted = preprocessor_->process(image, false);
+        // Step 1: Undistortion (crop to valid ROI to remove lens distortion edges)
+        cv::Mat undistorted = preprocessor_->process(image, true);
         
         // Step 2: Object detection
         DetBatch detections = detector_->detect(undistorted, frame.h);
+        
+        // Save frame for visualization
+        detections.frame = undistorted;
         
         // Update statistics
         frames_processed_.fetch_add(1, std::memory_order_relaxed);

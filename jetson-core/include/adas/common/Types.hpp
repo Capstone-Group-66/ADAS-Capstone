@@ -229,6 +229,7 @@ struct DetBatch {
     Header h;                       // Inherited from source frame
     std::vector<Det> dets;          // All detections in frame
     uint64_t inference_time_us;     // Inference latency (microseconds)
+    cv::Mat frame;                  // Undistorted frame for visualization (optional)
     
     DetBatch() : inference_time_us(0) {}
 };

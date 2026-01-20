@@ -7,6 +7,9 @@
 #include "adas/stage_a/IngestManager.hpp"
 #include "adas/stage_b/CameraPipeline.hpp"
 
+#include <opencv2/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+
 #include <chrono>
 #include <csignal>
 #include <iomanip>
@@ -29,6 +32,10 @@ std::thread g_status_thread;
 std::atomic<bool> g_status_running{false};
 std::chrono::steady_clock::time_point g_pipeline_start_time;
 
+// Visualization thread
+std::thread g_visualizer_thread;
+std::atomic<bool> g_visualizer_running{false};
+
 // Detection output queues (Stage B -> Stage E)
 adas::SPSCQueue<adas::DetBatch, 8> g_det_front_queue;
 adas::SPSCQueue<adas::DetBatch, 8> g_det_side_l_queue;
@@ -49,6 +56,66 @@ std::string formatUptime(std::chrono::seconds uptime) {
         ss << seconds << "s";
     }
     return ss.str();
+}
+
+// Visualization thread
+void visualizationThread() {
+    std::cout << "[Visualizer] Thread started (waiting for detections...)\n";
+    cv::namedWindow("Stage B: FrontCam", cv::WINDOW_AUTOSIZE);
+    
+    while (g_visualizer_running.load() && !g_shutdown_requested.load()) {
+        adas::DetBatch batch;
+        if (g_det_front_queue.try_pop(batch)) {
+            // Check if we have a frame to visualize
+            if (!batch.frame.empty()) {
+                cv::Mat vis = batch.frame.clone();
+                
+                // Draw detections
+                for (const auto& det : batch.dets) {
+                    // Choose color based on class (simple hash)
+                    cv::Scalar color(
+                        (det.cls * 50) % 255, 
+                        (det.cls * 80 + 100) % 255, 
+                        (det.cls * 120 + 200) % 255
+                    );
+                    
+                    // Draw box
+                    cv::rectangle(vis, det.box_px, color, 2);
+                    
+                    // Draw label
+                    std::string label = std::to_string(det.cls) + " " + 
+                                        std::to_string(static_cast<int>(det.score * 100)) + "%";
+                                        
+                    int baseLine;
+                    cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
+                    
+                    cv::rectangle(vis, 
+                        cv::Point(det.box_px.x, det.box_px.y - labelSize.height),
+                        cv::Point(det.box_px.x + labelSize.width, det.box_px.y + baseLine),
+                        color, cv::FILLED);
+                        
+                    cv::putText(vis, label, 
+                        cv::Point(det.box_px.x, det.box_px.y),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0,0,0), 1);
+                        
+                    // Draw centroid
+                    cv::circle(vis, det.centroid, 3, cv::Scalar(0, 255, 0), -1);
+                }
+                
+                // Draw info
+                std::string info = "Inference: " + std::to_string(batch.inference_time_us / 1000.0) + "ms";
+                cv::putText(vis, info, cv::Point(10, 20), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
+                
+                cv::imshow("Stage B: FrontCam", vis);
+                cv::waitKey(1);
+            }
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+    }
+    
+    cv::destroyWindow("Stage B: FrontCam");
+    std::cout << "[Visualizer] Thread stopped\n";
 }
 
 void statusBarThread() {
@@ -189,6 +256,10 @@ void startPipeline(const adas::Config& config, const adas::HardwareMap& hw_map,
     g_status_running.store(true);
     g_status_thread = std::thread(statusBarThread);
     
+    // Start visualization thread
+    g_visualizer_running.store(true);
+    g_visualizer_thread = std::thread(visualizationThread);
+    
     std::cout << "\n[Main] Pipeline started successfully!\n";
     std::cout << "[Main] Press '3' to view status, '2' to stop\n\n";
 }
@@ -205,6 +276,12 @@ void stopPipeline() {
     g_status_running.store(false);
     if (g_status_thread.joinable()) {
         g_status_thread.join();
+    }
+    
+    // Stop visualization thread
+    g_visualizer_running.store(false);
+    if (g_visualizer_thread.joinable()) {
+        g_visualizer_thread.join();
     }
     
     // Stop in reverse order
