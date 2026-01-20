@@ -187,18 +187,26 @@ void visualizationThread() {
             
             // Draw FCW alert overlay if active
             if (fcw_alert.has_value()) {
-                g_fcw_alert_active.store(true);
-                g_fcw_ttc = fcw_alert->ttc_s;
-                
-                // Red border flash
-                cv::rectangle(vis, cv::Point(0, 0), cv::Point(vis.cols - 1, vis.rows - 1), 
-                              cv::Scalar(0, 0, 255), 8);
-                
-                // FCW warning text
-                std::string fcw_text = "FCW ALERT! TTC: " + 
-                                       std::to_string(static_cast<int>(fcw_alert->ttc_s * 10) / 10.0) + "s";
-                cv::putText(vis, fcw_text, cv::Point(vis.cols/2 - 150, 60), 
-                            cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 0, 255), 3);
+                try {
+                    g_fcw_alert_active.store(true);
+                    g_fcw_ttc = fcw_alert->ttc_s;
+                    
+                    // Red border flash
+                    if (vis.cols > 10 && vis.rows > 10) {
+                        cv::rectangle(vis, cv::Point(4, 4), cv::Point(vis.cols - 5, vis.rows - 5), 
+                                      cv::Scalar(0, 0, 255), 8);
+                    }
+                    
+                    // FCW warning text - simple formatting
+                    int ttc_deciseconds = static_cast<int>(fcw_alert->ttc_s * 10);
+                    std::string fcw_text = "FCW! TTC:" + std::to_string(ttc_deciseconds / 10) + 
+                                           "." + std::to_string(ttc_deciseconds % 10) + "s";
+                    int text_x = std::max(10, vis.cols / 2 - 100);
+                    cv::putText(vis, fcw_text, cv::Point(text_x, 60), 
+                                cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 0, 255), 3);
+                } catch (...) {
+                    // Ignore drawing errors
+                }
             } else {
                 g_fcw_alert_active.store(false);
             }
