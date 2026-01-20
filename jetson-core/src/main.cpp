@@ -161,8 +161,39 @@ void visualizationThread() {
             int vis_width = vis.cols;
             int vis_height = vis.rows;
             
-            // Draw fused detections with TTC
+            // Detection persistence: Hold detections for 500ms to reduce jitter
+            // Uses a static buffer that persists across frames
+            static std::vector<std::pair<adas::FusedObject, std::chrono::steady_clock::time_point>> persistent_dets;
+            const auto det_hold_duration = std::chrono::milliseconds(500);
+            
+            // Add/update current detections in buffer
             for (const auto& obj : fused) {
+                // Check if similar detection exists (overlap > 50%)
+                bool found = false;
+                for (auto& [stored_obj, timestamp] : persistent_dets) {
+                    cv::Rect2f intersection = stored_obj.box_px & obj.box_px;
+                    float overlap = intersection.area() / std::max(stored_obj.box_px.area(), obj.box_px.area());
+                    if (overlap > 0.3f && stored_obj.object_class == obj.object_class) {
+                        // Update existing detection
+                        stored_obj = obj;
+                        timestamp = now_time;
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    persistent_dets.push_back({obj, now_time});
+                }
+            }
+            
+            // Remove stale detections
+            persistent_dets.erase(
+                std::remove_if(persistent_dets.begin(), persistent_dets.end(),
+                    [&](const auto& item) { return now_time - item.second > det_hold_duration; }),
+                persistent_dets.end());
+            
+            // Draw persistent detections (instead of just current frame)
+            for (const auto& [obj, timestamp] : persistent_dets) {
                 // Bounds check - skip invalid detections
                 int x = static_cast<int>(obj.box_px.x);
                 int y = static_cast<int>(obj.box_px.y);
