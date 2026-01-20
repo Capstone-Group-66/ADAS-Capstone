@@ -51,7 +51,7 @@ class ObjectDetector {
         
         Config() 
             : model_path("models/yolov5n.engine")
-            , confidence_threshold(0.40f)  // Higher threshold = less flicker
+            , confidence_threshold(0.15f)  // Lower = more detections at range
             , nms_threshold(0.45f)
             , input_width(640)
             , input_height(640)

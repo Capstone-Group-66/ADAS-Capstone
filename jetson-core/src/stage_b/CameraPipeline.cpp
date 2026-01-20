@@ -110,18 +110,19 @@ void CameraPipeline::threadFunc() {
             // Run full inference
             DetBatch res = detector_->detect(image, frame.h);
             
-            // Update cache
-            last_dets = res.dets;
-            last_inference_time = res.inference_time_us;
+            // Only update cache if we found detections (persistence)
+            // This prevents flicker when detection temporarily fails
+            if (!res.dets.empty()) {
+                last_dets = res.dets;
+                last_inference_time = res.inference_time_us;
+            }
             
-            // Set output
-            detections.dets = res.dets;
+            // Set output - use cached (may be from this frame or previous)
+            detections.dets = last_dets;
             detections.inference_time_us = res.inference_time_us;
         } else {
             // SKIP inference - reuse last detections
             detections.dets = last_dets;
-            // Mark as 0 to indicate valid skip, or accurate last time? 
-            // 0 is better to show it didn't consume resources
             detections.inference_time_us = 0; 
         }
         
