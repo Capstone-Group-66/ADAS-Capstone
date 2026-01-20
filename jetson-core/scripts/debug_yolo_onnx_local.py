@@ -36,61 +36,99 @@ CLASS_NAMES = [
 ]
 
 def postprocess(outputs, img_width, img_height):
-    # YOLOv8 output shape is [1, 84, 8400]
-    output = outputs[0].transpose() # [8400, 84]
+    # Determine model type by output shape
+    # YOLOv8: [1, 84, 8400] (cx, cy, w, h, cls_scores...)
+    # YOLOv5: [1, 25200, 85] (cx, cy, w, h, obj_conf, cls_scores...)
     
-    # Scale factors
+    output = outputs[0]
+    
+    boxes = []
+    class_ids = []
+    confidences = []
+    
     x_factor = img_width / INPUT_WIDTH
     y_factor = img_height / INPUT_HEIGHT
     
-    # Vectorized filtering
-    # Get max score and class ID for each row
-    # row[:, 4:] contains the 80 class scores
-    scores = output[:, 4:]
-    class_ids = np.argmax(scores, axis=1)
-    max_scores = scores[np.arange(scores.shape[0]), class_ids]
-    
-    # Filter by confidence
-    mask = max_scores >= SCORE_THRESHOLD
-    
-    filtered_output = output[mask]
-    filtered_class_ids = class_ids[mask]
-    filtered_confidences = max_scores[mask]
-    
-    boxes = []
-    
-    # Iterate only over high-confidence detections
-    for i in range(filtered_output.shape[0]):
-        row = filtered_output[i]
+    if output.shape[1] == 85: 
+        # YOLOv5 Format [25200, 85]
+        # Rows are detections
+        rows = output.shape[0]
         
-        # YOLOv8 returns cx, cy, w, h
-        cx, cy, w, h = row[0], row[1], row[2], row[3]
+        # Vectorized filtering for YOLOv5
+        # 4 box, 1 obj_conf, 80 cls_scores
+        obj_conf = output[:, 4]
+        cls_scores = output[:, 5:]
         
-        # Convert to top-left x, y
-        left = int((cx - w/2) * x_factor)
-        top = int((cy - h/2) * y_factor)
-        width = int(w * x_factor)
-        height = int(h * y_factor)
+        # Filter by objectness first
+        obj_mask = obj_conf >= SCORE_THRESHOLD
         
-        boxes.append([left, top, width, height])
+        filtered_obj_conf = obj_conf[obj_mask]
+        filtered_cls_scores = cls_scores[obj_mask]
+        filtered_output = output[obj_mask]
+        
+        # Now find best class for remaining
+        class_ids = np.argmax(filtered_cls_scores, axis=1)
+        cls_conf = filtered_cls_scores[np.arange(filtered_cls_scores.shape[0]), class_ids]
+        
+        # Final score = obj_conf * cls_conf
+        final_scores = filtered_obj_conf * cls_conf
+        
+        # Filter by final score
+        score_mask = final_scores >= SCORE_THRESHOLD
+        
+        filtered_output = filtered_output[score_mask]
+        final_scores = final_scores[score_mask]
+        class_ids = class_ids[score_mask]
+        
+        for i in range(filtered_output.shape[0]):
+            row = filtered_output[i]
+            cx, cy, w, h = row[0], row[1], row[2], row[3]
+            
+            left = int((cx - w/2) * x_factor)
+            top = int((cy - h/2) * y_factor)
+            width = int(w * x_factor)
+            height = int(h * y_factor)
+            
+            boxes.append([left, top, width, height])
+            confidences.append(float(final_scores[i]))
+            
+    else:
+        # YOLOv8 Format [84, 8400] -> Transpose to [8400, 84]
+        output = output.transpose()
+        
+        scores = output[:, 4:]
+        class_ids_all = np.argmax(scores, axis=1)
+        max_scores = scores[np.arange(scores.shape[0]), class_ids_all]
+        
+        mask = max_scores >= SCORE_THRESHOLD
+        
+        filtered_output = output[mask]
+        class_ids = class_ids_all[mask]
+        confidences = max_scores[mask].tolist()
+        
+        for i in range(filtered_output.shape[0]):
+            row = filtered_output[i]
+            cx, cy, w, h = row[0], row[1], row[2], row[3]
+            
+            left = int((cx - w/2) * x_factor)
+            top = int((cy - h/2) * y_factor)
+            width = int(w * x_factor)
+            height = int(h * y_factor)
+            
+            boxes.append([left, top, width, height])
             
     # NMS
-    # OpenCV NMS requires a list of ints for class_ids and floats for confidences
-    # But NMSBoxes expects list of Rect (x,y,w,h) and list of scores. 
-    # It doesn't use class_ids, so we do it per-class if we want strict per-class NMS, 
-    # but standard YOLO often does global NMS or class-aware.
-    # cv2.dnn.NMSBoxes expects boxes as list of [x, y, w, h]
-    
-    indices = cv2.dnn.NMSBoxes(boxes, filtered_confidences.tolist(), SCORE_THRESHOLD, NMS_THRESHOLD)
+    indices = cv2.dnn.NMSBoxes(boxes, confidences, SCORE_THRESHOLD, NMS_THRESHOLD)
     
     results = []
     if len(indices) > 0:
         for i in indices.flatten():
+            i = int(i)
             box = boxes[i]
             results.append({
-                "class_id": filtered_class_ids[i],
-                "class_name": CLASS_NAMES[filtered_class_ids[i]],
-                "confidence": filtered_confidences[i],
+                "class_id": class_ids[i],
+                "class_name": CLASS_NAMES[class_ids[i]],
+                "confidence": confidences[i],
                 "box": box
             })
         

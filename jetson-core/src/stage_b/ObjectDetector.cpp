@@ -78,33 +78,57 @@ std::vector<Detection> ObjectDetector::postprocess(const cv::Mat& output,
     std::vector<float> confidences;
     std::vector<cv::Rect> boxes;
     
-    // YOLOv8 output shape: [1, 84, 8400] where 84 = 4 (box) + 80 (classes)
-    // Transpose to [8400, 84] for easier processing
-    cv::Mat data = output.reshape(1, output.size[1]);
-    cv::transpose(data, data);
+    // YOLOv5 output shape: [1, 25200, 85] (cx, cy, w, h, obj_conf, 80 classes)
+    // No transpose needed typically, it comes as rows
+    // shape[1] is 85, shape[2] is 25200 (or vice versa depending on export)
+    // OpenCV typically returns [1, 25200, 85] in modern parsers, but sometimes [1, 85, 25200]
+    
+    cv::Mat data = output;
+    
+    // Check if we need to reshape/transpose
+    // We expect final shape to be [N, 85] where N is number of anchors
+    if (data.dims > 2) {
+        // Flatten batch dim: [1, 25200, 85] -> [25200, 85]
+        data = data.reshape(1, data.size[1]);
+    }
+    
+    // If we have [85, 25200], transpose to [25200, 85]
+    if (data.cols > data.rows && data.cols == 25200) {
+        cv::transpose(data, data);
+    }
     
     float x_scale = static_cast<float>(original_size.width) / config_.input_width;
     float y_scale = static_cast<float>(original_size.height) / config_.input_height;
     
     for (int i = 0; i < data.rows; ++i) {
-        // First 4 values: cx, cy, w, h
-        float cx = data.at<float>(i, 0);
-        float cy = data.at<float>(i, 1);
-        float w = data.at<float>(i, 2);
-        float h = data.at<float>(i, 3);
+        // Column 4 is objectness confidence
+        float obj_conf = data.at<float>(i, 4);
         
-        // Find max class score
-        float max_score = 0;
-        int max_class = 0;
-        for (int j = 4; j < data.cols; ++j) {
+        if (obj_conf < config_.confidence_threshold) continue;
+
+        // Columns 5..84 are class scores
+        float max_class_score = 0;
+        int max_class_id = 0;
+        
+        // Find best class
+        for (int j = 5; j < data.cols; ++j) {
             float score = data.at<float>(i, j);
-            if (score > max_score) {
-                max_score = score;
-                max_class = j - 4;
+            if (score > max_class_score) {
+                max_class_score = score;
+                max_class_id = j - 5;
             }
         }
         
-        if (max_score >= config_.confidence_threshold) {
+        // Final confidence = obj_conf * class_score
+        float confidence = obj_conf * max_class_score;
+        
+        if (confidence >= config_.confidence_threshold) {
+             // First 4 values: cx, cy, w, h
+            float cx = data.at<float>(i, 0);
+            float cy = data.at<float>(i, 1);
+            float w = data.at<float>(i, 2);
+            float h = data.at<float>(i, 3);
+            
             // Convert from center format to corner format and scale
             int x = static_cast<int>((cx - w / 2) * x_scale);
             int y = static_cast<int>((cy - h / 2) * y_scale);
@@ -112,8 +136,8 @@ std::vector<Detection> ObjectDetector::postprocess(const cv::Mat& output,
             int height = static_cast<int>(h * y_scale);
             
             boxes.push_back(cv::Rect(x, y, width, height));
-            confidences.push_back(max_score);
-            class_ids.push_back(max_class);
+            confidences.push_back(confidence);
+            class_ids.push_back(max_class_id);
         }
     }
     
