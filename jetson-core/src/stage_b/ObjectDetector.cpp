@@ -101,10 +101,20 @@ void ObjectDetector::allocateBuffers() {
     // Input: [1, 3, 640, 640] FP32
     input_size_ = 1 * 3 * config_.input_width * config_.input_height * sizeof(float);
     
-    // YOLOv5 output: [1, 25200, 85] FP32
-    // 25200 = 3 anchors * (80*80 + 40*40 + 20*20)
-    // 85 = 4 (box) + 1 (obj_conf) + 80 (classes)
-    output_elements_ = 25200 * 85;
+    // YOLOv5 output: [1, num_anchors, 85] FP32
+    // Calculate total anchors based on input size (strides 8, 16, 32)
+    // grid_h = h / stride, grid_w = w / stride
+    // anchors = 3 * (grid_h * grid_w) for each stride
+    
+    int w = config_.input_width;
+    int h = config_.input_height;
+    int anchors_grid_8 = 3 * (w / 8) * (h / 8);
+    int anchors_grid_16 = 3 * (w / 16) * (h / 16);
+    int anchors_grid_32 = 3 * (w / 32) * (h / 32);
+    
+    int total_anchors = anchors_grid_8 + anchors_grid_16 + anchors_grid_32;
+    
+    output_elements_ = total_anchors * (config_.num_classes + 5); // 85 columns
     output_size_ = output_elements_ * sizeof(float);
     
     // Allocate device memory
