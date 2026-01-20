@@ -87,7 +87,7 @@ void visualizationThread() {
     auto last_fps_time = std::chrono::steady_clock::now();
     auto last_display_time = std::chrono::steady_clock::now();
     auto fcw_alert_until = std::chrono::steady_clock::now();  // FCW hold timer
-    const auto display_interval = std::chrono::milliseconds(200); // 5 FPS cap for display
+    const auto display_interval = std::chrono::milliseconds(50); // 20 FPS cap for display
     const auto fcw_hold_duration = std::chrono::seconds(2);  // Hold FCW alert for 2 seconds
     const float fcw_proximity_threshold_m = 1.5f;  // Trigger FCW if object within this range
     int frame_count = 0;
