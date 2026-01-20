@@ -125,8 +125,9 @@ void visualizationThread() {
                 fcw_alert = g_fcw_monitor->check(fused, adas::Clock::now_ns());
             }
             
-            // Draw directly on the frame
-            cv::Mat& vis = batch.frame;
+            // CRITICAL: Clone the frame to get our own memory buffer
+            // The original batch.frame may be reused by ingest thread
+            cv::Mat vis = batch.frame.clone();
             int vis_width = vis.cols;
             int vis_height = vis.rows;
             
