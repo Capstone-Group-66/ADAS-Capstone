@@ -7,6 +7,9 @@
     <ClCompile Include="C:\Users\damon\OneDrive\Desktop\PROJECT_FILES\git_pull\ADAS-Capstone\jetson-core\src\common\Config.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\Users\damon\OneDrive\Desktop\PROJECT_FILES\git_pull\ADAS-Capstone\jetson-core\src\common\Globals.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="C:\Users\damon\OneDrive\Desktop\PROJECT_FILES\git_pull\ADAS-Capstone\jetson-core\src\stage_a\CameraIngest.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -34,7 +37,25 @@
     <ClCompile Include="C:\Users\damon\OneDrive\Desktop\PROJECT_FILES\git_pull\ADAS-Capstone\jetson-core\src\stage_b\ObjectDetector.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\Users\damon\OneDrive\Desktop\PROJECT_FILES\git_pull\ADAS-Capstone\jetson-core\src\stage_b\ObjectTracker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="C:\Users\damon\OneDrive\Desktop\PROJECT_FILES\git_pull\ADAS-Capstone\jetson-core\src\stage_b\CameraPipeline.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\damon\OneDrive\Desktop\PROJECT_FILES\git_pull\ADAS-Capstone\jetson-core\src\stage_e\SensorFusion.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\damon\OneDrive\Desktop\PROJECT_FILES\git_pull\ADAS-Capstone\jetson-core\src\stage_e\FCWMonitor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\damon\OneDrive\Desktop\PROJECT_FILES\git_pull\ADAS-Capstone\jetson-core\src\main_brain\SimpleBleServer.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\damon\OneDrive\Desktop\PROJECT_FILES\git_pull\ADAS-Capstone\jetson-core\src\main_brain\AlertGenerator.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="C:\Users\damon\OneDrive\Desktop\PROJECT_FILES\git_pull\ADAS-Capstone\jetson-core\src\main_brain\BleFragmenter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

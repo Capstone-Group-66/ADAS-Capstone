@@ -7,6 +7,9 @@
     <ClCompile Include="C:\Users\damon\OneDrive\Desktop\PROJECT_FILES\git_pull\ADAS-Capstone\jetson-core\src\common\Config.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="C:\Users\damon\OneDrive\Desktop\PROJECT_FILES\git_pull\ADAS-Capstone\jetson-core\src\common\Globals.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="C:\Users\damon\OneDrive\Desktop\PROJECT_FILES\git_pull\ADAS-Capstone\jetson-core\src\stage_a\DeviceWizard.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>

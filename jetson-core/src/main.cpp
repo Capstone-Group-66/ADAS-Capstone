@@ -9,6 +9,8 @@
 #include "adas/stage_b/ObjectDetector.hpp"  // For class name lookup
 #include "adas/stage_e/SensorFusion.hpp"
 #include "adas/stage_e/FCWMonitor.hpp"
+#include "adas/main_brain/SimpleBleServer.hpp"
+#include "adas/main_brain/FCWAlertAdapter.hpp"
 
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
@@ -53,6 +55,9 @@ std::unique_ptr<adas::SensorFusion> g_sensor_fusion;
 std::unique_ptr<adas::FCWMonitor> g_fcw_monitor;
 std::atomic<bool> g_fcw_alert_active{false};
 std::atomic<int> g_fcw_ttc_ms{0}; // TTC in milliseconds (avoids float atomic availability issues)
+
+// BLE Server for mobile app communication
+std::unique_ptr<adas::SimpleBleServer> g_ble_server;
 
 std::string formatUptime(std::chrono::seconds uptime) {
     int hours = uptime.count() / 3600;
@@ -149,6 +154,13 @@ void visualizationThread() {
                 if (fcw_alert.has_value()) {
                     last_fcw_ttc = fcw_alert->ttc_s;
                     last_fcw_range = fcw_alert->range_m;
+                    
+                    // Send FCW alert over BLE to mobile app
+                    if (g_ble_server && g_ble_server->isConnected()) {
+                        auto alert = adas::FCWAlertAdapter::convert(*fcw_alert, adas::Clock::now_ns());
+                        auto json_bytes = adas::FCWAlertAdapter::toJson(alert);
+                        g_ble_server->notifyAlertStream(json_bytes);
+                    }
                 } else {
                     last_fcw_ttc = closest_range / 1.0f;  // Assume 1 m/s approach
                     last_fcw_range = closest_range;
@@ -444,6 +456,14 @@ void startPipeline(const adas::Config& config, const adas::HardwareMap& hw_map,
     g_fcw_monitor = std::make_unique<adas::FCWMonitor>();
     std::cout << "[Main] Stage E fusion initialized (TTC threshold: " 
               << g_fcw_monitor->getThreshold() << "s)\n";
+
+    // Initialize BLE Server
+    g_ble_server = std::make_unique<adas::SimpleBleServer>();
+    if (g_ble_server->initialize()) {
+        g_ble_server->startAdvertising();
+    } else {
+        std::cerr << "[Main] WARNING: BLE server failed to initialize\n";
+    }
     
     g_pipeline_running.store(true);
     g_pipeline_start_time = std::chrono::steady_clock::now();
@@ -464,6 +484,12 @@ void stopPipeline() {
     if (!g_pipeline_running.load()) {
         std::cout << "[Main] Pipeline is not running\n";
         return;
+    }
+    
+    // Stop BLE
+    if (g_ble_server) {
+        g_ble_server->shutdown();
+        g_ble_server.reset();
     }
     
     std::cout << "\n[Main] Stopping pipeline...\n";

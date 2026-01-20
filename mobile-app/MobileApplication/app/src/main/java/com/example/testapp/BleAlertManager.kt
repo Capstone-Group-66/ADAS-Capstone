@@ -27,13 +27,9 @@ import java.nio.ByteOrder
 class BleManager(
     private val context: Context,
 ) {
-    // BLE Constants & UUID placeholders
-
-    /*
-        private val ADAS_SERVICE_UUID = java.util.UUID.fromString("0000xxxx-0000-1000-8000-00805f9b34fb")
-     */
-
-    private val ADAS_ALERT_STREAM_UUID = java.util.UUID.fromString("00001234-0000-1000-8000-00805f9b34fb")
+    // BLE Constants - Official ADAS UUIDs (must match jetson-core/BleUuids.hpp)
+    private val ADAS_SERVICE_UUID = java.util.UUID.fromString("0000ada5-0000-1000-8000-00805f9b34fb")
+    private val ADAS_ALERT_STREAM_UUID = java.util.UUID.fromString("0000a1e7-0000-1000-8000-00805f9b34fb")
 
     // Jetson peripheral reference
     private var bluetoothGatt: BluetoothGatt? = null
