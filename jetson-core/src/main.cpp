@@ -59,59 +59,91 @@ std::string formatUptime(std::chrono::seconds uptime) {
     return ss.str();
 }
 
-// Visualization thread
+// Visualization control flag (set to false for production)
+std::atomic<bool> g_visualizer_enabled{true};
+
+// Visualization thread - optimized for minimal overhead
 void visualizationThread() {
-    std::cout << "[Visualizer] Thread started (waiting for detections...)\n";
+    std::cout << "[Visualizer] Thread started\n";
+    
+    if (!g_visualizer_enabled.load()) {
+        std::cout << "[Visualizer] Visualization disabled, thread exiting\n";
+        return;
+    }
+    
     cv::namedWindow("Stage B: FrontCam", cv::WINDOW_AUTOSIZE);
+    
+    auto last_fps_time = std::chrono::steady_clock::now();
+    int frame_count = 0;
+    double fps = 0.0;
     
     while (g_visualizer_running.load() && !g_shutdown_requested.load()) {
         adas::DetBatch batch;
-        if (g_det_front_queue.try_pop(batch)) {
-            // Check if we have a frame to visualize
-            if (!batch.frame.empty()) {
-                cv::Mat vis = batch.frame.clone();
+        
+        // Drain queue to get latest frame (skip old frames to prevent backup)
+        bool got_frame = false;
+        while (g_det_front_queue.try_pop(batch)) {
+            got_frame = true;
+        }
+        
+        if (got_frame && !batch.frame.empty()) {
+            // Draw directly on the frame (no clone needed - we consumed it)
+            cv::Mat& vis = batch.frame;
+            
+            // Draw detections
+            for (const auto& det : batch.dets) {
+                cv::Scalar color(
+                    (det.cls * 50) % 255, 
+                    (det.cls * 80 + 100) % 255, 
+                    (det.cls * 120 + 200) % 255
+                );
                 
-                // Draw detections
-                for (const auto& det : batch.dets) {
-                    // Choose color based on class (simple hash)
-                    cv::Scalar color(
-                        (det.cls * 50) % 255, 
-                        (det.cls * 80 + 100) % 255, 
-                        (det.cls * 120 + 200) % 255
-                    );
-                    
-                    // Draw box
-                    cv::rectangle(vis, det.box_px, color, 2);
-                    
-                    // Draw label with class name
-                    std::string class_name = adas::ObjectDetector::getClassName(det.cls);
-                    std::string label = class_name + " " + 
-                                        std::to_string(static_cast<int>(det.score * 100)) + "%";
-                                        
-                    int baseLine;
-                    cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
-                    
-                    cv::rectangle(vis, 
-                        cv::Point(det.box_px.x, det.box_px.y - labelSize.height),
-                        cv::Point(det.box_px.x + labelSize.width, det.box_px.y + baseLine),
-                        color, cv::FILLED);
-                        
-                    cv::putText(vis, label, 
-                        cv::Point(det.box_px.x, det.box_px.y),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0,0,0), 1);
-                        
-                    // Draw centroid
-                    cv::circle(vis, det.centroid, 3, cv::Scalar(0, 255, 0), -1);
-                }
+                cv::rectangle(vis, det.box_px, color, 2);
                 
-                // Draw info
-                std::string info = "Inference: " + std::to_string(batch.inference_time_us / 1000.0) + "ms";
-                cv::putText(vis, info, cv::Point(10, 20), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
+                std::string class_name = adas::ObjectDetector::getClassName(det.cls);
+                std::string label = class_name + " " + 
+                                    std::to_string(static_cast<int>(det.score * 100)) + "%";
+                                    
+                int baseLine;
+                cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
                 
-                cv::imshow("Stage B: FrontCam", vis);
-                cv::waitKey(1);
+                cv::rectangle(vis, 
+                    cv::Point(det.box_px.x, det.box_px.y - labelSize.height - 2),
+                    cv::Point(det.box_px.x + labelSize.width, det.box_px.y),
+                    color, cv::FILLED);
+                    
+                cv::putText(vis, label, 
+                    cv::Point(det.box_px.x, det.box_px.y - 2),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0,0,0), 1);
+                    
+                cv::circle(vis, det.centroid, 3, cv::Scalar(0, 255, 0), -1);
             }
-        } else {
+            
+            // Calculate FPS
+            frame_count++;
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_fps_time).count();
+            if (elapsed >= 1000) {
+                fps = frame_count * 1000.0 / elapsed;
+                frame_count = 0;
+                last_fps_time = now;
+            }
+            
+            // Draw info overlay
+            std::string info = "Inf: " + std::to_string(static_cast<int>(batch.inference_time_us / 1000)) + 
+                               "ms | FPS: " + std::to_string(static_cast<int>(fps)) +
+                               " | Det: " + std::to_string(batch.dets.size());
+            cv::putText(vis, info, cv::Point(10, 25), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
+            
+            cv::imshow("Stage B: FrontCam", vis);
+        }
+        
+        // Non-blocking waitKey with minimal delay
+        if (cv::waitKey(1) == 'q') {
+            g_shutdown_requested.store(true);
+        }
+        
+        if (!got_frame) {
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
     }
