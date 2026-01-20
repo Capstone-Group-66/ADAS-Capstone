@@ -66,11 +66,16 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch& camera,
     std::vector<FusedObject> fused;
     fused.reserve(camera.dets.size());
     
-    // Log radar status once
-    if (g_verbose_mode.load() && !radar.targets.empty()) {
-        std::cout << "[Fusion] Radar has " << radar.targets.size() << " targets. "
-                  << "Closest: range=" << radar.targets[0].range_m << "m, "
-                  << "speed=" << radar.targets[0].radial_vel_mps << "m/s\n";
+    // Always log radar status when we have detections (gated by verbose mode)
+    if (g_verbose_mode.load()) {
+        std::cout << "[Fusion] Frame: " << camera.dets.size() << " camera dets, " 
+                  << radar.targets.size() << " radar targets\n";
+        if (!radar.targets.empty()) {
+            for (size_t i = 0; i < radar.targets.size() && i < 3; ++i) {
+                std::cout << "  Radar[" << i << "]: range=" << radar.targets[i].range_m 
+                          << "m, vel=" << radar.targets[i].radial_vel_mps << "m/s\n";
+            }
+        }
     }
     
     for (const auto& det : camera.dets) {

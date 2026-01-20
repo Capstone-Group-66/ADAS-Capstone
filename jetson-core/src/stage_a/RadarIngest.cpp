@@ -88,8 +88,16 @@ void RadarIngest::run() {
             double hz = static_cast<double>(frames_in_window_) / elapsed_sec;
             rate_hz_.store(hz, std::memory_order_relaxed);
 
+            // Parse latest frame to get target count for debug
+            RadarTargets latest = parseFrame(buffer.data(), buffer.size(), Clock::now_ns());
+            
             std::cout << "[RadarIngest] " << mountToString(mount_) << " rate: " << hz << " Hz"
-                      << std::endl;
+                      << " | Targets: " << latest.targets.size();
+            if (!latest.targets.empty()) {
+                std::cout << " | Closest: range=" << latest.targets[0].range_m 
+                          << "m, vel=" << latest.targets[0].radial_vel_mps << "m/s";
+            }
+            std::cout << std::endl;
 
             // Only warn if below pipeline rate (20Hz)
             if (hz < 20.0) {
