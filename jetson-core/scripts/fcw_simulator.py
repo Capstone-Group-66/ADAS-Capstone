@@ -209,7 +209,10 @@ class FcwSimulator:
 
 if __name__ == "__main__":
     sim = FcwSimulator()
+    loop = asyncio.get_event_loop()
     try:
-        asyncio.run(sim.run())
+        loop.run_until_complete(sim.run())
     except KeyboardInterrupt:
         logger.info("Keyboard Interrupt. Exiting.")
+    finally:
+        loop.close()
