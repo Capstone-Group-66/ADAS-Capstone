@@ -1,190 +1,365 @@
 #!/usr/bin/env python3
 """
-ADAS BLE Peripheral Server
+BLE Peripheral for ADAS Pipeline (Python 3.6 Compatible)
+---------------------------------------------------------
+This script is spawned by the C++ SimpleBleServer and receives
+CBOR packets via stdin to send over BLE.
 
-Uses 'bless' library (BLE peripheral library) to create a GATT server
-that advertises the ADAS service and allows notifications on AlertStream.
+Uses BlueZ D-Bus for BLE GATT server (works on old Jetson).
 
-Cross-platform: Works on Linux (BlueZ), Windows, macOS.
-
-Install: pip install bless
-
-Usage:
-    python ble_peripheral.py           # Normal mode, reads from stdin
-    python ble_peripheral.py --test    # Sends fake alerts for testing
+Protocol:
+    C++ sends JSON lines to stdin:
+    {"cmd":"notify","data":"<hex_encoded_cbor>"}
+    
+    This script decodes the hex and sends via BLE notification.
 """
 
-import asyncio
-import json
-import struct
 import sys
-import time
-import select
-from typing import Optional
+import json
+import logging
+import threading
+import struct
 
-# Check for required library
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [BLE] %(message)s',
+    datefmt='%H:%M:%S',
+    stream=sys.stderr
+)
+logger = logging.getLogger("BLE")
+
+# Try to import D-Bus components
 try:
-    from bless import BlessServer, BlessGATTCharacteristic, GATTCharacteristicProperties, GATTAttributePermissions
-    HAS_BLESS = True
-except ImportError:
-    print("[BLE] WARNING: 'bless' library not found. Running in stub mode.", file=sys.stderr)
-    print("[BLE] Install with: pip install bless", file=sys.stderr)
-    HAS_BLESS = False
+    import dbus
+    import dbus.service
+    import dbus.mainloop.glib
+    from gi.repository import GLib
+    HAS_DBUS = True
+except ImportError as e:
+    logger.warning(f"D-Bus not available: {e}")
+    HAS_DBUS = False
 
-# ADAS BLE UUIDs (must match jetson-core/BleUuids.hpp and mobile app)
-ADAS_SERVICE_UUID = "0000ada5-0000-1000-8000-00805f9b34fb"
-ADAS_ALERT_STREAM_UUID = "0000a1e7-0000-1000-8000-00805f9b34fb"
-ADAS_STATUS_UUID = "000057a7-0000-1000-8000-00805f9b34fb"
+# BLE Constants
+BLUEZ_SERVICE = 'org.bluez'
+ADAPTER_IFACE = 'org.bluez.Adapter1'
+LE_ADVERTISING_MANAGER_IFACE = 'org.bluez.LEAdvertisingManager1'
+GATT_MANAGER_IFACE = 'org.bluez.GattManager1'
+GATT_SERVICE_IFACE = 'org.bluez.GattService1'
+GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
+DBUS_OM_IFACE = 'org.freedesktop.DBus.ObjectManager'
+DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
+LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
 
-# Global state
-server: Optional["BlessServer"] = None
-tick_id = 0
+ADAS_SERVICE_UUID = '0000ada5-0000-1000-8000-00805f9b34fb'
+ADAS_ALERT_STREAM_UUID = '0000a1e7-0000-1000-8000-00805f9b34fb'
 
 
-async def setup_server():
-    """Initialize the BLE GATT server with ADAS service."""
-    global server
-    
-    if not HAS_BLESS:
-        print("[BLE] Stub mode: skipping server setup", file=sys.stderr)
+class Advertisement(dbus.service.Object):
+    PATH_BASE = '/org/bluez/adas/advertisement'
+
+    def __init__(self, bus, index):
+        self.path = self.PATH_BASE + str(index)
+        self.bus = bus
+        self.ad_type = 'peripheral'
+        self.local_name = 'ADAS-Jetson'
+        self.service_uuids = [ADAS_SERVICE_UUID]
+        dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_properties(self):
+        return {
+            LE_ADVERTISEMENT_IFACE: {
+                'Type': self.ad_type,
+                'ServiceUUIDs': dbus.Array(self.service_uuids, signature='s'),
+                'LocalName': dbus.String(self.local_name),
+            }
+        }
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
+    def GetAll(self, interface):
+        if interface != LE_ADVERTISEMENT_IFACE:
+            raise dbus.exceptions.DBusException(
+                'org.freedesktop.DBus.Error.InvalidArgs',
+                'Invalid interface')
+        return self.get_properties()[LE_ADVERTISEMENT_IFACE]
+
+    @dbus.service.method(LE_ADVERTISEMENT_IFACE, in_signature='', out_signature='')
+    def Release(self):
+        logger.info('Advertisement released')
+
+
+class Service(dbus.service.Object):
+    PATH_BASE = '/org/bluez/adas/service'
+
+    def __init__(self, bus, index, uuid, primary):
+        self.path = self.PATH_BASE + str(index)
+        self.bus = bus
+        self.uuid = uuid
+        self.primary = primary
+        self.characteristics = []
+        dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_properties(self):
+        return {
+            GATT_SERVICE_IFACE: {
+                'UUID': self.uuid,
+                'Primary': self.primary,
+                'Characteristics': dbus.Array(
+                    [c.get_path() for c in self.characteristics],
+                    signature='o')
+            }
+        }
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    def add_characteristic(self, chrc):
+        self.characteristics.append(chrc)
+
+    @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
+    def GetAll(self, interface):
+        if interface != GATT_SERVICE_IFACE:
+            raise dbus.exceptions.DBusException(
+                'org.freedesktop.DBus.Error.InvalidArgs',
+                'Invalid interface')
+        return self.get_properties()[GATT_SERVICE_IFACE]
+
+
+class Characteristic(dbus.service.Object):
+    def __init__(self, bus, index, uuid, flags, service):
+        self.path = service.path + '/char' + str(index)
+        self.bus = bus
+        self.uuid = uuid
+        self.service = service
+        self.flags = flags
+        self.notifying = False
+        self.value = []
+        dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_properties(self):
+        return {
+            GATT_CHRC_IFACE: {
+                'Service': self.service.get_path(),
+                'UUID': self.uuid,
+                'Flags': self.flags,
+                'Notifying': self.notifying,
+            }
+        }
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
+    def GetAll(self, interface):
+        if interface != GATT_CHRC_IFACE:
+            raise dbus.exceptions.DBusException(
+                'org.freedesktop.DBus.Error.InvalidArgs',
+                'Invalid interface')
+        return self.get_properties()[GATT_CHRC_IFACE]
+
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='a{sv}', out_signature='ay')
+    def ReadValue(self, options):
+        return self.value
+
+    @dbus.service.method(GATT_CHRC_IFACE)
+    def StartNotify(self):
+        if self.notifying:
+            return
+        self.notifying = True
+        logger.info("Client subscribed to notifications")
+
+    @dbus.service.method(GATT_CHRC_IFACE)
+    def StopNotify(self):
+        if not self.notifying:
+            return
+        self.notifying = False
+        logger.info("Client unsubscribed from notifications")
+
+    @dbus.service.signal(DBUS_PROP_IFACE, signature='sa{sv}as')
+    def PropertiesChanged(self, interface, changed, invalidated):
+        pass
+
+    def send_notification(self, data):
+        if not self.notifying:
+            logger.debug("No subscribers, notification skipped")
+            return False
+        self.value = dbus.Array(data, signature='y')
+        self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': self.value}, [])
+        return True
+
+
+class Application(dbus.service.Object):
+    def __init__(self, bus):
+        self.path = '/org/bluez/adas'
+        self.services = []
+        dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    def add_service(self, service):
+        self.services.append(service)
+
+    @dbus.service.method(DBUS_OM_IFACE, out_signature='a{oa{sa{sv}}}')
+    def GetManagedObjects(self):
+        response = {}
+        for service in self.services:
+            response[service.get_path()] = service.get_properties()
+            for chrc in service.characteristics:
+                response[chrc.get_path()] = chrc.get_properties()
+        return response
+
+
+class BlePeripheral:
+    def __init__(self):
+        if HAS_DBUS:
+            dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+            self.bus = dbus.SystemBus()
+            self.mainloop = GLib.MainLoop()
+        self.alert_chrc = None
+        self.running = True
+        
+    def find_adapter(self):
+        remote_om = dbus.Interface(
+            self.bus.get_object(BLUEZ_SERVICE, '/'),
+            DBUS_OM_IFACE)
+        objects = remote_om.GetManagedObjects()
+        for o, props in objects.items():
+            if GATT_MANAGER_IFACE in props:
+                return o
         return None
-    
-    server = BlessServer(name="ADAS-Jetson")
-    
-    # Add ADAS Service
-    await server.add_new_service(ADAS_SERVICE_UUID)
-    
-    # Add AlertStream characteristic (Notify)
-    await server.add_new_characteristic(
-        ADAS_SERVICE_UUID,
-        ADAS_ALERT_STREAM_UUID,
-        GATTCharacteristicProperties.notify,
-        None,
-        GATTAttributePermissions.readable
-    )
-    
-    # Add Status characteristic (Read/Notify) - heartbeat
-    await server.add_new_characteristic(
-        ADAS_SERVICE_UUID,
-        ADAS_STATUS_UUID,
-        GATTCharacteristicProperties.read | GATTCharacteristicProperties.notify,
-        b'\x01',
-        GATTAttributePermissions.readable
-    )
-    
-    return server
 
-
-async def send_notification(data: bytes):
-    """Send a notification on AlertStream characteristic."""
-    global server
-    
-    if server is None:
-        print(f"[BLE] Stub: would send {len(data)} bytes", file=sys.stderr)
-        return
-    
-    try:
-        server.get_characteristic(ADAS_ALERT_STREAM_UUID).value = data
-        server.update_value(ADAS_SERVICE_UUID, ADAS_ALERT_STREAM_UUID)
-        print(f"[BLE] Sent notification: {len(data)} bytes", file=sys.stderr)
-    except Exception as e:
-        print(f"[BLE] Error sending notification: {e}", file=sys.stderr)
-
-
-def hex_to_bytes(hex_str: str) -> bytes:
-    """Convert hex string to bytes."""
-    return bytes.fromhex(hex_str)
-
-
-async def process_stdin_command(line: str):
-    """Process a JSON command from C++ stdin."""
-    try:
-        cmd = json.loads(line.strip())
-        
-        if cmd.get("cmd") == "notify":
-            data = hex_to_bytes(cmd.get("data", ""))
-            await send_notification(data)
-        else:
-            print(f"[BLE] Unknown command: {cmd}", file=sys.stderr)
+    def setup(self):
+        if not HAS_DBUS:
+            logger.info("Running in stub mode (no D-Bus)")
+            return True
             
-    except json.JSONDecodeError as e:
-        print(f"[BLE] Invalid JSON: {e}", file=sys.stderr)
-    except Exception as e:
-        print(f"[BLE] Error processing command: {e}", file=sys.stderr)
-
-
-async def stdin_reader():
-    """Read commands from stdin (from C++ parent process)."""
-    loop = asyncio.get_event_loop()
-    
-    print("[BLE] Listening for commands on stdin...", file=sys.stderr)
-    
-    while True:
-        # Non-blocking stdin read
+        adapter_path = self.find_adapter()
+        if not adapter_path:
+            logger.error("No BlueZ adapter found!")
+            return False
+            
+        logger.info("Using adapter: %s", adapter_path)
+        
+        self.app = Application(self.bus)
+        service = Service(self.bus, 0, ADAS_SERVICE_UUID, True)
+        self.alert_chrc = Characteristic(
+            self.bus, 0, ADAS_ALERT_STREAM_UUID,
+            ['notify'], service
+        )
+        service.add_characteristic(self.alert_chrc)
+        self.app.add_service(service)
+        
+        self.adv = Advertisement(self.bus, 0)
+        
+        gatt_manager = dbus.Interface(
+            self.bus.get_object(BLUEZ_SERVICE, adapter_path),
+            GATT_MANAGER_IFACE)
+        
         try:
-            line = await loop.run_in_executor(None, sys.stdin.readline)
-            if not line:
-                print("[BLE] EOF on stdin, exiting", file=sys.stderr)
-                break
-            await process_stdin_command(line)
+            gatt_manager.RegisterApplication(
+                self.app.get_path(), {},
+                reply_handler=lambda: logger.info("GATT registered"),
+                error_handler=lambda e: logger.error("GATT failed: %s", e)
+            )
         except Exception as e:
-            print(f"[BLE] Stdin read error: {e}", file=sys.stderr)
-            break
-
-
-async def run_test_mode():
-    """Send test FCW alerts periodically for demo."""
-    global tick_id
-    
-    print("[BLE] Running in TEST mode - sending fake FCW alerts every 3 seconds", file=sys.stderr)
-    
-    while True:
-        await asyncio.sleep(3)
-        tick_id = (tick_id + 1) % 65536
+            logger.error("RegisterApplication failed: %s", e)
+            return False
         
-        # Create a simple test payload
-        payload = json.dumps({
-            "tick_id": tick_id,
-            "t_ms": int(time.time() * 1000),
-            "type": "FCW",
-            "severity": "warning",
-            "ttl_ms": 1000,
-            "rationale": json.dumps({"ttc_s": 2.5, "range_m": 4.0}),
-            "sources": ["FrontCam", "FrontRadar"]
-        }).encode('utf-8')
+        ad_manager = dbus.Interface(
+            self.bus.get_object(BLUEZ_SERVICE, adapter_path),
+            LE_ADVERTISING_MANAGER_IFACE)
         
-        # Simple header: tick_id (u16 LE), seq_no (u8), seq_max (u8)
-        header = struct.pack('<HBB', tick_id, 0, 0)  # Single fragment
+        try:
+            ad_manager.RegisterAdvertisement(
+                self.adv.get_path(), {},
+                reply_handler=lambda: logger.info("Advertising started"),
+                error_handler=lambda e: logger.error("Advertising failed: %s", e)
+            )
+        except Exception as e:
+            logger.error("RegisterAdvertisement failed: %s", e)
+            return False
+            
+        return True
+
+    def send_notification(self, data_bytes):
+        """Send binary data as BLE notification."""
+        if self.alert_chrc:
+            if self.alert_chrc.send_notification(list(data_bytes)):
+                logger.info("Sent %d bytes via BLE", len(data_bytes))
+                return True
+        logger.info("Would send %d bytes (stub mode or no subscribers)", len(data_bytes))
+        return False
+
+    def process_stdin_command(self, line):
+        """Process a JSON command from C++ stdin."""
+        try:
+            cmd = json.loads(line.strip())
+            
+            if cmd.get("cmd") == "notify":
+                hex_data = cmd.get("data", "")
+                data = bytes.fromhex(hex_data)
+                self.send_notification(data)
+            else:
+                logger.warning("Unknown command: %s", cmd)
+                
+        except json.JSONDecodeError as e:
+            logger.error("Invalid JSON: %s", e)
+        except Exception as e:
+            logger.error("Error processing command: %s", e)
+
+    def stdin_reader_thread(self):
+        """Read commands from stdin in a separate thread."""
+        logger.info("Listening for commands on stdin...")
         
-        await send_notification(header + payload)
-        print(f"[BLE] Test alert sent (tick {tick_id})", file=sys.stderr)
+        while self.running:
+            try:
+                line = sys.stdin.readline()
+                if not line:
+                    logger.info("EOF on stdin, exiting")
+                    self.running = False
+                    if HAS_DBUS:
+                        GLib.idle_add(self.mainloop.quit)
+                    break
+                    
+                # Schedule command processing on main thread
+                if HAS_DBUS:
+                    GLib.idle_add(self.process_stdin_command, line)
+                else:
+                    self.process_stdin_command(line)
+                    
+            except Exception as e:
+                logger.error("Stdin read error: %s", e)
+                break
+
+    def run(self):
+        logger.info("=" * 50)
+        logger.info("ADAS BLE Peripheral (Pipeline Mode)")
+        logger.info("Service: %s", ADAS_SERVICE_UUID)
+        logger.info("=" * 50)
+        
+        if not self.setup():
+            logger.error("Setup failed!")
+            return
+        
+        # Start stdin reader thread
+        stdin_thread = threading.Thread(target=self.stdin_reader_thread, daemon=True)
+        stdin_thread.start()
+        
+        if HAS_DBUS:
+            try:
+                self.mainloop.run()
+            except KeyboardInterrupt:
+                logger.info("Interrupted")
+                self.mainloop.quit()
+        else:
+            # Stub mode: just process stdin
+            stdin_thread.join()
 
 
-async def main():
-    """Main entry point."""
-    print("=" * 60, file=sys.stderr)
-    print("  ADAS BLE Peripheral Server", file=sys.stderr)
-    print("=" * 60, file=sys.stderr)
-    print(f"  Service UUID: {ADAS_SERVICE_UUID}", file=sys.stderr)
-    print(f"  AlertStream:  {ADAS_ALERT_STREAM_UUID}", file=sys.stderr)
-    print("=" * 60, file=sys.stderr)
-    
-    await setup_server()
-    
-    if server:
-        print("[BLE] Starting advertising as 'ADAS-Jetson'...", file=sys.stderr)
-        await server.start()
-        print("[BLE] Server running.", file=sys.stderr)
-    
-    # Run appropriate mode
-    if "--test" in sys.argv:
-        await run_test_mode()
-    else:
-        await stdin_reader()
-
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("\n[BLE] Shutting down...", file=sys.stderr)
+if __name__ == '__main__':
+    peripheral = BlePeripheral()
+    peripheral.run()

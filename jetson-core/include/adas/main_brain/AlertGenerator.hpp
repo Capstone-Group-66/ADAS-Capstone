@@ -13,7 +13,16 @@ Alert generateTestAlert(AlertType type, uint32_t sequenceNum);
 // Encode an Alert to CBOR bytes (proper binary CBOR using nlohmann/json)
 std::vector<uint8_t> encodeAlertToCbor(const Alert& alert);
 
-// Encode a full TickPayload to CBOR bytes
+// Encode a full TickPayload to CBOR bytes (compact format for mobile app)
+std::vector<uint8_t> encodeTickPayloadToCbor(
+    uint16_t tickId,
+    int speedKmh,
+    int healthMask,
+    int bsdMask,
+    const std::vector<Alert>& alerts
+);
+
+// Legacy overload (defaults speed=0, health=0, bsd=0)
 std::vector<uint8_t> encodeTickPayloadToCbor(uint16_t tickId, const std::vector<Alert>& alerts);
 
 // Create a framed BLE packet: Header (4 bytes) + Payload slice

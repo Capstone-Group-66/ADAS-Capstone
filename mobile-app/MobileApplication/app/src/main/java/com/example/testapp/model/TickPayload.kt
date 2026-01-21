@@ -13,7 +13,7 @@ data class TickPayload(
 
 @Serializable
 data class AlertDto(
-    // 0 = FCW, 1 = LDW, 2 = BSD (generic)
+    // Wire format: 0=FCW, 1=LDW, 2=RCW, 3=BSD
     @SerialName("id") val type: Int,
     @SerialName("s") val severity: Int,
     @SerialName("r") val rationale: String,

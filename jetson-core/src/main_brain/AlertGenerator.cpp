@@ -105,21 +105,66 @@ std::vector<uint8_t> encodeAlertToCbor(const Alert& alert) {
 }
 
 /**
- * Encode a TickPayload to CBOR bytes.
- * This wraps multiple alerts in the tick structure expected by the mobile app.
+ * Convert AlertType enum to wire value for mobile app.
+ * Wire format: 0=FCW, 1=LDW, 2=RCW, 3=BSD
  */
-std::vector<uint8_t> encodeTickPayloadToCbor(uint16_t tickId, const std::vector<Alert>& alerts) {
+int alertTypeToWireValue(AlertType type) {
+    switch (type) {
+        case AlertType::FCW: return 0;
+        case AlertType::LDW: return 1;
+        case AlertType::RCW: return 2;
+        case AlertType::BSD: return 3;
+        default: return 0;
+    }
+}
+
+/**
+ * Convert Alert to short-key JSON for mobile app CBOR format.
+ * Uses compact keys: id, s, r
+ */
+json alertToCompactJson(const Alert& alert) {
+    json j;
+    j["id"] = alertTypeToWireValue(alert.type);
+    j["s"] = static_cast<int>(alert.severity);
+    j["r"] = alert.rationale;  // Keep as string, mobile parses if needed
+    return j;
+}
+
+/**
+ * Encode a TickPayload to CBOR bytes using the compact format.
+ * Uses short keys: t, v, h, b, a matching TickPayload.kt
+ * 
+ * @param tickId Tick counter (wraps at 65536)
+ * @param speedKmh Current vehicle speed in km/h
+ * @param healthMask Sensor health bitmask (bit0=frontCam, bit1=rearCam, bit2=radar)
+ * @param bsdMask BSD zone bitmask (bit0=left, bit1=right)
+ * @param alerts Vector of alerts to include
+ */
+std::vector<uint8_t> encodeTickPayloadToCbor(
+    uint16_t tickId,
+    int speedKmh,
+    int healthMask,
+    int bsdMask,
+    const std::vector<Alert>& alerts
+) {
     json payload;
-    payload["tick_id"] = tickId;
-    payload["n"] = static_cast<uint8_t>(alerts.size());
+    payload["t"] = tickId;
+    payload["v"] = speedKmh;
+    payload["h"] = healthMask;
+    payload["b"] = bsdMask;
 
     json alertsArray = json::array();
     for (const auto& alert : alerts) {
-        alertsArray.push_back(alertToJson(alert));
+        alertsArray.push_back(alertToCompactJson(alert));
     }
-    payload["alerts"] = alertsArray;
+    payload["a"] = alertsArray;
 
     return json::to_cbor(payload);
+}
+
+// Legacy overload for backwards compatibility (defaults speed=0, health=0, bsd=0)
+std::vector<uint8_t> encodeTickPayloadToCbor(uint16_t tickId, const std::vector<Alert>& alerts) {
+    return encodeTickPayloadToCbor(tickId, 0, 0, 0, alerts);
 }
 
 /**

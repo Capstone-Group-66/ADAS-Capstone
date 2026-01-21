@@ -368,6 +368,39 @@ class BleManager(
         cborBuffer: ByteArray,
     ) {
         log("Received full tick payload: $tickId (${cborBuffer.size} bytes)")
+        
+        // Debug: Decode and log the payload contents
+        try {
+            val payload = com.example.testapp.model.TickDecoder.decode(cborBuffer)
+            log("=== FCW DEBUG ===")
+            log("  Tick ID: ${payload.tickId}")
+            log("  Speed: ${payload.speed} km/h")
+            log("  Health Mask: ${payload.healthMask}")
+            log("  BSD Mask: ${payload.bsdMask}")
+            log("  Alerts: ${payload.alerts.size}")
+            
+            payload.alerts.forEachIndexed { idx, alert ->
+                val typeStr = when(alert.type) {
+                    0 -> "FCW"
+                    1 -> "LDW"
+                    2 -> "RCW"
+                    3 -> "BSD"
+                    else -> "UNKNOWN(${alert.type})"
+                }
+                val sevStr = when(alert.severity) {
+                    0 -> "Info"
+                    1 -> "Warning"
+                    2 -> "Critical"
+                    else -> "Unknown(${alert.severity})"
+                }
+                log("  Alert[$idx]: type=$typeStr severity=$sevStr")
+                log("    rationale: ${alert.rationale}")
+            }
+            log("=================")
+        } catch (e: Exception) {
+            log("DEBUG decode error: ${e.message}")
+        }
+        
         // Emit to flow
         _packetFlow.tryEmit(cborBuffer)
     }
