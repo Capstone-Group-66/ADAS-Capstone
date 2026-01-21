@@ -16,6 +16,8 @@ import com.example.testapp.viewmodel.VehicleStatusViewModelFactory
 fun Navigation(
     navController: NavHostController,
     repository: BleTickRepository,
+    logs: kotlinx.coroutines.flow.StateFlow<List<String>>,
+    status: kotlinx.coroutines.flow.StateFlow<String>
 ) {
     val factory =
         remember {
@@ -26,7 +28,7 @@ fun Navigation(
         navController = navController,
         startDestination = "home",
     ) {
-        composable("home") { home() }
+        composable("home") { home(logs, status) }
         composable("drive") { backStackEntry ->
             val vm: VehicleStatusViewModel =
                 viewModel(factory = factory)

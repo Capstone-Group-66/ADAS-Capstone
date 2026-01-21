@@ -50,18 +50,23 @@ class MainActivity : ComponentActivity() {
 
         repository =
             BleTickRepository(
-                blePackets = emptyFlow(),
-                // ^replace with proper flow later
+                blePackets = bleManager.packetFlow,
                 scope = appScope,
             )
+
+        // Initialize BLE (scan/connect)
+        bleManager.initialize()
 
         enableEdgeToEdge()
         setContent {
             TestAppTheme {
                 // sets the theme of the app (colours structure etc)
-
-                // TestAppApp(repository), what we'll actually do on deploy
-                TestAppAppPreview() // what were using for the IDE
+                // Pass logs and status to the app composable
+                TestAppApp(
+                    repository, 
+                    logs = bleManager.logFlow,
+                    status = bleManager.connectionState
+                ) 
             }
         }
     }
@@ -88,11 +93,19 @@ fun TestAppAppPreview() {
 
     val fakeRepository1 = FakeBleTickRepositoryRL(vehicleAlert)
 
-    TestAppApp(fakeRepository1)
+    // Dummy flows for preview
+    val logs = kotlinx.coroutines.flow.MutableStateFlow(listOf("Log 1", "Log 2"))
+    val status = kotlinx.coroutines.flow.MutableStateFlow("Connected")
+    
+    TestAppApp(fakeRepository1, logs, status)
 }
 
 @Composable
-fun TestAppApp(repository: BleTickRepository) {
+fun TestAppApp(
+    repository: BleTickRepository,
+    logs: kotlinx.coroutines.flow.StateFlow<List<String>>,
+    status: kotlinx.coroutines.flow.StateFlow<String>
+) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
     // give the app a navigation controller
     val navController = rememberNavController()
@@ -119,7 +132,8 @@ fun TestAppApp(repository: BleTickRepository) {
         },
     ) {
         // add the navigation graph to the scaffold and the repo
-        Navigation(navController = navController, repository)
+        // Pass logs/status to Navigation -> Home
+        Navigation(navController, repository, logs, status)
     }
 }
 

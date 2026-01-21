@@ -163,16 +163,18 @@ void visualizationThread() {
                         auto alert = adas::FCWAlertAdapter::convert(*fcw_alert, adas::Clock::now_ns());
                         
                         // 2. Encode to CBOR (TickPayload)
-                        uint64_t tickId = adas::Clock::now_ns() / 50'000'000; // 20Hz ticks
-                        float speed_mps = 0.0f; // TODO: Get from CAN/GPS
-                        uint32_t health_mask = 0; // TODO: Populate from status
-                        uint32_t bsd_mask = 0;    // TODO: Populate from side radars
+                        uint16_t tickId = static_cast<uint16_t>(adas::Clock::now_ns() / 50'000'000); // 20Hz ticks
+                        int speed_kmh = 0; // TODO: Get from CAN/GPS
+                        int health_mask = 0; // TODO: Populate from status
+                        int bsd_mask = 0;    // TODO: Populate from side radars
                         
-                        auto payload = adas::AlertGenerator::encodeTickPayloadToCbor(
-                            tickId, {alert}, speed_mps, health_mask, bsd_mask);
+                        // Header signature: (tickId, speedKmh, healthMask, bsdMask, alerts)
+                        auto payload = adas::encodeTickPayloadToCbor(
+                            tickId, speed_kmh, health_mask, bsd_mask, {alert});
                             
                         // 3. Fragment into BLE packets (MTU 180ish safe limit)
-                        auto frames = adas::BleFragmenter::fragment(payload);
+                        // Using explicit default MTU of 185 (Bluetooth 4.2+ common)
+                        auto frames = adas::fragmentPayload(tickId, payload, 185);
                         
                         // 4. Send fragments with rate limiting
                         for (const auto& frame : frames) {
