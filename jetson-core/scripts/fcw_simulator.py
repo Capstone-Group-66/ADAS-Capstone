@@ -50,11 +50,11 @@ logging.basicConfig(
 logger = logging.getLogger("FCW_Sim")
 
 try:
-    import cbor2
+    import cbor  # Use cbor (not cbor2) for Python 3.6 compatibility
     from bless import BlessServer, BlessGATTCharacteristic, GATTCharacteristicProperties, GATTAttributePermissions
 except ImportError as e:
     logger.error(f"Missing dependencies: {e}")
-    logger.error("Please run: pip install bless cbor2")
+    logger.error("Please run: pip3 install cbor bless")
     sys.exit(1)
 
 # BLE Constants (Must match Kotlin app)
@@ -114,7 +114,7 @@ class FcwSimulator:
         }
         
         # Convert to CBOR
-        cbor_bytes = cbor2.dumps(payload_data)
+        cbor_bytes = cbor.dumps(payload_data)
         logger.info(f"Generated FCW Tick #{self.tick_id} ({len(cbor_bytes)} bytes CBOR)")
         return cbor_bytes
 
