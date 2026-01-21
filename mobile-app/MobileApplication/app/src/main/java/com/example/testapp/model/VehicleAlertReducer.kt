@@ -53,15 +53,28 @@ object VehicleAlertReducer {
         prev: SonarColors,
         alerts: List<com.example.testapp.model.AlertDto>,
     ): SonarColors {
-        // TODO: implement based on how sonar zones are represented in alerts.
-        return prev
+        // Check for FCW alert (id=0) - show RED on front sonar
+        val hasFcw = alerts.any { it.type == 0 }
+        
+        return if (hasFcw) {
+            prev.copy(front = SonarColor.RED)
+        } else {
+            prev.copy(front = SonarColor.GREEN)
+        }
     }
 
     private fun mapAlertsToDetection(
         prev: ObjectDetection,
         alerts: List<com.example.testapp.model.AlertDto>,
     ): ObjectDetection {
-        // TODO: implement based on how object detection is represented in alerts.
-        return prev
+        // Check for FCW alert (id=0) - indicates car/object detected ahead
+        val fcwAlert = alerts.find { it.type == 0 }
+        
+        return if (fcwAlert != null) {
+            // FCW means there's a car/object ahead - show detection
+            ObjectDetection.Car(confidence = fcwAlert.severity * 33)  // severity 0-2 -> 0-66%
+        } else {
+            ObjectDetection.None
+        }
     }
 }

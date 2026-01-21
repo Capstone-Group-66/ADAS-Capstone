@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
+import android.bluetooth.BluetoothGattDescriptor
 import android.content.Context
 import android.os.Build
 import androidx.annotation.RequiresApi
@@ -36,6 +37,37 @@ class BleManager(
 
     // Latest ATT MTU (default 23)
     private var currentMtu: Int = 23
+
+    // Expose data stream
+    private val _packetFlow = kotlinx.coroutines.flow.MutableSharedFlow<ByteArray>(replay = 0)
+    val packetFlow: kotlinx.coroutines.flow.Flow<ByteArray> = _packetFlow
+
+    // Expose status logs
+    private val _logFlow = kotlinx.coroutines.flow.MutableStateFlow<List<String>>(emptyList())
+    val logFlow: kotlinx.coroutines.flow.StateFlow<List<String>> = _logFlow
+
+    // Connection state
+    private val _connectionState = kotlinx.coroutines.flow.MutableStateFlow("Disconnected")
+    val connectionState: kotlinx.coroutines.flow.StateFlow<String> = _connectionState
+
+    private var bluetoothAdapter: android.bluetooth.BluetoothAdapter? = null
+    private var bluetoothLeScanner: android.bluetooth.le.BluetoothLeScanner? = null
+    
+    // Scan retry logic
+    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private var isScanning = false
+    private val SCAN_RETRY_DELAY_MS = 2000L
+    private val SCAN_TIMEOUT_MS = 5000L
+
+    private fun log(msg: String) {
+        val list = _logFlow.value.toMutableList()
+        // Add timestamped log
+        val time = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss").format(java.time.LocalTime.now())
+        list.add(0, "$time $msg")
+        if (list.size > 100) list.removeLast()
+        _logFlow.value = list
+        android.util.Log.d("BleManager", msg)
+    }
 
     // Computed slice_cap = MTU - 7
     private val sliceCap: Int
@@ -91,14 +123,104 @@ class BleManager(
     }
 
     // Initialize BLE stack
+    @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     fun initialize() {
-        // TODO: Set up BluetoothAdapter, scanner, permissions, callbacks.
+        val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager
+        bluetoothAdapter = bluetoothManager.adapter
+        bluetoothLeScanner = bluetoothAdapter?.bluetoothLeScanner
+        scanForJetson()
+    }
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
+    private fun scanForJetson() {
+        if (bluetoothLeScanner == null) {
+            log("Bluetooth not supported or disabled")
+            scheduleRetry()
+            return
+        }
+        
+        if (isScanning) {
+            log("Already scanning...")
+            return
+        }
+        
+        log("Starting scan for ADAS-Jetson...")
+        _connectionState.value = "Scanning..."
+        isScanning = true
+        
+        val filter = android.bluetooth.le.ScanFilter.Builder()
+            .setServiceUuid(android.os.ParcelUuid(ADAS_SERVICE_UUID))
+            .build()
+            
+        val settings = android.bluetooth.le.ScanSettings.Builder()
+            .setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+            
+        bluetoothLeScanner?.startScan(listOf(filter), settings, scanCallback)
+        
+        // Schedule timeout - if nothing found, stop and retry
+        handler.postDelayed({
+            if (isScanning && bluetoothGatt == null) {
+                log("Scan timeout, retrying...")
+                stopScanAndRetry()
+            }
+        }, SCAN_TIMEOUT_MS)
+    }
+    
+    @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
+    private fun stopScanAndRetry() {
+        try {
+            bluetoothLeScanner?.stopScan(scanCallback)
+        } catch (e: SecurityException) {
+            // ignore
+        }
+        isScanning = false
+        scheduleRetry()
+    }
+    
+    private fun scheduleRetry() {
+        if (bluetoothGatt != null) return  // Already connected
+        _connectionState.value = "Retrying in ${SCAN_RETRY_DELAY_MS/1000}s..."
+        handler.postDelayed({
+            if (bluetoothGatt == null) {
+                try {
+                    scanForJetson()
+                } catch (e: SecurityException) {
+                    log("Permission error: ${e.message}")
+                }
+            }
+        }, SCAN_RETRY_DELAY_MS)
+    }
+
+    private val scanCallback = object : android.bluetooth.le.ScanCallback() {
+        @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+        override fun onScanResult(callbackType: Int, result: android.bluetooth.le.ScanResult?) {
+            result?.device?.let { device ->
+                log("Found device: ${device.name} (${device.address})")
+                if (bluetoothGatt == null) {
+                    try {
+                        bluetoothLeScanner?.stopScan(this)
+                    } catch (e: SecurityException) {
+                        // ignore
+                    }
+                    connectToJetson(device)
+                }
+            }
+        }
+        
+        override fun onScanFailed(errorCode: Int) {
+            log("Scan failed: $errorCode")
+            isScanning = false
+            _connectionState.value = "Scan Failed: $errorCode"
+            scheduleRetry()
+        }
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun connectToJetson(device: BluetoothDevice) {
-        // TODO: Connect using GATT
-        bluetoothGatt = device.connectGatt(context, false, gattCallback)
+        log("Connecting to ${device.address}...")
+        _connectionState.value = "Connecting..."
+        bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
@@ -110,13 +232,49 @@ class BleManager(
     // BLE GATT Callback (core of receiving alerts)
     private val gattCallback =
         object : BluetoothGattCallback() {
-            // whenever the phone connects or disconnects from the Jetson
-            override fun onConnectionStateChange(
-                gatt: BluetoothGatt?,
-                status: Int,
-                newState: Int,
-            ) {
-                // TODO: handle reconnect logic
+            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+            override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
+                if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
+                    log("Connected to GATT server.")
+                    _connectionState.value = "Connected"
+                    gatt?.discoverServices()
+                } else if (newState == android.bluetooth.BluetoothProfile.STATE_DISCONNECTED) {
+                    log("Disconnected from GATT server.")
+                    _connectionState.value = "Disconnected"
+                    bluetoothGatt = null
+                    // Retry scan after delay? For now just log
+                }
+            }
+            
+            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+            override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    log("Services discovered.")
+                    val service = gatt?.getService(ADAS_SERVICE_UUID)
+                    if (service != null) {
+                        val characteristic = service.getCharacteristic(ADAS_ALERT_STREAM_UUID)
+                        if (characteristic != null) {
+                            gatt.setCharacteristicNotification(characteristic, true)
+                            val descriptor = characteristic.getDescriptor(java.util.UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
+                            if (descriptor != null) {
+                                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                                gatt.writeDescriptor(descriptor)
+                                log("Subscribed to AlertStream.")
+                            } else {
+                                log("CCCD descriptor not found")
+                            }
+                            
+                            // Request MTU
+                            gatt.requestMtu(185)
+                        } else {
+                            log("AlertStream characteristic not found!")
+                        }
+                    } else {
+                        log("ADAS Service not found!")
+                    }
+                } else {
+                    log("Service discovery failed: $status")
+                }
             }
 
             // whenever the BLE packet size changes, update slice size
@@ -125,14 +283,8 @@ class BleManager(
                 mtu: Int,
                 status: Int,
             ) {
-                // Update slice_cap = ATT_MTU - 7
+                log("MTU changed to $mtu")
                 currentMtu = mtu
-                // TODO: trigger “recompute slice_cap next tick only”
-            }
-
-            // once BLE services load, enable alert notifications
-            fun onServicesDiscovered(gatt: BluetoothGatt?) {
-                // TODO: Enable notifications for ADAS_ALERT_STREAM characteristic
             }
 
             // whenever a fragment arrives from Jetson, process here
@@ -143,6 +295,7 @@ class BleManager(
             ) {
                 if (characteristic?.uuid == ADAS_ALERT_STREAM_UUID) {
                     val raw = characteristic.value ?: return
+                    // log("RX ${raw.size} bytes")
                     handleIncomingFragment(raw)
                 }
             }
@@ -180,8 +333,10 @@ class BleManager(
 
         val tick = activeTick ?: return
 
-        // TODO: Add fragment to tick.fragments[seqNo]
-        // TODO: Increment receivedCount
+        if (!tick.fragments.containsKey(header.seqNo)) {
+            tick.fragments[header.seqNo] = slice
+            tick.receivedCount++
+        }
 
         // If complete → reassemble full CBOR payload B
         if (tick.receivedCount == (tick.seqMax + 1)) {
@@ -196,9 +351,15 @@ class BleManager(
 
     // Rebuild CBOR TickPayload from fragments
     private fun rebuildFullPayload(tick: InProgressTick): ByteArray? {
-        // TODO:
-        // Concatenate fragments[0], fragments[1], ..., fragments[seqMax]
-        return null
+        val size = tick.fragments.values.sumOf { it.size }
+        val buffer = ByteBuffer.allocate(size)
+        
+        for (i in 0..tick.seqMax) {
+            val frag = tick.fragments[i] ?: return null // Missing fragment
+            buffer.put(frag)
+        }
+        
+        return buffer.array()
     }
 
     // Called when one full tick CBOR buffer has been reassembled
@@ -206,10 +367,9 @@ class BleManager(
         tickId: Int,
         cborBuffer: ByteArray,
     ) {
-        // TODO:
-        // - Decode CBOR TickPayload {tick_id, seq_max, n, alerts[]}
-        // - Emit to UI or VehicleStatusViewModel
-        // - Insert into reconnect ring (for resend if needed)
+        log("Received full tick payload: $tickId (${cborBuffer.size} bytes)")
+        // Emit to flow
+        _packetFlow.tryEmit(cborBuffer)
     }
 
     // Resend logic after reconnect
