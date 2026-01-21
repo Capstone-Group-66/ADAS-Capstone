@@ -134,10 +134,87 @@ void visualizationThread() {
             // Velocity Deadband: Clamp speeds < 1 m/s to 0 to prevent drift/noise
             // Logic Assumption: Positive = Moving Away, Negative = Moving Towards
             for (auto& obj : fused) {
-                if (std::abs(obj.velocity_mps) < 1.0f) {
-                    obj.velocity_mps = 0.0f;
+                if (std::abs(obj.radial_vel_mps) < 1.0f) {
+                    obj.radial_vel_mps = 0.0f;
                 }
             }
+
+            // BLE Transmission: Heartbeat (1Hz) + Alerts (Immediate)
+            if (g_ble_server && g_ble_server->isConnected()) {
+                static auto last_ble_send = std::chrono::steady_clock::time_point();
+                
+                // Fix: Include proximity_alert in alerting condition so Radar-only alerts are sent
+                bool is_alerting = fcw_alert.has_value() || proximity_alert;
+                
+                auto time_since = std::chrono::duration_cast<std::chrono::milliseconds>(now_time - last_ble_send);
+
+                if (is_alerting || time_since.count() > 1000) {
+                    std::vector<adas::Alert> alerts_to_send;
+                    int speed_kmh = 0;
+
+                    if (fcw_alert.has_value()) {
+                        auto alert = adas::FCWAlertAdapter::convert(*fcw_alert, adas::Clock::now_ns());
+                        alerts_to_send.push_back(alert);
+                        speed_kmh = static_cast<int>(fcw_alert->velocity_mps * 3.6f);
+                    } else if (proximity_alert) {
+                        // Synthetic Alert from Proximity Logic
+                        adas::Alert alert;
+                        alert.id = "prox_" + std::to_string(adas::Clock::now_ns());
+                        alert.type = adas::AlertType::FCW; // Map to FCW for Mobile App (turns red)
+                        alert.severity = adas::Severity::Critical;
+                        alert.rationale = "Proximity Warning (< 1.5m)";
+                        alerts_to_send.push_back(alert);
+                        
+                        if (prox_obj) {
+                            speed_kmh = static_cast<int>(prox_obj->radial_vel_mps * 3.6f);
+                        }
+                    } else {
+
+            
+            // Draw persistent detections (instead of just current frame)
+            for (const auto& [obj, timestamp] : persistent_dets) {
+                // Bounds check - skip invalid detections
+                int x = static_cast<int>(obj.box_px.x);
+                int y = static_cast<int>(obj.box_px.y);
+                int w = static_cast<int>(obj.box_px.width);
+                int h = static_cast<int>(obj.box_px.height);
+                
+                // Clamp to frame bounds
+                x = std::max(0, std::min(x, vis_width - 1));
+                y = std::max(0, std::min(y, vis_height - 1));
+                w = std::max(1, std::min(w, vis_width - x));
+                h = std::max(1, std::min(h, vis_height - y));
+                
+                cv::Rect safe_box(x, y, w, h);
+                cv::Point safe_centroid(
+                    std::max(0, std::min(static_cast<int>(obj.centroid_px.x), vis_width - 1)),
+                    std::max(0, std::min(static_cast<int>(obj.centroid_px.y), vis_height - 1))
+                );
+                
+                cv::Scalar color(
+                    (obj.object_class * 50) % 255, 
+                    (obj.object_class * 80 + 100) % 255, 
+                    (obj.object_class * 120 + 200) % 255
+                );
+                
+                cv::rectangle(vis, safe_box, color, 2);
+                
+                std::string class_name = adas::ObjectDetector::getClassName(obj.object_class);
+                std::string label = class_name + " " + 
+                                    std::to_string(static_cast<int>(obj.score * 100)) + "%";
+                
+                // Add TTC if radar matched
+                if (obj.has_radar) {
+                     // Velocity visualization (v=Xm/s)
+                     std::stringstream ss;
+                     ss << std::fixed << std::setprecision(1) << obj.radial_vel_mps;
+                     label += " v=" + ss.str() + "m/s"; 
+                     
+                     if (obj.ttc_s < 100.0f) {
+                        label += " R:" + std::to_string(static_cast<int>(obj.range_m)) + "m TTC:" + 
+                                 std::to_string(static_cast<int>(obj.ttc_s)) + "s";
+                     }
+                }
             
             // Check for FCW alerts (TTC-based)
             std::optional<adas::FCWAlert> fcw_alert;
