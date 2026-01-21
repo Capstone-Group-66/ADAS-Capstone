@@ -130,6 +130,14 @@ void visualizationThread() {
             if (g_sensor_fusion) {
                 fused = g_sensor_fusion->fuse(batch, radar);
             }
+
+            // Velocity Deadband: Clamp speeds < 1 m/s to 0 to prevent drift/noise
+            // Logic Assumption: Positive = Moving Away, Negative = Moving Towards
+            for (auto& obj : fused) {
+                if (std::abs(obj.velocity_mps) < 1.0f) {
+                    obj.velocity_mps = 0.0f;
+                }
+            }
             
             // Check for FCW alerts (TTC-based)
             std::optional<adas::FCWAlert> fcw_alert;
@@ -140,11 +148,14 @@ void visualizationThread() {
             // Also check for proximity-based FCW (any object within 1.5m)
             bool proximity_alert = false;
             float closest_range = 999.0f;
+            const adas::FusedObject* prox_obj = nullptr; // Capture the object causing the alert
+
             for (const auto& obj : fused) {
                 if (obj.has_radar && obj.range_m < fcw_proximity_threshold_m && obj.range_m > 0.1f) {
                     proximity_alert = true;
                     if (obj.range_m < closest_range) {
                         closest_range = obj.range_m;
+                        prox_obj = &obj;
                     }
                 }
             }
@@ -156,37 +167,60 @@ void visualizationThread() {
                 if (fcw_alert.has_value()) {
                     last_fcw_ttc = fcw_alert->ttc_s;
                     last_fcw_range = fcw_alert->range_m;
-                    
-                    // Send FCW alert over BLE to mobile app
-                    if (g_ble_server && g_ble_server->isConnected()) {
-                        // 1. Convert to generic Alert
-                        auto alert = adas::FCWAlertAdapter::convert(*fcw_alert, adas::Clock::now_ns());
-                        
-                        // 2. Encode to CBOR (TickPayload)
-                        uint16_t tickId = static_cast<uint16_t>(adas::Clock::now_ns() / 50'000'000); // 20Hz ticks
-                        // Get speed from the alert object (mps -> kmh)
-                        int speed_kmh = static_cast<int>(fcw_alert->velocity_mps * 3.6f);
-                        int health_mask = 0; // TODO: Populate from status
-                        int bsd_mask = 0;    // TODO: Populate from side radars
-                        
-                        // Header signature: (tickId, speedKmh, healthMask, bsdMask, alerts)
-                        auto payload = adas::encodeTickPayloadToCbor(
-                            tickId, speed_kmh, health_mask, bsd_mask, {alert});
-                            
-                        // 3. Fragment into BLE packets (MTU 180ish safe limit)
-                        // Using explicit default MTU of 185 (Bluetooth 4.2+ common)
-                        auto frames = adas::fragmentPayload(tickId, payload, 185);
-                        
-                        // 4. Send fragments with rate limiting
-                        for (const auto& frame : frames) {
-                            g_ble_server->notifyAlertStream(frame);
-                            // Critical: Small delay to prevent overwhelming BlueZ/DBus buffer
-                            std::this_thread::sleep_for(std::chrono::milliseconds(20));
-                        }
-                    }
                 } else {
-                    last_fcw_ttc = closest_range / 1.0f;  // Assume 1 m/s approach
+                    last_fcw_ttc = closest_range / 1.0f;
                     last_fcw_range = closest_range;
+                }
+            }
+
+            // BLE Transmission: Heartbeat (1Hz) + Alerts (Immediate)
+            if (g_ble_server && g_ble_server->isConnected()) {
+                static auto last_ble_send = std::chrono::steady_clock::time_point();
+                
+                // Fix: Include proximity_alert in alerting condition so Radar-only alerts are sent
+                bool is_alerting = fcw_alert.has_value() || proximity_alert;
+                
+                auto time_since = std::chrono::duration_cast<std::chrono::milliseconds>(now_time - last_ble_send);
+
+                if (is_alerting || time_since.count() > 1000) {
+                    std::vector<adas::Alert> alerts_to_send;
+                    int speed_kmh = 0;
+
+                    if (fcw_alert.has_value()) {
+                        auto alert = adas::FCWAlertAdapter::convert(*fcw_alert, adas::Clock::now_ns());
+                        alerts_to_send.push_back(alert);
+                        speed_kmh = static_cast<int>(fcw_alert->velocity_mps * 3.6f);
+                    } else if (proximity_alert) {
+                        // Synthetic Alert from Proximity Logic
+                        adas::Alert alert;
+                        alert.id = "prox_" + std::to_string(adas::Clock::now_ns());
+                        alert.type = adas::AlertType::FCW; // Map to FCW for Mobile App (turns red)
+                        alert.severity = adas::Severity::Critical;
+                        alert.rationale = "Proximity Warning (< 1.5m)";
+                        alerts_to_send.push_back(alert);
+                        
+                        if (prox_obj) {
+                            speed_kmh = static_cast<int>(prox_obj->velocity_mps * 3.6f);
+                        }
+                    } else {
+                        // Heartbeat: No alerts, speed 0 (or from telemetry if available)
+                        speed_kmh = 0;
+                    }
+
+                    uint16_t tickId = static_cast<uint16_t>(adas::Clock::now_ns() / 50'000'000);
+                    
+                    // Encode Payload
+                    auto payload = adas::encodeTickPayloadToCbor(
+                        tickId, speed_kmh, 0, 0, alerts_to_send);
+
+                    // Fragment and Send
+                    auto frames = adas::fragmentPayload(tickId, payload, 185);
+                    for (const auto& frame : frames) {
+                         g_ble_server->notifyAlertStream(frame);
+                         std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                    }
+                    
+                    last_ble_send = now_time;
                 }
             }
             
@@ -260,9 +294,16 @@ void visualizationThread() {
                                     std::to_string(static_cast<int>(obj.score * 100)) + "%";
                 
                 // Add TTC if radar matched
-                if (obj.has_radar && obj.ttc_s < 100.0f) {
-                    label += " R:" + std::to_string(static_cast<int>(obj.range_m)) + "m TTC:" + 
-                             std::to_string(static_cast<int>(obj.ttc_s)) + "s";
+                if (obj.has_radar) {
+                     // Velocity visualization (v=Xm/s)
+                     std::stringstream ss;
+                     ss << std::fixed << std::setprecision(1) << obj.velocity_mps;
+                     label += " v=" + ss.str() + "m/s"; 
+                     
+                     if (obj.ttc_s < 100.0f) {
+                        label += " R:" + std::to_string(static_cast<int>(obj.range_m)) + "m TTC:" + 
+                                 std::to_string(static_cast<int>(obj.ttc_s)) + "s";
+                     }
                 }
                                     
                 int baseLine;

@@ -1,6 +1,8 @@
 package com.example.testapp.nav
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -24,16 +26,24 @@ fun Navigation(
             VehicleStatusViewModelFactory(repository)
         }
 
+    val scope = rememberCoroutineScope()
+
     NavHost(
         navController = navController,
         startDestination = "home",
     ) {
-        composable("home") { home(logs, status) }
+        composable("home") { 
+            home(logs, status)
+        }
         composable("drive") { backStackEntry ->
             val vm: VehicleStatusViewModel =
                 viewModel(factory = factory)
 
-            Drive(vm)
+            Drive(
+                vehicleStatusViewModel = vm,
+                onDebugFcw = { scope.launch { repository.simulateFcwAlert() } },
+                onDebugClear = { scope.launch { repository.simulateClear() } }
+            )
         }
 
         composable("settings") { backStackEntry ->

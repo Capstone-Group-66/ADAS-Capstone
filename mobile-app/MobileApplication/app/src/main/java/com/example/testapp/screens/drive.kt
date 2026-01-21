@@ -29,14 +29,26 @@ import com.example.testapp.model.SonarColor
 import com.example.testapp.viewmodel.VehicleStatusViewModel
 
 @Composable
-fun Drive(vehicleStatusViewModel: VehicleStatusViewModel) {
+fun Drive(
+    vehicleStatusViewModel: VehicleStatusViewModel,
+    onDebugFcw: () -> Unit,
+    onDebugClear: () -> Unit,
+) {
     val state by vehicleStatusViewModel.driveState.collectAsState()
 
-    DriveContent(state = state)
+    DriveContent(
+        state = state,
+        onDebugFcw = onDebugFcw,
+        onDebugClear = onDebugClear,
+    )
 }
 
 @Composable
-fun DriveContent(state: UpdateUIstate) {
+fun DriveContent(
+    state: UpdateUIstate,
+    onDebugFcw: () -> Unit,
+    onDebugClear: () -> Unit,
+) {
     Column(Modifier.padding(16.dp)) {
         Text("drive page")
 
@@ -46,10 +58,58 @@ fun DriveContent(state: UpdateUIstate) {
             s3 = state.status3,
             s4 = state.status4,
         )
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(top = 16.dp)
+        ) {
+            androidx.compose.material3.Button(onClick = onDebugFcw) {
+                Text("TRIGGER FCW")
+            }
+            androidx.compose.material3.Button(onClick = onDebugClear) {
+                Text("CLEAR")
+            }
+        }
     }
 
     CenteredCar()
     FrontDetection(state.sonarValue)
+    FcwWarningOverlay(state)
+}
+
+@Composable
+fun FcwWarningOverlay(state: UpdateUIstate) {
+    // Logic: Latch is 3s. Animation is 2s.
+    // StartTime is derived from (Expiry - 3000).
+    // If receiving continuous alerts, Expiry extends, StartTime advances, elapsed stays ~0 (Solid).
+    // If alerts stop, Expiry freezes, elapsed increases -> Fade out.
+    
+    val startTime = state.fcwExpiry - 3000
+    val elapsed = state.timestamp - startTime
+    
+    // Show only if within Latch window AND within Animation window
+    if (state.timestamp < state.fcwExpiry && elapsed < 2000) {
+        val alpha = when {
+            elapsed < 500 -> 1.0f
+            elapsed < 2000 -> 1.0f - ((elapsed - 500) / 1500.0f).coerceIn(0.0f, 1.0f)
+            else -> 0.0f
+        }
+        
+        if (alpha > 0) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Collision Warning!",
+                    color = Color.Red.copy(alpha = alpha),
+                    fontSize = 32.sp,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+                    modifier = Modifier.offset(y = (-250).dp)
+                )
+            }
+        }
+    }
 }
 
 @Composable

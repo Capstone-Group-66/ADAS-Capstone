@@ -14,6 +14,7 @@ data class VehicleAlert(
     val lastTickId: Int = -1,
     val timestampMs: Long = System.currentTimeMillis(),
     val activeAlerts: List<com.example.testapp.model.AlertDto> = emptyList(),
+    val fcwExpiry: Long = 0,
 )
 
 data class CameraHealth(

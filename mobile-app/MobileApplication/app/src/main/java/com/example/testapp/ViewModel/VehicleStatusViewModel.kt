@@ -25,6 +25,8 @@ class VehicleStatusViewModel(
                     status3 = vehicleAlert.bsd.rightActive,
                     status4 = vehicleAlert.cameras.frontOk,
                     sonarValue = vehicleAlert.sonar.front,
+                    timestamp = vehicleAlert.timestampMs,
+                    fcwExpiry = vehicleAlert.fcwExpiry,
                 )
             }.stateIn(
                 scope = vmScope,

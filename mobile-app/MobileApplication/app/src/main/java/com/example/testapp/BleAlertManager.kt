@@ -39,7 +39,11 @@ class BleManager(
     private var currentMtu: Int = 23
 
     // Expose data stream
-    private val _packetFlow = kotlinx.coroutines.flow.MutableSharedFlow<ByteArray>(replay = 0)
+    private val _packetFlow = kotlinx.coroutines.flow.MutableSharedFlow<ByteArray>(
+        replay = 0,
+        extraBufferCapacity = 64,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+    )
     val packetFlow: kotlinx.coroutines.flow.Flow<ByteArray> = _packetFlow
 
     // Expose status logs

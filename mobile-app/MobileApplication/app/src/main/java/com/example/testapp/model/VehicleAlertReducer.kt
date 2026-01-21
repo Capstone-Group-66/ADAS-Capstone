@@ -27,25 +27,48 @@ object VehicleAlertReducer {
         prev: VehicleAlert,
         tick: TickPayload,
     ): VehicleAlert? {
-        if (tick.tickId <= prev.lastTickId) return null
+        // Strict ordering for remote ticks (tickId >= 0). 
+        // Local heartbeats (-1) and Manual Triggers (-2) bypass check.
+        if (tick.tickId >= 0 && tick.tickId <= prev.lastTickId) return null
 
         val (cameras, radar) = TickPayloadMapper.healthFromMask(tick.healthMask)
         val bsd = TickPayloadMapper.bsdFromMask(tick.bsdMask)
 
-        // Replace these mappings once your protocol defines sonar/detection in alerts:
-        val sonar = mapAlertsToSonar(prev.sonar, tick.alerts)
-        val detection = mapAlertsToDetection(prev.detection, tick.alerts)
+        // Latch Logic: Extend FCW expiry if FCW alert present
+        val hasIncomingFcw = tick.alerts.any { it.type == 0 }
+        val now = System.currentTimeMillis()
+        val newFcwExpiry = if (hasIncomingFcw) now + 3000 else prev.fcwExpiry
+
+        // Determine active state based on Latch
+        val isLatched = now < newFcwExpiry
+
+        val sonar = if (isLatched) {
+            prev.sonar.copy(front = SonarColor.RED)
+        } else {
+            prev.sonar.copy(front = SonarColor.GREEN)
+        }
+
+        val detection = if (isLatched) {
+            val severity = tick.alerts.find { it.type == 0 }?.severity ?: 2
+            ObjectDetection.Car(confidence = severity * 33)
+        } else {
+            ObjectDetection.None
+        }
+        
+        // Don't update lastTickId if it's a local event (< 0)
+        val newLastTickId = if (tick.tickId >= 0) tick.tickId else prev.lastTickId
 
         return prev.copy(
             cameras = cameras,
             radar = radar,
             bsd = bsd,
-            telemetry = VehicleTelemetry(speedKmh = tick.speed.coerceIn(0, 300)),
+            telemetry = VehicleTelemetry(speedKmh = kotlin.math.abs(tick.speed).coerceIn(0, 300)),
             sonar = sonar,
             detection = detection,
             activeAlerts = tick.alerts,
-            lastTickId = tick.tickId,
-            timestampMs = System.currentTimeMillis(),
+            lastTickId = newLastTickId,
+            timestampMs = now,
+            fcwExpiry = newFcwExpiry,
         )
     }
 
@@ -53,28 +76,13 @@ object VehicleAlertReducer {
         prev: SonarColors,
         alerts: List<com.example.testapp.model.AlertDto>,
     ): SonarColors {
-        // Check for FCW alert (id=0) - show RED on front sonar
-        val hasFcw = alerts.any { it.type == 0 }
-        
-        return if (hasFcw) {
-            prev.copy(front = SonarColor.RED)
-        } else {
-            prev.copy(front = SonarColor.GREEN)
-        }
+        return prev // Deprecated by inline logic above
     }
 
     private fun mapAlertsToDetection(
         prev: ObjectDetection,
         alerts: List<com.example.testapp.model.AlertDto>,
     ): ObjectDetection {
-        // Check for FCW alert (id=0) - indicates car/object detected ahead
-        val fcwAlert = alerts.find { it.type == 0 }
-        
-        return if (fcwAlert != null) {
-            // FCW means there's a car/object ahead - show detection
-            ObjectDetection.Car(confidence = fcwAlert.severity * 33)  // severity 0-2 -> 0-66%
-        } else {
-            ObjectDetection.None
-        }
+        return prev // Deprecated by inline logic above
     }
 }
