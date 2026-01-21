@@ -354,9 +354,7 @@ void visualizationThread() {
             
             // Draw info overlay
             std::string info = "Inf: " + std::to_string(static_cast<int>(batch.inference_time_us / 1000)) + 
-                               "ms | FPS: " + std::to_string(static_cast<int>(fps)) +
-                               " | Det: " + std::to_string(fused.size()) +
-                               " | Radar: " + std::to_string(radar.targets.size());
+                               "ms | FPS: " + std::to_string(static_cast<int>(fps));
             cv::putText(vis, info, cv::Point(10, 25), cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
             
             // Rate-limit display to 5 FPS to reduce stuttering
