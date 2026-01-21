@@ -164,7 +164,8 @@ void visualizationThread() {
                         
                         // 2. Encode to CBOR (TickPayload)
                         uint16_t tickId = static_cast<uint16_t>(adas::Clock::now_ns() / 50'000'000); // 20Hz ticks
-                        int speed_kmh = 0; // TODO: Get from CAN/GPS
+                        // Get speed from the alert object (mps -> kmh)
+                        int speed_kmh = static_cast<int>(fcw_alert->velocity_mps * 3.6f);
                         int health_mask = 0; // TODO: Populate from status
                         int bsd_mask = 0;    // TODO: Populate from side radars
                         
