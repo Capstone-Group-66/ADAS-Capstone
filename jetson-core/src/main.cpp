@@ -7,9 +7,8 @@
 #include "adas/stage_a/IngestManager.hpp"
 #include "adas/stage_b/CameraPipeline.hpp"
 #include "adas/stage_b/ObjectDetector.hpp"  // For class name lookup
-#include "adas/stage_e/FCWMonitor.hpp"
-#include "adas/stage_a/CameraCalibrator.hpp" // Added for demo
 #include "adas/stage_e/SensorFusion.hpp"
+#include "adas/stage_e/FCWMonitor.hpp"
 #include "adas/main_brain/SimpleBleServer.hpp"
 #include "adas/main_brain/FCWAlertAdapter.hpp"
 #include "adas/main_brain/AlertGenerator.hpp"
@@ -296,14 +295,11 @@ void visualizationThread() {
                 
                 // Add TTC if radar matched
                 if (obj.has_radar) {
-                     // Velocity visualization (v=Xm/s)
-                     std::stringstream ss;
-                     ss << std::fixed << std::setprecision(1) << obj.radial_vel_mps;
-                     label += " v=" + ss.str() + "m/s"; 
-                     
                      if (obj.ttc_s < 100.0f) {
                         label += " R:" + std::to_string(static_cast<int>(obj.range_m)) + "m TTC:" + 
                                  std::to_string(static_cast<int>(obj.ttc_s)) + "s";
+                     } else {
+                         label += " R:" + std::to_string(static_cast<int>(obj.range_m)) + "m";
                      }
                 }
                                     
@@ -465,7 +461,6 @@ void printMenu() {
     std::cout << "  6) Register Pi4 Network Devices\n";
     std::cout << "  7) Test RTT to Pi4\n";
     std::cout << "  8) Toggle Verbose Mode [" << (adas::g_verbose_mode.load() ? "ON" : "OFF") << "]\n";
-    std::cout << "  9) Demo Calibration (Side-by-Side)\n";
     std::cout << "  0) Exit\n";
     std::cout << "==============================================================\n";
     std::cout << "  Enter choice: ";
@@ -599,92 +594,6 @@ void showStatus() {
     if (g_stage_b_manager) {
         g_stage_b_manager->printStatus();
     }
-}
-
-void demoCalibration(const adas::HardwareMap& hw_map, const std::string& calib_dir) {
-    if (g_pipeline_running.load()) {
-        std::cout << "[Demo] Please stop the pipeline first\n";
-        return;
-    }
-    
-    // Default to FrontCam for demo
-    adas::Mount mount = adas::Mount::FrontCam;
-    if (hw_map.mappings.find(mount) == hw_map.mappings.end()) {
-        std::cout << "[Demo] FrontCam not found in hardware map. Cannot demo.\n";
-        return;
-    }
-    
-    std::string device_path = hw_map.mappings.at(mount);
-    std::string calib_path = adas::CameraCalibrator::getCalibrationPath(mount, calib_dir);
-    
-    std::cout << "[Demo] Loading calibration from: " << calib_path << "\n";
-    auto calib_opt = adas::CameraCalibrator::loadCalibration(calib_path);
-    
-    if (!calib_opt) {
-        std::cout << "[Demo] Calibration file not found or invalid.\n";
-        std::cout << "[Demo] Please run 'Run Camera Calibration' (Option 5) first.\n";
-        return;
-    }
-    
-    auto calib = *calib_opt;
-    std::cout << "[Demo] Opening camera: " << device_path << "\n";
-    
-    // Open camera
-#ifdef __linux__
-    cv::VideoCapture cap(device_path, cv::CAP_V4L2);
-#else
-    int device_num = std::stoi(device_path);
-    cv::VideoCapture cap(device_num);
-#endif
-
-    if (!cap.isOpened()) {
-        std::cout << "[Demo] Failed to open camera.\n";
-        return;
-    }
-    
-    cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
-    cap.set(cv::CAP_PROP_FRAME_WIDTH, 640);
-    cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
-    
-    std::string win_name = "Calibration Demo: Raw (Left) vs Undistorted (Right)";
-    cv::namedWindow(win_name, cv::WINDOW_AUTOSIZE);
-    
-    std::cout << "[Demo] Press 'q' or 'ESC' to exit demo.\n";
-    
-    // Pre-compute map for faster undistortion
-    cv::Mat map1, map2;
-    cv::initUndistortRectifyMap(calib.camera_matrix, calib.distortion_coefficients,
-                                cv::Mat(), // Identity rectification (no stereo)
-                                calib.camera_matrix, // New camera matrix (same as old, or getOptimalNewCameraMatrix)
-                                cv::Size(640, 480),
-                                CV_16SC2, map1, map2);
-                                
-    while (true) {
-        cv::Mat frame;
-        if (!cap.read(frame)) break;
-        
-        if (frame.empty()) continue;
-        
-        cv::Mat undistorted;
-        cv::remap(frame, undistorted, map1, map2, cv::INTER_LINEAR);
-        
-        cv::Mat combined;
-        cv::hconcat(frame, undistorted, combined);
-        
-        // Draw labels
-        cv::putText(combined, "RAW Input", cv::Point(20, 30), 
-                    cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0,0,255), 2);
-        cv::putText(combined, "Undistorted", cv::Point(frame.cols + 20, 30), 
-                    cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(0,255,0), 2);
-                    
-        cv::imshow(win_name, combined);
-        
-        if (cv::waitKey(10) == 'q' || cv::waitKey(10) == 27) break;
-    }
-    
-    cv::destroyWindow(win_name);
-    cap.release();
-    std::cout << "[Demo] Finished.\n";
 }
 
 } // namespace
@@ -849,13 +758,6 @@ int main(int argc, char *argv[]) {
                         adas::g_verbose_mode.store(new_state);
                         std::cout << "[Main] Verbose mode " << (new_state ? "ENABLED" : "DISABLED") << "\n";
                     }
-                    break;
-                    
-                case 9: // Demo Calibration
-                    if (adas::ConfigLoader::hardwareMapExists(hw_map_path)) {
-                        hw_map = adas::ConfigLoader::loadHardwareMap(hw_map_path);
-                    }
-                    demoCalibration(hw_map, calib_dir);
                     break;
                     
                 case 0:  // Exit

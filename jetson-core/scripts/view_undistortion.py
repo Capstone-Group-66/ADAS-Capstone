@@ -1,130 +1,126 @@
 #!/usr/bin/env python3
 """
-Calibration Visualization Tool
-Shows live camera feed with/without undistortion applied.
-Press 'U' to toggle undistortion, 'Q' to quit.
+view_undistortion.py
+
+Demonstration script to show the effect of camera calibration.
+Loads the FrontCam_calibration.yaml and displays side-by-side
+original vs undistorted video feed.
+
+Usage:
+    python3 view_undistortion.py [camera_id] [calibration_file]
 """
+
 import cv2
+import yaml
 import numpy as np
 import sys
 import os
 
-def load_calibration(yaml_path):
-    """Load calibration from OpenCV FileStorage YAML"""
-    fs = cv2.FileStorage(yaml_path, cv2.FILE_STORAGE_READ)
-    if not fs.isOpened():
-        print(f"ERROR: Cannot open {yaml_path}")
-        return None, None, None, None
-    
-    mtx = fs.getNode("camera_matrix").mat()
-    dist = fs.getNode("distortion_coefficients").mat()
-    w = int(fs.getNode("image_width").real())
-    h = int(fs.getNode("image_height").real())
-    rms = fs.getNode("rms_error").real()
-    
-    fs.release()
-    
-    print(f"Loaded calibration from: {yaml_path}")
-    print(f"  Image size: {w}x{h}")
-    print(f"  RMS error: {rms:.4f}")
-    print(f"  Camera matrix:\n{mtx}")
-    print(f"  Distortion coefficients: {dist.flatten()}")
-    
-    return mtx, dist, w, h
+def load_calibration_yaml(filepath):
+    """
+    Load camera matrix and distortion coefficients from OpenCV-style YAML/XML.
+    OpenCV's Python bindings strictly prefer XML for FileStorage, but we can parse simple YAML manually
+    or try cv2.FileStorage if available.
+    """
+    if not os.path.exists(filepath):
+        print(f"Error: Calibration file not found at {filepath}")
+        return None, None, None
+
+    # OpenCV FileStorage is the most robust way if the file was saved by OpenCV
+    cv_file = cv2.FileStorage(filepath, cv2.FILE_STORAGE_READ)
+    if cv_file.isOpened():
+        camera_matrix = cv_file.getNode("camera_matrix").mat()
+        dist_coeffs = cv_file.getNode("distortion_coefficients").mat()
+        width = int(cv_file.getNode("image_width").real())
+        height = int(cv_file.getNode("image_height").real())
+        cv_file.release()
+        return camera_matrix, dist_coeffs, (width, height)
+    else:
+        print("Failed to open file using cv2.FileStorage")
+        return None, None, None
 
 def main():
-    # Get the script's directory (jetson-core/scripts)
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    jetson_core_dir = os.path.dirname(script_dir)  # Go up one level to jetson-core
+    # Defaults
+    cam_id = 0
+    calib_file = "../config/calibration/FrontCam_calibration.yaml"
+
+    if len(sys.argv) > 1:
+        cam_id = int(sys.argv[1])
+    if len(sys.argv) > 2:
+        calib_file = sys.argv[2]
+        
+    print(f"Opening camera {cam_id}...")
+    print(f"Loading calibration from {calib_file}...")
     
-    # Find calibration file
-    calib_path = os.path.join(jetson_core_dir, "config", "calibration", "FrontCam_calibration.yaml")
-    if not os.path.exists(calib_path):
-        print(f"ERROR: Calibration file not found at {calib_path}")
-        print("Run device_wizard --calibrate first!")
+    K, D, resolution = load_calibration_yaml(calib_file)
+    
+    if K is None:
+        print("Could not load calibration data. Exiting.")
         sys.exit(1)
+        
+    print("Camera Matrix:\n", K)
+    print("Distortion Coeffs:\n", D)
     
-    # Load calibration
-    mtx, dist, cal_w, cal_h = load_calibration(calib_path)
-    if mtx is None:
-        sys.exit(1)
-    
-    # Get camera ID from hardware_map or default to 1
-    cam_id = 1
-    hw_map_path = os.path.join(jetson_core_dir, "config", "hardware_map.json")
-    if os.path.exists(hw_map_path):
-        import json
-        with open(hw_map_path, 'r') as f:
-            hw = json.load(f)
-            if "mappings" in hw and "FrontCam" in hw["mappings"]:
-                cam_id = int(hw["mappings"]["FrontCam"])
-                print(f"Using camera ID {cam_id} from hardware_map.json")
-    
-    # Open camera
     cap = cv2.VideoCapture(cam_id)
     if not cap.isOpened():
-        print(f"ERROR: Cannot open camera {cam_id}")
+        print(f"Failed to open camera {cam_id}")
         sys.exit(1)
+        
+    # Attempt to set resolution to match calibration
+    if resolution:
+        w, h = resolution
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+        print(f"Requested Resolution: {w}x{h}")
     
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, cal_w)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, cal_h)
+    # Read one frame to initialize maps
+    ret, frame = cap.read()
+    if not ret:
+        print("Failed to read frame")
+        sys.exit(1)
+        
+    h, w = frame.shape[:2]
     
-    # Compute undistort maps for efficiency
-    new_mtx, roi = cv2.getOptimalNewCameraMatrix(mtx, dist, (cal_w, cal_h), 1, (cal_w, cal_h))
-    mapx, mapy = cv2.initUndistortRectifyMap(mtx, dist, None, new_mtx, (cal_w, cal_h), cv2.CV_32FC1)
+    # Compute optimal new camera matrix
+    # alpha=0: Crop to valid pixels (no black borders)
+    # alpha=1: Keep all source pixels (some black borders)
+    new_K, roi = cv2.getOptimalNewCameraMatrix(K, D, (w, h), 1, (w, h))
     
-    # Load RMS for display
-    fs = cv2.FileStorage(calib_path, cv2.FILE_STORAGE_READ)
-    rms_error = fs.getNode("rms_error").real()
-    fs.release()
+    # Precompute maps for remapping (faster than undistort() per frame)
+    mapx, mapy = cv2.initUndistortRectifyMap(K, D, None, new_K, (w, h), 5)
     
-    # Modes: 0=Original, 1=Undistorted, 2=Undistorted+Cropped
-    mode = 0
-    mode_names = ["ORIGINAL", "UNDISTORTED (full)", "UNDISTORTED + CROPPED"]
-    
-    print("\n" + "="*60)
-    print("CALIBRATION VISUALIZATION")
-    print("="*60)
-    print("  Press 'U' to cycle modes: Original -> Undistorted -> Cropped")
-    print("  Press 'Q' to quit")
-    print(f"  ROI for cropping: x={roi[0]}, y={roi[1]}, w={roi[2]}, h={roi[3]}")
-    print("="*60 + "\n")
+    print("\nStarting video loop. Press 'q' to quit.")
     
     while True:
         ret, frame = cap.read()
         if not ret:
-            print("Failed to read frame")
             break
+            
+        # Undistort
+        undistorted = cv2.remap(frame, mapx, mapy, cv2.INTER_LINEAR)
         
-        if mode == 0:
-            # Original
-            display = frame.copy()
-            color = (0, 0, 255)
-        elif mode == 1:
-            # Undistorted (full frame with artifacts at edges)
-            display = cv2.remap(frame, mapx, mapy, cv2.INTER_LINEAR)
-            color = (0, 255, 255)
-        else:
-            # Undistorted + Cropped to ROI
-            undistorted = cv2.remap(frame, mapx, mapy, cv2.INTER_LINEAR)
-            x, y, w, h = roi
-            display = undistorted[y:y+h, x:x+w]
-            color = (0, 255, 0)
+        # Resize for side-by-side display if too large
+        display_w = 640
+        scale = display_w / w
+        display_h = int(h * scale)
         
-        # Draw label
-        label = f"{mode_names[mode]} (U to cycle)"
-        cv2.putText(display, label, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
-        cv2.putText(display, f"RMS: {rms_error:.4f}", (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255,255,255), 2)
+        vis_original = cv2.resize(frame, (display_w, display_h))
+        vis_undistorted = cv2.resize(undistorted, (display_w, display_h))
         
-        cv2.imshow("Calibration Visualization", display)
+        # Add labels
+        cv2.putText(vis_original, "Original (Distorted)", (20, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        cv2.putText(vis_undistorted, "Calibrated (Undistorted)", (20, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord('q'):
+        # Stack horizontal
+        combined = np.hstack((vis_original, vis_undistorted))
+        
+        cv2.imshow("Calibration Demo", combined)
+        
+        if cv2.waitKey(1) == ord('q'):
             break
-        elif key == ord('u'):
-            mode = (mode + 1) % 3
-            print(f"Mode: {mode_names[mode]}")
-    
+            
     cap.release()
     cv2.destroyAllWindows()
 
