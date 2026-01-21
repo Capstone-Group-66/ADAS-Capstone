@@ -23,9 +23,9 @@ public:
         // Timestamp in milliseconds
         alert.t_ms = timestamp_ns / 1'000'000;
         
-        // Unique ID (tick + track)
+        // Unique ID (tick based, no track_id in FCWAlert)
         std::ostringstream id;
-        id << "fcw-" << (timestamp_ns / 50'000'000) << "-" << fcw.track_id;
+        id << "fcw-" << (timestamp_ns / 50'000'000) << "-" << fcw.object_class;
         alert.id = id.str();
         
         // Type is always FCW
@@ -54,8 +54,8 @@ public:
                   << ",\"class\":\"" << fcw.object_class << "\"}";
         alert.rationale = rationale.str();
         
-        // Object ID
-        alert.object_id = fcw.track_id;
+        // Object ID (use object_class since track_id not available)
+        alert.object_id = fcw.object_class;
         
         // Sources
         alert.sources = {"FrontCam", "FrontRadar"};
@@ -63,8 +63,8 @@ public:
         // Schema version
         alert.schemaVersion = "v1.0";
         
-        // Confidence (from detection)
-        alert.confidence = fcw.confidence;
+        // Confidence (default since not in FCWAlert)
+        alert.confidence = 0.9f;
         
         return alert;
     }
