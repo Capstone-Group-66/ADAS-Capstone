@@ -1,47 +1,29 @@
 #!/usr/bin/env python3
 """
-FCW Simulator for Windows Laptop
---------------------------------
-Simulates the ADAS Jetson system by:
-1. Creating a BLE GATT server (service: ADAS_SERVICE_UUID).
-2. Generating a Forward Collision Warning (FCW) alert every 10 seconds.
-3. Encoding the alert into the specific layered JSON -> CBOR format expected by the mobile app.
-4. Handling BLE start-of-frame and fragmentation (header + payload chunks).
+FCW Simulator for Jetson Nano (Python 3.6) - BlueZ D-Bus Implementation
+------------------------------------------------------------------------
+Uses dbus-python and GLib mainloop for BLE GATT server.
+This works on older Jetson systems with Python 3.6.
 
-Payload Format (CBOR):
-    {
-        "t": <tick_id encoded as int>,
-        "v": <speed encoded as int>,
-        "h": <health_mask encoded as int>,
-        "b": <bsd_mask encoded as int>,
-        "a": [
-            {
-                "id": 0,          # 0 = FCW
-                "s": 2,           # Severity
-                "r": "FCW Alert"  # Rationale
-            }
-        ]
-    }
-
-Packet Structure (Notification):
-    [Header (4 bytes)] + [CBOR Fragment]
-    Header:
-      - Tick ID (2 bytes, Little Endian)
-      - Sequence No (1 byte)
-      - Sequence Max (1 byte)
-
-Dependencies:
-    pip install bless cbor2
+Install: sudo apt install python3-dbus python3-gi
 """
 
-import asyncio
-import sys
+import dbus
+import dbus.service
+import dbus.mainloop.glib
+from gi.repository import GLib
 import struct
-import math
 import logging
-from typing import Dict, Any, List
+import sys
+import threading
+import time
 
-# Configure logging
+try:
+    import cbor
+except ImportError:
+    print("Missing cbor. Run: pip3 install cbor")
+    sys.exit(1)
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -49,170 +31,303 @@ logging.basicConfig(
 )
 logger = logging.getLogger("FCW_Sim")
 
-try:
-    import cbor  # Use cbor (not cbor2) for Python 3.6 compatibility
-    from bless import BlessServer, BlessGATTCharacteristic, GATTCharacteristicProperties, GATTAttributePermissions
-except ImportError as e:
-    logger.error(f"Missing dependencies: {e}")
-    logger.error("Please run: pip3 install cbor bless")
-    sys.exit(1)
+# BlueZ D-Bus constants
+BLUEZ_SERVICE = 'org.bluez'
+ADAPTER_IFACE = 'org.bluez.Adapter1'
+LE_ADVERTISING_MANAGER_IFACE = 'org.bluez.LEAdvertisingManager1'
+GATT_MANAGER_IFACE = 'org.bluez.GattManager1'
+GATT_SERVICE_IFACE = 'org.bluez.GattService1'
+GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
+DBUS_OM_IFACE = 'org.freedesktop.DBus.ObjectManager'
+DBUS_PROP_IFACE = 'org.freedesktop.DBus.Properties'
+LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
 
-# BLE Constants (Must match Kotlin app)
-ADAS_SERVICE_UUID = "0000ada5-0000-1000-8000-00805f9b34fb"
-ADAS_ALERT_STREAM_UUID = "0000a1e7-0000-1000-8000-00805f9b34fb"
+# ADAS UUIDs
+ADAS_SERVICE_UUID = '0000ada5-0000-1000-8000-00805f9b34fb'
+ADAS_ALERT_STREAM_UUID = '0000a1e7-0000-1000-8000-00805f9b34fb'
+
+class Advertisement(dbus.service.Object):
+    PATH_BASE = '/org/bluez/adas/advertisement'
+
+    def __init__(self, bus, index):
+        self.path = self.PATH_BASE + str(index)
+        self.bus = bus
+        self.ad_type = 'peripheral'
+        self.local_name = 'ADAS-Jetson'
+        self.service_uuids = [ADAS_SERVICE_UUID]
+        dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_properties(self):
+        properties = {
+            LE_ADVERTISEMENT_IFACE: {
+                'Type': self.ad_type,
+                'ServiceUUIDs': dbus.Array(self.service_uuids, signature='s'),
+                'LocalName': dbus.String(self.local_name),
+            }
+        }
+        return {LE_ADVERTISEMENT_IFACE: properties[LE_ADVERTISEMENT_IFACE]}
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
+    def GetAll(self, interface):
+        if interface != LE_ADVERTISEMENT_IFACE:
+            raise dbus.exceptions.DBusException(
+                'org.freedesktop.DBus.Error.InvalidArgs',
+                'Invalid interface')
+        return self.get_properties()[LE_ADVERTISEMENT_IFACE]
+
+    @dbus.service.method(LE_ADVERTISEMENT_IFACE, in_signature='', out_signature='')
+    def Release(self):
+        logger.info('Advertisement released')
+
+
+class Service(dbus.service.Object):
+    PATH_BASE = '/org/bluez/adas/service'
+
+    def __init__(self, bus, index, uuid, primary):
+        self.path = self.PATH_BASE + str(index)
+        self.bus = bus
+        self.uuid = uuid
+        self.primary = primary
+        self.characteristics = []
+        dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_properties(self):
+        return {
+            GATT_SERVICE_IFACE: {
+                'UUID': self.uuid,
+                'Primary': self.primary,
+                'Characteristics': dbus.Array(
+                    [c.get_path() for c in self.characteristics],
+                    signature='o')
+            }
+        }
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    def add_characteristic(self, chrc):
+        self.characteristics.append(chrc)
+
+    @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
+    def GetAll(self, interface):
+        if interface != GATT_SERVICE_IFACE:
+            raise dbus.exceptions.DBusException(
+                'org.freedesktop.DBus.Error.InvalidArgs',
+                'Invalid interface')
+        return self.get_properties()[GATT_SERVICE_IFACE]
+
+
+class Characteristic(dbus.service.Object):
+    def __init__(self, bus, index, uuid, flags, service):
+        self.path = service.path + '/char' + str(index)
+        self.bus = bus
+        self.uuid = uuid
+        self.service = service
+        self.flags = flags
+        self.notifying = False
+        self.value = []
+        dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_properties(self):
+        return {
+            GATT_CHRC_IFACE: {
+                'Service': self.service.get_path(),
+                'UUID': self.uuid,
+                'Flags': self.flags,
+                'Notifying': self.notifying,
+            }
+        }
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
+    def GetAll(self, interface):
+        if interface != GATT_CHRC_IFACE:
+            raise dbus.exceptions.DBusException(
+                'org.freedesktop.DBus.Error.InvalidArgs',
+                'Invalid interface')
+        return self.get_properties()[GATT_CHRC_IFACE]
+
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='a{sv}', out_signature='ay')
+    def ReadValue(self, options):
+        return self.value
+
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='aya{sv}', out_signature='')
+    def WriteValue(self, value, options):
+        self.value = value
+
+    @dbus.service.method(GATT_CHRC_IFACE)
+    def StartNotify(self):
+        if self.notifying:
+            return
+        self.notifying = True
+        logger.info(f"Notifications started for {self.uuid}")
+
+    @dbus.service.method(GATT_CHRC_IFACE)
+    def StopNotify(self):
+        if not self.notifying:
+            return
+        self.notifying = False
+        logger.info(f"Notifications stopped for {self.uuid}")
+
+    @dbus.service.signal(DBUS_PROP_IFACE, signature='sa{sv}as')
+    def PropertiesChanged(self, interface, changed, invalidated):
+        pass
+
+    def send_notification(self, data):
+        if not self.notifying:
+            return False
+        self.value = dbus.Array(data, signature='y')
+        self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': self.value}, [])
+        return True
+
+
+class Application(dbus.service.Object):
+    def __init__(self, bus):
+        self.path = '/org/bluez/adas'
+        self.services = []
+        dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    def add_service(self, service):
+        self.services.append(service)
+
+    @dbus.service.method(DBUS_OM_IFACE, out_signature='a{oa{sa{sv}}}')
+    def GetManagedObjects(self):
+        response = {}
+        for service in self.services:
+            response[service.get_path()] = service.get_properties()
+            for chrc in service.characteristics:
+                response[chrc.get_path()] = chrc.get_properties()
+        return response
+
 
 class FcwSimulator:
     def __init__(self):
-        self.server = BlessServer(name="ADAS-Jetson-Sim")
+        dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+        self.bus = dbus.SystemBus()
+        self.mainloop = GLib.MainLoop()
         self.tick_id = 0
-        self.is_connected = False
+        self.alert_chrc = None
         
-    async def setup(self):
-        """Initialize BLE server and characteristics."""
-        logger.info("Initializing BLE Server...")
+    def find_adapter(self):
+        remote_om = dbus.Interface(
+            self.bus.get_object(BLUEZ_SERVICE, '/'),
+            DBUS_OM_IFACE)
+        objects = remote_om.GetManagedObjects()
+        for o, props in objects.items():
+            if GATT_MANAGER_IFACE in props:
+                return o
+        return None
+
+    def setup(self):
+        adapter_path = self.find_adapter()
+        if not adapter_path:
+            logger.error("No BlueZ adapter found!")
+            return False
+            
+        logger.info(f"Using adapter: {adapter_path}")
         
-        # Add Service
-        await self.server.add_new_service(ADAS_SERVICE_UUID)
+        # Create application
+        self.app = Application(self.bus)
         
-        # Add Characteristic: AlertStream (Notify only)
-        # Note: permissions/properties might need adjustment based on OS quirks, 
-        # but these generally work for read/notify.
-        await self.server.add_new_characteristic(
-            ADAS_SERVICE_UUID,
-            ADAS_ALERT_STREAM_UUID,
-            GATTCharacteristicProperties.notify,
-            None,
-            GATTAttributePermissions.readable
+        # Create ADAS service
+        service = Service(self.bus, 0, ADAS_SERVICE_UUID, True)
+        
+        # Create AlertStream characteristic
+        self.alert_chrc = Characteristic(
+            self.bus, 0, ADAS_ALERT_STREAM_UUID,
+            ['notify'], service
         )
+        service.add_characteristic(self.alert_chrc)
+        self.app.add_service(service)
         
-        logger.info(f"Service registered: {ADAS_SERVICE_UUID}")
-        logger.info(f"Characteristic registered: {ADAS_ALERT_STREAM_UUID}")
+        # Create advertisement
+        self.adv = Advertisement(self.bus, 0)
+        
+        # Register application
+        gatt_manager = dbus.Interface(
+            self.bus.get_object(BLUEZ_SERVICE, adapter_path),
+            GATT_MANAGER_IFACE)
+        
+        try:
+            gatt_manager.RegisterApplication(
+                self.app.get_path(), {},
+                reply_handler=lambda: logger.info("GATT application registered"),
+                error_handler=lambda e: logger.error(f"Failed to register: {e}")
+            )
+        except Exception as e:
+            logger.error(f"RegisterApplication failed: {e}")
+            return False
+        
+        # Register advertisement
+        ad_manager = dbus.Interface(
+            self.bus.get_object(BLUEZ_SERVICE, adapter_path),
+            LE_ADVERTISING_MANAGER_IFACE)
+        
+        try:
+            ad_manager.RegisterAdvertisement(
+                self.adv.get_path(), {},
+                reply_handler=lambda: logger.info("Advertisement registered"),
+                error_handler=lambda e: logger.error(f"Failed to advertise: {e}")
+            )
+        except Exception as e:
+            logger.error(f"RegisterAdvertisement failed: {e}")
+            return False
+            
+        return True
 
-    async def start(self):
-        """Start advertising."""
-        await self.server.start()
-        logger.info("Advertising started. Waiting for mobile app connection...")
-
-    def generate_fcw_payload(self) -> bytes:
-        """Create the complex nested dictionary and encode to CBOR."""
+    def generate_fcw_payload(self):
         self.tick_id = (self.tick_id + 1) % 65536
         
-        # Layered JSON Object Structure
-        # Matches Kotlin TickPayload and AlertDto
         payload_data = {
             "t": self.tick_id,
-            "v": 65,            # Simulated Speed: 65 mph
-            "h": 0,             # Health healthy
-            "b": 0,             # No blind spot
-            "a": [              # List of alerts
-                {
-                    "id": 0,                # ID 0 = FCW
-                    "s": 2,                 # Severity: High
-                    "r": "Simulated FCW"    # Rationale
-                }
-            ]
+            "v": 65,
+            "h": 0,
+            "b": 0,
+            "a": [{"id": 0, "s": 2, "r": "Simulated FCW"}]
         }
         
-        # Convert to CBOR
         cbor_bytes = cbor.dumps(payload_data)
-        logger.info(f"Generated FCW Tick #{self.tick_id} ({len(cbor_bytes)} bytes CBOR)")
-        return cbor_bytes
+        header = struct.pack('<HBB', self.tick_id, 0, 0)
+        return header + cbor_bytes
 
-    async def send_via_ble(self, cbor_data: bytes):
-        """Send data with fragmentation support."""
-        if not await self.server.is_advertising():
-             # Logic to detect connection is a bit tricky in Bless 
-             # (it keeps advertising or stops depending on backend).
-             # We'll just try to update.
-             pass
+    def send_alert(self):
+        packet = self.generate_fcw_payload()
+        if self.alert_chrc:
+            if self.alert_chrc.send_notification(list(packet)):
+                logger.info(f"Sent FCW Tick #{self.tick_id}")
+            else:
+                logger.info(f"Generated Tick #{self.tick_id} (no subscribers)")
+        return True  # Keep timer running
 
-        # Calculate max payload size per packet
-        # BLE Header is 4 bytes.
-        # Max ATT MTU is often negotiated. 
-        # Ideally we'd get the current MTU, but Bless abstracts this.
-        # Safe default for LE Data Length Extension is often ~244 or higher, 
-        # but standard legacy BLE is 20 bytes (23 MTU - 3 overhead).
-        # However, Android usually requests higher MTU (negotiated to 512 often).
-        # We will assume a conservative but reasonable chunk size, 
-        # or rely on Bless to fail if too large? 
-        # Actually, we must manually fragment because the APP expects the 4-byte header 
-        # on EVERY packet to reconstruct the stream. BLE libraries fragment the *packets* 
-        # at the link layer, but our Application Layer protocol (Header+Fragment) 
-        # requires us to split the CBOR logic ourselves.
+    def run(self):
+        logger.info("=" * 60)
+        logger.info("  ADAS FCW Simulator (BlueZ D-Bus)")
+        logger.info("=" * 60)
         
-        # Let's pick a chunk size that fits in a typical MTU.
-        # If MTU is 23, payload is 20. Our header is 4. So 16 bytes.
-        # If MTU is 185 (requested in Kotlin code), payload is 182. Header 4 -> 178 bytes.
-        # We'll use 150 bytes to be safe and compatible.
-        
-        CHUNK_SIZE = 150 
-        total_len = len(cbor_data)
-        seq_max = math.ceil(total_len / CHUNK_SIZE) - 1
-        
-        if seq_max > 255:
-            logger.error("Payload too large for 1-byte sequence counter!")
+        if not self.setup():
+            logger.error("Setup failed!")
             return
-
-        for seq_no in range(seq_max + 1):
-            start = seq_no * CHUNK_SIZE
-            end = start + CHUNK_SIZE
-            chunk = cbor_data[start:end]
-            
-            # Header: tick_id (u16), seq_no (u8), seq_max (u8)
-            # < = Little Endian
-            header = struct.pack('<HBB', self.tick_id, seq_no, seq_max)
-            
-            packet = header + chunk
-            
-            # Send notification
-            # Note: The notify function in Bless usually takes the characteristic UUID
-            # and the value.
-            try:
-                # Update the value first (optional but good practice in some backends)
-                self.server.get_characteristic(ADAS_ALERT_STREAM_UUID).value = packet
-                
-                # Send the notification
-                self.server.update_value(ADAS_SERVICE_UUID, ADAS_ALERT_STREAM_UUID)
-                # logger.debug(f"Sent packet {seq_no}/{seq_max} ({len(packet)} bytes)")
-                
-                # Small delay to prevent flooding if the stack buffer is tight
-                await asyncio.sleep(0.02) 
-                
-            except Exception as e:
-                logger.error(f"Failed to send packet {seq_no}: {e}")
-                
-        logger.info(f"Sent Tick #{self.tick_id} complete.")
-
-    async def run(self):
-        await self.setup()
-        await self.start()
         
-        logger.info("Starting simulation loop (FCW every 10s)...")
+        # Schedule FCW alerts every 10 seconds
+        GLib.timeout_add_seconds(10, self.send_alert)
+        
+        logger.info("Server running. Press Ctrl+C to stop.")
+        
         try:
-            while True:
-                # Generate
-                cbor_payload = self.generate_fcw_payload()
-                
-                # Send
-                await self.send_via_ble(cbor_payload)
-                
-                # Wait 10 seconds
-                logger.info("Waiting 10s...")
-                await asyncio.sleep(10)
-                
-        except asyncio.CancelledError:
-            logger.info("Stopping...")
-        except Exception as e:
-            logger.error(f"Error in loop: {e}")
-        finally:
-            await self.server.stop()
+            self.mainloop.run()
+        except KeyboardInterrupt:
+            logger.info("Shutting down...")
+            self.mainloop.quit()
 
-if __name__ == "__main__":
+
+if __name__ == '__main__':
     sim = FcwSimulator()
-    loop = asyncio.get_event_loop()
-    try:
-        loop.run_until_complete(sim.run())
-    except KeyboardInterrupt:
-        logger.info("Keyboard Interrupt. Exiting.")
-    finally:
-        loop.close()
+    sim.run()
