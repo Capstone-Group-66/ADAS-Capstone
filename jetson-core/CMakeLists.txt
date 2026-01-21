@@ -70,16 +70,24 @@ set(STAGE_E_SOURCES
     src/stage_e/FCWMonitor.cpp
 )
 
-# ══════════════════════════════════════════════════════════════════════════════
-#                              MAIN EXECUTABLE
-# ══════════════════════════════════════════════════════════════════════════════
+# Main brain sources needed by jetson_core for BLE
+set(MAIN_BRAIN_SOURCES
+    src/main_brain/SimpleBleServer.cpp
+    src/main_brain/AlertGenerator.cpp
+    src/main_brain/BleFragmenter.cpp
+)
+
 add_executable(jetson_core
     src/main.cpp
     ${COMMON_SOURCES}
     ${STAGE_A_SOURCES}
     ${STAGE_B_SOURCES}
     ${STAGE_E_SOURCES}
+    ${MAIN_BRAIN_SOURCES}
 )
+
+# Include vendor directory for nlohmann/json (CBOR encoding)
+target_include_directories(jetson_core PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
 
 target_link_libraries(jetson_core
     ${OpenCV_LIBS}
