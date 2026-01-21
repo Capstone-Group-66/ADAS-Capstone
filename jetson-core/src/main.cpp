@@ -11,6 +11,8 @@
 #include "adas/stage_e/FCWMonitor.hpp"
 #include "adas/main_brain/SimpleBleServer.hpp"
 #include "adas/main_brain/FCWAlertAdapter.hpp"
+#include "adas/main_brain/AlertGenerator.hpp"
+#include "adas/main_brain/BleFragmenter.hpp"
 
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
@@ -157,9 +159,27 @@ void visualizationThread() {
                     
                     // Send FCW alert over BLE to mobile app
                     if (g_ble_server && g_ble_server->isConnected()) {
+                        // 1. Convert to generic Alert
                         auto alert = adas::FCWAlertAdapter::convert(*fcw_alert, adas::Clock::now_ns());
-                        auto json_bytes = adas::FCWAlertAdapter::toJson(alert);
-                        g_ble_server->notifyAlertStream(json_bytes);
+                        
+                        // 2. Encode to CBOR (TickPayload)
+                        uint64_t tickId = adas::Clock::now_ns() / 50'000'000; // 20Hz ticks
+                        float speed_mps = 0.0f; // TODO: Get from CAN/GPS
+                        uint32_t health_mask = 0; // TODO: Populate from status
+                        uint32_t bsd_mask = 0;    // TODO: Populate from side radars
+                        
+                        auto payload = adas::AlertGenerator::encodeTickPayloadToCbor(
+                            tickId, {alert}, speed_mps, health_mask, bsd_mask);
+                            
+                        // 3. Fragment into BLE packets (MTU 180ish safe limit)
+                        auto frames = adas::BleFragmenter::fragment(payload);
+                        
+                        // 4. Send fragments with rate limiting
+                        for (const auto& frame : frames) {
+                            g_ble_server->notifyAlertStream(frame);
+                            // Critical: Small delay to prevent overwhelming BlueZ/DBus buffer
+                            std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                        }
                     }
                 } else {
                     last_fcw_ttc = closest_range / 1.0f;  // Assume 1 m/s approach
