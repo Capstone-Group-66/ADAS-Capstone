@@ -459,6 +459,7 @@ void printMenu() {
     std::cout << "  6) Register Pi4 Network Devices\n";
     std::cout << "  7) Test RTT to Pi4\n";
     std::cout << "  8) Toggle Verbose Mode [" << (adas::g_verbose_mode.load() ? "ON" : "OFF") << "]\n";
+    std::cout << "  9) View Undistortion Demo\n";
     std::cout << "  0) Exit\n";
     std::cout << "==============================================================\n";
     std::cout << "  Enter choice: ";
@@ -755,6 +756,19 @@ int main(int argc, char *argv[]) {
                         bool new_state = !adas::g_verbose_mode.load();
                         adas::g_verbose_mode.store(new_state);
                         std::cout << "[Main] Verbose mode " << (new_state ? "ENABLED" : "DISABLED") << "\n";
+                    }
+                    break;
+                    
+                case 9:  // View Undistortion Demo
+                    if (g_pipeline_running.load()) {
+                        std::cout << "[Main] Please stop the pipeline first\n";
+                    } else {
+                        std::cout << "[Main] Launching undistortion demo...\n";
+                        std::cout << "[Main] Press 'q' in the OpenCV window to exit.\n";
+                        int ret = std::system("python3 scripts/view_undistortion.py 0");
+                        if (ret != 0) {
+                            std::cout << "[Main] Demo script exited with code " << ret << "\n";
+                        }
                     }
                     break;
                     
