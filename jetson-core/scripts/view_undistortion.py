@@ -86,9 +86,9 @@ def main():
     h, w = frame.shape[:2]
     
     # Compute optimal new camera matrix
-    # alpha=0: Crop to valid pixels only (no black borders)
-    # alpha=1: Keep all source pixels (has black borders)
-    new_K, roi = cv2.getOptimalNewCameraMatrix(K, D, (w, h), 0, (w, h))
+    # alpha=0: Crop to valid pixels only (no black borders) - we handle this with ROI toggle instead
+    # alpha=1: Keep all source pixels (shows black borders from lens distortion)
+    new_K, roi = cv2.getOptimalNewCameraMatrix(K, D, (w, h), 1, (w, h))
     
     # Precompute maps for remapping (faster than undistort() per frame)
     mapx, mapy = cv2.initUndistortRectifyMap(K, D, None, new_K, (w, h), 5)
