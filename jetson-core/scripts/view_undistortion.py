@@ -40,9 +40,13 @@ def load_calibration_yaml(filepath):
         return None, None, None
 
 def main():
+    # Get the script's directory to resolve relative paths correctly
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    jetson_core_dir = os.path.dirname(script_dir)  # Go up from scripts/ to jetson-core/
+    
     # Defaults
     cam_id = 0
-    calib_file = "../config/calibration/FrontCam_calibration.yaml"
+    calib_file = os.path.join(jetson_core_dir, "config", "calibration", "FrontCam_calibration.yaml")
 
     if len(sys.argv) > 1:
         cam_id = int(sys.argv[1])
