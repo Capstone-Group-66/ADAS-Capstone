@@ -86,14 +86,18 @@ def main():
     h, w = frame.shape[:2]
     
     # Compute optimal new camera matrix
-    # alpha=0: Crop to valid pixels (no black borders)
-    # alpha=1: Keep all source pixels (some black borders)
-    new_K, roi = cv2.getOptimalNewCameraMatrix(K, D, (w, h), 1, (w, h))
+    # alpha=0: Crop to valid pixels only (no black borders)
+    # alpha=1: Keep all source pixels (has black borders)
+    new_K, roi = cv2.getOptimalNewCameraMatrix(K, D, (w, h), 0, (w, h))
     
     # Precompute maps for remapping (faster than undistort() per frame)
     mapx, mapy = cv2.initUndistortRectifyMap(K, D, None, new_K, (w, h), 5)
     
-    print("\nStarting video loop. Press 'q' to quit.")
+    # Get ROI for cropping (removes black borders)
+    rx, ry, rw, rh = roi
+    
+    print(f"\nStarting video loop. Press 'q' to quit.")
+    print(f"ROI for cropping: x={rx}, y={ry}, w={rw}, h={rh}")
     
     while True:
         ret, frame = cap.read()
@@ -102,6 +106,10 @@ def main():
             
         # Undistort
         undistorted = cv2.remap(frame, mapx, mapy, cv2.INTER_LINEAR)
+        
+        # Crop to ROI to remove any remaining black borders
+        if rw > 0 and rh > 0:
+            undistorted = undistorted[ry:ry+rh, rx:rx+rw]
         
         # Resize for side-by-side display if too large
         display_w = 640
