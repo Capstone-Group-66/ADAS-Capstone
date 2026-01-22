@@ -231,16 +231,16 @@ void visualizationThread() {
             // Log metrics if enabled
             if (g_metrics_logger && g_metrics_logger->isEnabled()) {
                 uint64_t now_ns = adas::Clock::now_ns();
-                double e2e_latency_ms = (now_ns - batch.timestamp_ns) / 1e6;
+                double e2e_latency_ms = (now_ns - batch.h.t_ingest_ns) / 1e6;
                 
-// Capture TTC and range from FCW alert if present
+                // Capture TTC and range from FCW alert if present
                 float ttc = fcw_alert.has_value() ? fcw_alert->ttc_s : -1.0f;
                 float range = fcw_alert.has_value() ? fcw_alert->range_m : -1.0f;
                 bool triggered = fcw_alert.has_value() || proximity_alert;
                 
                 g_metrics_logger->logFrame(
                     now_ns / 1e6,  // timestamp_ms
-                    batch.frame_id,
+                    batch.h.seq,
                     batch.inference_time_us / 1000.0,  // convert to ms
                     ttc,
                     range,
