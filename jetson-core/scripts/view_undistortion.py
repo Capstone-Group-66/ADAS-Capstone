@@ -96,8 +96,10 @@ def main():
     # Get ROI for cropping (removes black borders)
     rx, ry, rw, rh = roi
     
-    print(f"\nStarting video loop. Press 'q' to quit.")
+    print(f"\nStarting video loop. Press 'q' to quit, 'e' to toggle cropping.")
     print(f"ROI for cropping: x={rx}, y={ry}, w={rw}, h={rh}")
+    
+    crop_enabled = True  # Toggle with 'e' key
     
     while True:
         ret, frame = cap.read()
@@ -107,9 +109,11 @@ def main():
         # Undistort
         undistorted = cv2.remap(frame, mapx, mapy, cv2.INTER_LINEAR)
         
-        # Crop to ROI to remove any remaining black borders
-        if rw > 0 and rh > 0:
-            undistorted = undistorted[ry:ry+rh, rx:rx+rw]
+        # Crop to ROI to remove any remaining black borders (if enabled)
+        if crop_enabled and rw > 0 and rh > 0:
+            undistorted_display = undistorted[ry:ry+rh, rx:rx+rw]
+        else:
+            undistorted_display = undistorted
         
         # Resize for side-by-side display if too large
         display_w = 640
@@ -117,12 +121,13 @@ def main():
         display_h = int(h * scale)
         
         vis_original = cv2.resize(frame, (display_w, display_h))
-        vis_undistorted = cv2.resize(undistorted, (display_w, display_h))
+        vis_undistorted = cv2.resize(undistorted_display, (display_w, display_h))
         
         # Add labels
+        crop_status = "Cropped" if crop_enabled else "Full (with borders)"
         cv2.putText(vis_original, "Original (Distorted)", (20, 30), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-        cv2.putText(vis_undistorted, "Calibrated (Undistorted)", (20, 30), 
+        cv2.putText(vis_undistorted, f"Undistorted - {crop_status}", (20, 30), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
         # Stack horizontal
@@ -130,8 +135,12 @@ def main():
         
         cv2.imshow("Calibration Demo", combined)
         
-        if cv2.waitKey(1) == ord('q'):
+        key = cv2.waitKey(1) & 0xFF
+        if key == ord('q'):
             break
+        elif key == ord('e'):
+            crop_enabled = not crop_enabled
+            print(f"[Toggle] Cropping: {'ON' if crop_enabled else 'OFF'}")
             
     cap.release()
     cv2.destroyAllWindows()
