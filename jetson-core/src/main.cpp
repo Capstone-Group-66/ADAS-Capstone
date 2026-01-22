@@ -13,6 +13,7 @@
 #include "adas/main_brain/FCWAlertAdapter.hpp"
 #include "adas/main_brain/AlertGenerator.hpp"
 #include "adas/main_brain/BleFragmenter.hpp"
+#include "adas/common/MetricsLogger.hpp"
 
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
@@ -60,6 +61,9 @@ std::atomic<int> g_fcw_ttc_ms{0}; // TTC in milliseconds (avoids float atomic av
 
 // BLE Server for mobile app communication
 std::unique_ptr<adas::SimpleBleServer> g_ble_server;
+
+// Metrics logger for validation
+std::unique_ptr<adas::MetricsLogger> g_metrics_logger;
 
 std::string formatUptime(std::chrono::seconds uptime) {
     int hours = uptime.count() / 3600;
@@ -222,6 +226,27 @@ void visualizationThread() {
                     
                     last_ble_send = now_time;
                 }
+            }
+            
+            // Log metrics if enabled
+            if (g_metrics_logger && g_metrics_logger->isEnabled()) {
+                uint64_t now_ns = adas::Clock::now_ns();
+                double e2e_latency_ms = (now_ns - batch.timestamp_ns) / 1e6;
+                
+// Capture TTC and range from FCW alert if present
+                float ttc = fcw_alert.has_value() ? fcw_alert->ttc_s : -1.0f;
+                float range = fcw_alert.has_value() ? fcw_alert->range_m : -1.0f;
+                bool triggered = fcw_alert.has_value() || proximity_alert;
+                
+                g_metrics_logger->logFrame(
+                    now_ns / 1e6,  // timestamp_ms
+                    batch.frame_id,
+                    batch.inference_time_us / 1000.0,  // convert to ms
+                    ttc,
+                    range,
+                    triggered,
+                    e2e_latency_ms
+                );
             }
             
             // CRITICAL: Clone the frame to get our own memory buffer
@@ -460,6 +485,7 @@ void printMenu() {
     std::cout << "  7) Test RTT to Pi4\n";
     std::cout << "  8) Toggle Verbose Mode [" << (adas::g_verbose_mode.load() ? "ON" : "OFF") << "]\n";
     std::cout << "  9) View Undistortion Demo\n";
+    std::cout << " 10) Toggle Metrics Logging [" << (g_metrics_logger && g_metrics_logger->isEnabled() ? "ON" : "OFF") << "]\n";
     std::cout << "  0) Exit\n";
     std::cout << "==============================================================\n";
     std::cout << "  Enter choice: ";
@@ -544,6 +570,32 @@ void stopPipeline() {
     if (!g_pipeline_running.load()) {
         std::cout << "[Main] Pipeline is not running\n";
         return;
+    }
+    
+    // Dump metrics if logging was enabled
+    if (g_metrics_logger && g_metrics_logger->isEnabled()) {
+        // Generate timestamp for filename
+        auto now = std::chrono::system_clock::now();
+        auto timestamp = std::chrono::duration_cast<std::chrono::seconds>(
+            now.time_since_epoch()).count();
+        
+        // Get Desktop path (works on Linux/Jetson)
+        const char* home = std::getenv("HOME");
+        if (!home) {
+            home = "/home/ubuntu";  // Fallback
+        }
+        
+        std::string desktop_path = std::string(home) + "/Desktop";
+        std::string metrics_file = desktop_path + "/adas_metrics_" + 
+                                  std::to_string(timestamp) + ".csv";
+        
+        std::cout << "[Main] Saving metrics to: " << metrics_file << "\n";
+        if (g_metrics_logger->dumpToCSV(metrics_file)) {
+            std::cout << "[Main] Metrics saved successfully (" 
+                      << g_metrics_logger->getEntryCount() << " entries)\n";
+        } else {
+            std::cerr << "[Main] Failed to save metrics\n";
+        }
     }
     
     // Stop BLE
@@ -768,6 +820,22 @@ int main(int argc, char *argv[]) {
                         int ret = std::system("python3 scripts/view_undistortion.py 0");
                         if (ret != 0) {
                             std::cout << "[Main] Demo script exited with code " << ret << "\n";
+                        }
+                    }
+                    break;
+                    
+                case 10:  // Toggle Metrics Logging
+                    {
+                        if (!g_metrics_logger) {
+                            g_metrics_logger = std::make_unique<adas::MetricsLogger>();
+                        }
+                        
+                        if (g_metrics_logger->isEnabled()) {
+                            g_metrics_logger->disable();
+                        } else {
+                            g_metrics_logger->enable();
+                            g_metrics_logger->clear();  // Clear old data when enabling
+                            std::cout << "[Main] Metrics logging started. Data will be saved to Desktop on pipeline stop.\n";
                         }
                     }
                     break;
