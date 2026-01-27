@@ -9,6 +9,7 @@
 #include "adas/stage_b/ObjectDetector.hpp"  // For class name lookup
 #include "adas/stage_e/SensorFusion.hpp"
 #include "adas/stage_e/FCWMonitor.hpp"
+#include "adas/stage_e/EgoFrame.hpp"
 #include "adas/main_brain/SimpleBleServer.hpp"
 #include "adas/main_brain/FCWAlertAdapter.hpp"
 #include "adas/main_brain/AlertGenerator.hpp"
@@ -53,9 +54,10 @@ adas::SPSCQueue<adas::DetBatch, 8> g_det_rear_queue;
 // Radar data queue (Stage A -> Stage E)
 adas::SPSCQueue<adas::RadarTargets, 4> g_radar_front_queue;
 
-// Stage E: Fusion + FCW
+// Stage E: Fusion + FCW + EgoFrame
 std::unique_ptr<adas::SensorFusion> g_sensor_fusion;
 std::unique_ptr<adas::FCWMonitor> g_fcw_monitor;
+std::unique_ptr<adas::EgoFrame> g_ego_frame;
 std::atomic<bool> g_fcw_alert_active{false};
 std::atomic<int> g_fcw_ttc_ms{0}; // TTC in milliseconds (avoids float atomic availability issues)
 
@@ -125,6 +127,26 @@ void visualizationThread() {
                 }
             } catch (...) {
                 // FrontRadar not configured, radar.targets will be empty
+            }
+        }
+        
+        // Update EgoFrame from IMU data (consumed from ZMQ via IngestManager)
+        if (g_ingest_manager && g_ego_frame) {
+            auto& imu_queue = g_ingest_manager->getIMUQueue();
+            adas::ImuSample imu_sample;
+            while (imu_queue.try_pop(imu_sample)) {
+                // Calculate dt from timestamp
+                float dt = 0.01f;  // Default 100Hz
+                if (g_ego_frame->previous_time_ns != 0 && imu_sample.t_capture > g_ego_frame->previous_time_ns) {
+                    dt = adas::Clock::ns_to_sec(imu_sample.t_capture - g_ego_frame->previous_time_ns);
+                }
+                g_ego_frame->previous_time_ns = imu_sample.t_capture;
+                g_ego_frame->update(imu_sample, dt);
+            }
+            
+            // Pass ego velocity to FCW monitor
+            if (g_fcw_monitor) {
+                g_fcw_monitor->setEgoVelocity(g_ego_frame->getForwardVelocity_mps());
             }
         }
         
@@ -537,11 +559,24 @@ void startPipeline(const adas::Config& config, const adas::HardwareMap& hw_map,
     
     g_stage_b_manager->start();
     
-    // Stage E: Fusion + FCW
+    // Stage E: Fusion + FCW + EgoFrame
     g_sensor_fusion = std::make_unique<adas::SensorFusion>();
-    g_fcw_monitor = std::make_unique<adas::FCWMonitor>();
+    
+    // Configure FCW with physics-based parameters
+    adas::FCWMonitor::Config fcw_config;
+    fcw_config.ttc_threshold_s = 3.0f;
+    fcw_config.use_physics_fcw = true;  // Enable physics-based FCW
+    fcw_config.friction_coefficient = 0.7f;  // Dry asphalt
+    fcw_config.reaction_time_s = 2.5f;  // Driver reaction time
+    g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
+    
+    // Initialize EgoFrame for ego vehicle state from IMU
+    g_ego_frame = std::make_unique<adas::EgoFrame>();
+    g_ego_frame->init();
+    
     std::cout << "[Main] Stage E fusion initialized (TTC threshold: " 
-              << g_fcw_monitor->getThreshold() << "s)\n";
+              << g_fcw_monitor->getThreshold() << "s, Physics FCW: "
+              << (fcw_config.use_physics_fcw ? "ENABLED" : "disabled") << ")\n";
 
     // Initialize BLE Server
     g_ble_server = std::make_unique<adas::SimpleBleServer>();

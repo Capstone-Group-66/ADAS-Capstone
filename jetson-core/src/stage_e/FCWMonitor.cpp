@@ -1,8 +1,9 @@
 // File: src/stage_e/FCWMonitor.cpp
-// Forward Collision Warning implementation
+// Forward Collision Warning implementation with physics-based FCW
 #include "adas/stage_e/FCWMonitor.hpp"
 #include "adas/common/Globals.hpp"
 
+#include <cmath>
 #include <iostream>
 
 namespace adas {
@@ -26,11 +27,38 @@ bool FCWMonitor::isRelevantClass(int cls) {
     }
 }
 
+float FCWMonitor::calculateStoppingDistance() const {
+    if (ego_velocity_mps_ <= 0.0f) {
+        return 0.0f;
+    }
+    
+    // Physics formula: stopping distance = v² / (2 * μ * g)
+    // where μ = friction coefficient, g = 9.81 m/s²
+    float braking_distance = (ego_velocity_mps_ * ego_velocity_mps_) / 
+                              (2.0f * config_.friction_coefficient * 9.81f);
+    
+    // Add reaction time distance: v * t_reaction
+    float reaction_distance = ego_velocity_mps_ * config_.reaction_time_s;
+    
+    return braking_distance + reaction_distance;
+}
+
 std::optional<FCWAlert> FCWMonitor::check(const std::vector<FusedObject>& objects,
                                           uint64_t current_time_ns) {
     FCWAlert most_urgent;
     most_urgent.ttc_s = config_.ttc_threshold_s + 1.0f;  // Start above threshold
     bool found_threat = false;
+    
+    // Pre-calculate stopping distance for physics-based FCW
+    float stopping_distance_m = 0.0f;
+    if (config_.use_physics_fcw && ego_velocity_mps_ > 0.5f) {
+        stopping_distance_m = calculateStoppingDistance();
+        
+        if (g_verbose_mode.load()) {
+            std::cout << "[FCW] Ego velocity: " << ego_velocity_mps_ 
+                      << " m/s, Stopping distance: " << stopping_distance_m << " m\n";
+        }
+    }
     
     for (const auto& obj : objects) {
         // Skip if no radar data
@@ -42,26 +70,54 @@ std::optional<FCWAlert> FCWMonitor::check(const std::vector<FusedObject>& object
         // Skip if range out of bounds
         if (obj.range_m < config_.min_range_m || obj.range_m > config_.max_range_m) continue;
         
-        // Skip if not approaching (infinite TTC)
-        if (obj.ttc_s > config_.ttc_threshold_s) continue;
+        bool ttc_triggered = false;
+        bool physics_triggered = false;
         
-        // Check if this is the most urgent threat
-        if (obj.ttc_s < most_urgent.ttc_s) {
-            most_urgent.ttc_s = obj.ttc_s;
-            most_urgent.range_m = obj.range_m;
-            most_urgent.velocity_mps = -obj.radial_vel_mps;  // Make positive
-            most_urgent.object_class = obj.object_class;
-            most_urgent.timestamp_ns = current_time_ns;
-            found_threat = true;
+        // Check 1: TTC-based alert (original logic)
+        if (obj.ttc_s < config_.ttc_threshold_s) {
+            ttc_triggered = true;
+        }
+        
+        // Check 2: Physics-based alert (can't stop in time)
+        if (config_.use_physics_fcw && ego_velocity_mps_ > 0.5f) {
+            if (obj.range_m < stopping_distance_m) {
+                physics_triggered = true;
+                
+                if (g_verbose_mode.load()) {
+                    std::cout << "[FCW] Physics alert: range=" << obj.range_m 
+                              << "m < stopping=" << stopping_distance_m << "m\n";
+                }
+            }
+        }
+        
+        // Alert if either condition triggers
+        if (ttc_triggered || physics_triggered) {
+            // Use TTC as urgency metric, but also consider range
+            float urgency = obj.ttc_s;
+            if (physics_triggered && !ttc_triggered) {
+                // Physics-only alert: estimate pseudo-TTC from range/ego_velocity
+                urgency = obj.range_m / std::max(ego_velocity_mps_, 0.5f);
+            }
+            
+            if (urgency < most_urgent.ttc_s) {
+                most_urgent.ttc_s = obj.ttc_s;
+                most_urgent.range_m = obj.range_m;
+                most_urgent.velocity_mps = -obj.radial_vel_mps;  // Make positive
+                most_urgent.object_class = obj.object_class;
+                most_urgent.timestamp_ns = current_time_ns;
+                most_urgent.physics_triggered = physics_triggered;
+                found_threat = true;
+            }
         }
     }
     
     if (found_threat) {
         if (g_verbose_mode.load()) {
             std::cout << "[FCW] ALERT: TTC=" << most_urgent.ttc_s 
-                      << "s < " << config_.ttc_threshold_s << "s threshold!"
-                      << " Object=" << most_urgent.object_class 
-                      << ", Range=" << most_urgent.range_m << "m\n";
+                      << "s, Range=" << most_urgent.range_m << "m"
+                      << ", Object=" << most_urgent.object_class
+                      << (most_urgent.physics_triggered ? " [PHYSICS]" : " [TTC]")
+                      << "\n";
         }
         return most_urgent;
     }

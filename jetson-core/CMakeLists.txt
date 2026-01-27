@@ -28,7 +28,7 @@ endif()
 # ══════════════════════════════════════════════════════════════════════════════
 #                              DEPENDENCIES
 # ══════════════════════════════════════════════════════════════════════════════
-find_package(OpenCV REQUIRED COMPONENTS core videoio imgcodecs highgui calib3d imgproc dnn)
+find_package(OpenCV REQUIRED COMPONENTS core videoio imgcodecs highgui calib3d imgproc dnn video)
 find_package(Threads REQUIRED)
 
 # Optional: yaml-cpp for enhanced config parsing
@@ -69,6 +69,8 @@ set(STAGE_B_SOURCES
 set(STAGE_E_SOURCES
     src/stage_e/SensorFusion.cpp
     src/stage_e/FCWMonitor.cpp
+    src/stage_e/Track.cpp
+    src/stage_e/EgoFrame.cpp
 )
 
 # Main brain sources needed by jetson_core for BLE
