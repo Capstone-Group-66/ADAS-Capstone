@@ -204,7 +204,7 @@ class BleManager(
             @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
             override fun onScanResult(
                 callbackType: Int,
-                result: android.bluetooth.le.ScanResult?
+                result: android.bluetooth.le.ScanResult?,
             ) {
                 result?.device?.let { device ->
                     log("Found device: ${device.name} (${device.address})")
@@ -253,7 +253,7 @@ class BleManager(
             override fun onConnectionStateChange(
                 gatt: BluetoothGatt?,
                 status: Int,
-                newState: Int
+                newState: Int,
             ) {
                 if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
                     log("Connected to GATT server.")
@@ -270,7 +270,7 @@ class BleManager(
             @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
             override fun onServicesDiscovered(
                 gatt: BluetoothGatt?,
-                status: Int
+                status: Int,
             ) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     log("Services discovered.")
@@ -305,7 +305,7 @@ class BleManager(
             override fun onMtuChanged(
                 gatt: BluetoothGatt?,
                 mtu: Int,
-                status: Int
+                status: Int,
             ) {
                 log("MTU changed to $mtu")
                 currentMtu = mtu
@@ -315,7 +315,7 @@ class BleManager(
             @RequiresApi(Build.VERSION_CODES.O)
             override fun onCharacteristicChanged(
                 gatt: BluetoothGatt?,
-                characteristic: BluetoothGattCharacteristic?
+                characteristic: BluetoothGattCharacteristic?,
             ) {
                 if (characteristic?.uuid == ADAS_ALERT_STREAM_UUID) {
                     val raw = characteristic.value ?: return

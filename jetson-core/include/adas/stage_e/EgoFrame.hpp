@@ -26,80 +26,80 @@ namespace adas {
 ///   float speed = ego.getForwardVelocity_mps();
 ///
 class EgoFrame {
- public:
-  /// Default constructor - creates uninitialized EgoFrame
-  EgoFrame();
+   public:
+    /// Default constructor - creates uninitialized EgoFrame
+    EgoFrame();
 
-  /// Constructor with initial state
-  /// @param initialState 4x1 or 5x1 matrix [x, y, vx, vy, (yaw)]
-  explicit EgoFrame(cv::Mat initialState);
+    /// Constructor with initial state
+    /// @param initialState 4x1 or 5x1 matrix [x, y, vx, vy, (yaw)]
+    explicit EgoFrame(cv::Mat initialState);
 
-  /// Initialize the Kalman filter with a state
-  /// @param initialState Initial state vector
-  void init(cv::Mat initialState);
+    /// Initialize the Kalman filter with a state
+    /// @param initialState Initial state vector
+    void init(cv::Mat initialState);
 
-  /// Initialize with zero state (stationary)
-  void init();
+    /// Initialize with zero state (stationary)
+    void init();
 
-  /// Predict the next state (Kalman predict step)
-  /// @return Predicted state vector (5x1)
-  cv::Mat getPrediction();
+    /// Predict the next state (Kalman predict step)
+    /// @return Predicted state vector (5x1)
+    cv::Mat getPrediction();
 
-  /// Update with a new IMU sample
-  /// @param sample IMU sample with accelerometer and quaternion data
-  /// @param dt Time since last update (seconds)
-  /// @return Corrected state estimate
-  cv::Mat update(const ImuSample &sample, float dt);
+    /// Update with a new IMU sample
+    /// @param sample IMU sample with accelerometer and quaternion data
+    /// @param dt Time since last update (seconds)
+    /// @return Corrected state estimate
+    cv::Mat update(const ImuSample &sample, float dt);
 
-  /// Update with raw measurement matrix
-  /// @param measurement 4x1 measurement [x, y, vx, vy]
-  /// @param dt Time since last update (seconds)
-  /// @return Corrected state estimate
-  cv::Mat update(cv::Mat measurement, float dt);
+    /// Update with raw measurement matrix
+    /// @param measurement 4x1 measurement [x, y, vx, vy]
+    /// @param dt Time since last update (seconds)
+    /// @return Corrected state estimate
+    cv::Mat update(cv::Mat measurement, float dt);
 
-  /// Reset to zero state
-  void reset();
+    /// Reset to zero state
+    void reset();
 
-  /// Get forward velocity (vx in ego frame)
-  /// @return Speed in m/s (positive = forward)
-  float getForwardVelocity_mps() const;
+    /// Get forward velocity (vx in ego frame)
+    /// @return Speed in m/s (positive = forward)
+    float getForwardVelocity_mps() const;
 
-  /// Get lateral velocity (vy in ego frame)
-  /// @return Speed in m/s (positive = left)
-  float getLateralVelocity_mps() const;
+    /// Get lateral velocity (vy in ego frame)
+    /// @return Speed in m/s (positive = left)
+    float getLateralVelocity_mps() const;
 
-  /// Get total speed magnitude
-  /// @return Speed in m/s
-  float getSpeed_mps() const;
+    /// Get total speed magnitude
+    /// @return Speed in m/s
+    float getSpeed_mps() const;
 
-  /// Get yaw (heading) from quaternion
-  /// @return Yaw in radians
-  float getYaw_rad() const;
+    /// Get yaw (heading) from quaternion
+    /// @return Yaw in radians
+    float getYaw_rad() const;
 
-  /// Check if EgoFrame is initialized
-  bool isInitialized() const { return kf_initialized; }
+    /// Check if EgoFrame is initialized
+    bool isInitialized() const { return kf_initialized; }
 
-  /// Last update timestamp (nanoseconds)
-  uint64_t previous_time_ns = 0;
+    /// Last update timestamp (nanoseconds)
+    uint64_t previous_time_ns = 0;
 
- private:
-  /// Update transition matrix with new dt
-  void updateTransitionMatrix(float dt);
+   private:
+    /// Update transition matrix with new dt
+    void updateTransitionMatrix(float dt);
 
-  /// Extract yaw from quaternion
-  static float quaternionToYaw(float w, float x, float y, float z);
+    /// Extract yaw from quaternion
+    static float quaternionToYaw(float w, float x, float y, float z);
 
-  cv::KalmanFilter kf;
-  bool kf_initialized = false;
+    cv::KalmanFilter kf;
+    bool kf_initialized = false;
 
-  // Cached values for getters
-  float cached_vx_ = 0.0f;
-  float cached_vy_ = 0.0f;
-  float cached_yaw_ = 0.0f;
+    // Cached values for getters
+    float cached_vx_ = 0.0f;
+    float cached_vy_ = 0.0f;
+    float cached_yaw_ = 0.0f;
 
-  // State and measurement dimensions
-  static constexpr int stateDim = 5;  // [x, y, vx, vy, yaw]
-  static constexpr int measDim = 4;   // [x, y, vx, vy]
+    // State and measurement dimensions
+    static constexpr int stateDim = 5;  // [x, y, vx, vy, yaw]
+    static constexpr int measDim = 4;   // [x, y, vx, vy]
 };
 
 }  // namespace adas
