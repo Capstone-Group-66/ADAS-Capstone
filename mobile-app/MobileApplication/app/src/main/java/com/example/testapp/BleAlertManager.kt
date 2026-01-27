@@ -6,12 +6,16 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.time.LocalTime
+import java.time.format.DateTimeFormatter
 
 /**
  * BLE Manager
@@ -67,7 +71,7 @@ class BleManager(
     private fun log(msg: String) {
         val list = _logFlow.value.toMutableList()
         // Add timestamped log
-        val time = java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss").format(java.time.LocalTime.now())
+        val time = DateTimeFormatter.ofPattern("HH:mm:ss").format(LocalTime.now())
         list.add(0, "$time $msg")
         if (list.size > 100) list.removeLast()
         _logFlow.value = list
@@ -154,13 +158,13 @@ class BleManager(
         isScanning = true
 
         val filter =
-            android.bluetooth.le.ScanFilter.Builder()
+            ScanFilter.Builder()
                 .setServiceUuid(android.os.ParcelUuid(ADAS_SERVICE_UUID))
                 .build()
 
         val settings =
-            android.bluetooth.le.ScanSettings.Builder()
-                .setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY)
+            ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build()
 
         bluetoothLeScanner?.startScan(listOf(filter), settings, scanCallback)
