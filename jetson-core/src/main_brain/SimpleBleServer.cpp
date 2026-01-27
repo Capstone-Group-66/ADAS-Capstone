@@ -29,7 +29,7 @@ namespace adas {
  * On Windows: Stub mode (prints to console)
  */
 class SimpleBleServer::Impl {
-   public:
+  public:
     bool initialized = false;
     bool advertising = false;
 
@@ -70,8 +70,8 @@ class SimpleBleServer::Impl {
 
         if (python_pid == 0) {
             // Child process: run Python script
-            close(pipefd[1]);               // Close write end
-            dup2(pipefd[0], STDIN_FILENO);  // Redirect stdin
+            close(pipefd[1]);              // Close write end
+            dup2(pipefd[0], STDIN_FILENO); // Redirect stdin
             close(pipefd[0]);
 
             // Execute Python BLE peripheral
@@ -81,7 +81,7 @@ class SimpleBleServer::Impl {
         }
 
         // Parent process
-        close(pipefd[0]);  // Close read end
+        close(pipefd[0]); // Close read end
         python_stdin = fdopen(pipefd[1], "w");
 
         if (!python_stdin) {
@@ -93,8 +93,7 @@ class SimpleBleServer::Impl {
         // Set line buffering
         setlinebuf(python_stdin);
 
-        std::cout << "[BLE] Python BLE peripheral launched (PID: " << python_pid
-                  << ")\n";
+        std::cout << "[BLE] Python BLE peripheral launched (PID: " << python_pid << ")\n";
         return true;
 #else
         std::cout << "[BLE] Running in stub mode (Windows)\n";
@@ -104,7 +103,8 @@ class SimpleBleServer::Impl {
 
     bool sendToPython(const std::string &json_alert) {
 #ifdef __linux__
-        if (!python_stdin) return false;
+        if (!python_stdin)
+            return false;
 
         std::lock_guard<std::mutex> lock(write_mutex);
         if (fprintf(python_stdin, "%s\n", json_alert.c_str()) < 0) {
@@ -128,8 +128,7 @@ SimpleBleServer::~SimpleBleServer() { shutdown(); }
 bool SimpleBleServer::initialize() {
     std::cout << "[BLE] Initializing SimpleBleServer...\n";
     std::cout << "[BLE] Service UUID: " << BleUuids::ADAS_SERVICE << "\n";
-    std::cout << "[BLE] AlertStream Characteristic: "
-              << BleUuids::ADAS_ALERT_STREAM << "\n";
+    std::cout << "[BLE] AlertStream Characteristic: " << BleUuids::ADAS_ALERT_STREAM << "\n";
 
     impl_->initialized = true;
     std::cout << "[BLE] Initialization complete\n";
@@ -150,12 +149,13 @@ bool SimpleBleServer::startAdvertising() {
     }
 
     impl_->advertising = true;
-    connected_.store(true);  // Assume connected for now
+    connected_.store(true); // Assume connected for now
     mtu_.store(185);
 
     std::cout << "[BLE] Now discoverable as 'ADAS-Jetson'\n";
 
-    if (onConnected_) onConnected_();
+    if (onConnected_)
+        onConnected_();
 
     return true;
 }
@@ -195,11 +195,12 @@ void SimpleBleServer::shutdown() {
 
     if (connected_.load()) {
         connected_.store(false);
-        if (onDisconnected_) onDisconnected_();
+        if (onDisconnected_)
+            onDisconnected_();
     }
 
     impl_->initialized = false;
     std::cout << "[BLE] Shutdown complete\n";
 }
 
-}  // namespace adas
+} // namespace adas

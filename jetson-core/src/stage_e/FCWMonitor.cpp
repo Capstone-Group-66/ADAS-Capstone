@@ -16,15 +16,15 @@ bool FCWMonitor::isRelevantClass(int cls) {
     // 0 = person, 1 = bicycle, 2 = car, 3 = motorcycle,
     // 5 = bus, 7 = truck
     switch (cls) {
-        case 0:  // person
-        case 1:  // bicycle
-        case 2:  // car
-        case 3:  // motorcycle
-        case 5:  // bus
-        case 7:  // truck
-            return true;
-        default:
-            return false;
+    case 0: // person
+    case 1: // bicycle
+    case 2: // car
+    case 3: // motorcycle
+    case 5: // bus
+    case 7: // truck
+        return true;
+    default:
+        return false;
     }
 }
 
@@ -35,8 +35,8 @@ float FCWMonitor::calculateStoppingDistance() const {
 
     // Physics formula: stopping distance = v² / (2 * μ * g)
     // where μ = friction coefficient, g = 9.81 m/s²
-    float braking_distance = (ego_velocity_mps_ * ego_velocity_mps_) /
-                             (2.0f * config_.friction_coefficient * 9.81f);
+    float braking_distance =
+        (ego_velocity_mps_ * ego_velocity_mps_) / (2.0f * config_.friction_coefficient * 9.81f);
 
     // Add reaction time distance: v * t_reaction
     float reaction_distance = ego_velocity_mps_ * config_.reaction_time_s;
@@ -44,11 +44,10 @@ float FCWMonitor::calculateStoppingDistance() const {
     return braking_distance + reaction_distance;
 }
 
-std::optional<FCWAlert> FCWMonitor::check(
-    const std::vector<FusedObject> &objects, uint64_t current_time_ns) {
+std::optional<FCWAlert> FCWMonitor::check(const std::vector<FusedObject> &objects,
+                                          uint64_t current_time_ns) {
     FCWAlert most_urgent;
-    most_urgent.ttc_s =
-        config_.ttc_threshold_s + 1.0f;  // Start above threshold
+    most_urgent.ttc_s = config_.ttc_threshold_s + 1.0f; // Start above threshold
     bool found_threat = false;
 
     // Pre-calculate stopping distance for physics-based FCW
@@ -58,21 +57,21 @@ std::optional<FCWAlert> FCWMonitor::check(
 
         if (g_verbose_mode.load()) {
             std::cout << "[FCW] Ego velocity: " << ego_velocity_mps_
-                      << " m/s, Stopping distance: " << stopping_distance_m
-                      << " m\n";
+                      << " m/s, Stopping distance: " << stopping_distance_m << " m\n";
         }
     }
 
     for (const auto &obj : objects) {
         // Skip if no radar data
-        if (!obj.has_radar) continue;
+        if (!obj.has_radar)
+            continue;
 
         // Skip if not a relevant class
-        if (!isRelevantClass(obj.object_class)) continue;
+        if (!isRelevantClass(obj.object_class))
+            continue;
 
         // Skip if range out of bounds
-        if (obj.range_m < config_.min_range_m ||
-            obj.range_m > config_.max_range_m)
+        if (obj.range_m < config_.min_range_m || obj.range_m > config_.max_range_m)
             continue;
 
         bool ttc_triggered = false;
@@ -90,8 +89,7 @@ std::optional<FCWAlert> FCWMonitor::check(
 
                 if (g_verbose_mode.load()) {
                     std::cout << "[FCW] Physics alert: range=" << obj.range_m
-                              << "m < stopping=" << stopping_distance_m
-                              << "m\n";
+                              << "m < stopping=" << stopping_distance_m << "m\n";
                 }
             }
         }
@@ -109,8 +107,7 @@ std::optional<FCWAlert> FCWMonitor::check(
             if (urgency < most_urgent.ttc_s) {
                 most_urgent.ttc_s = obj.ttc_s;
                 most_urgent.range_m = obj.range_m;
-                most_urgent.velocity_mps =
-                    -obj.radial_vel_mps;  // Make positive
+                most_urgent.velocity_mps = -obj.radial_vel_mps; // Make positive
                 most_urgent.object_class = obj.object_class;
                 most_urgent.timestamp_ns = current_time_ns;
                 most_urgent.physics_triggered = physics_triggered;
@@ -124,9 +121,7 @@ std::optional<FCWAlert> FCWMonitor::check(
             std::cout << "[FCW] ALERT: TTC=" << most_urgent.ttc_s
                       << "s, Range=" << most_urgent.range_m << "m"
                       << ", Object=" << most_urgent.object_class
-                      << (most_urgent.physics_triggered ? " [PHYSICS]"
-                                                        : " [TTC]")
-                      << "\n";
+                      << (most_urgent.physics_triggered ? " [PHYSICS]" : " [TTC]") << "\n";
         }
         return most_urgent;
     }
@@ -134,4 +129,4 @@ std::optional<FCWAlert> FCWMonitor::check(
     return std::nullopt;
 }
 
-}  // namespace adas
+} // namespace adas

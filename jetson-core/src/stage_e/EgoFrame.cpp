@@ -19,37 +19,34 @@ void EgoFrame::init() {
 void EgoFrame::init(cv::Mat initialState) {
     kf.init(stateDim, measDim, 0, CV_32F);
 
-    float dt = 0.01f;  // Default 100Hz IMU rate
+    float dt = 0.01f; // Default 100Hz IMU rate
 
     // Transition matrix: constant velocity model
-    kf.transitionMatrix =
-        (cv::Mat_<float>(stateDim, stateDim) << 1, 0, dt, 0, 0, 0, 1, 0, dt, 0,
-         0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1);
+    kf.transitionMatrix = (cv::Mat_<float>(stateDim, stateDim) << 1, 0, dt, 0, 0, 0, 1, 0, dt, 0, 0,
+                           0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1);
 
     // Measurement matrix: we observe velocity and position
-    kf.measurementMatrix = (cv::Mat_<float>(measDim, stateDim) << 1, 0, 0, 0, 0,
-                            0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0);
+    kf.measurementMatrix = (cv::Mat_<float>(measDim, stateDim) << 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0,
+                            0, 1, 0, 0, 0, 0, 0, 1, 0);
 
     // Process noise - IMU integration is noisy
     cv::setIdentity(kf.processNoiseCov, cv::Scalar::all(1e-1));
 
     // Measurement noise - accelerometer has ~0.1 m/s^2 noise
-    kf.measurementNoiseCov =
-        (cv::Mat_<float>(measDim, measDim) << 1.0f, 0, 0,
-         0,                // x position (high uncertainty)
-         0, 1.0f, 0, 0,    // y position
-         0, 0, 0.01f, 0,   // vx (low noise after integration)
-         0, 0, 0, 0.01f);  // vy
+    kf.measurementNoiseCov = (cv::Mat_<float>(measDim, measDim) << 1.0f, 0, 0,
+                              0,               // x position (high uncertainty)
+                              0, 1.0f, 0, 0,   // y position
+                              0, 0, 0.01f, 0,  // vx (low noise after integration)
+                              0, 0, 0, 0.01f); // vy
 
     // Initial error covariance
     cv::setIdentity(kf.errorCovPost, cv::Scalar::all(1.0));
 
     // Handle 4x1 input (add yaw = 0)
     if (initialState.rows == 4 && initialState.cols == 1) {
-        cv::Mat fullState =
-            (cv::Mat_<float>(stateDim, 1) << initialState.at<float>(0, 0),
-             initialState.at<float>(1, 0), initialState.at<float>(2, 0),
-             initialState.at<float>(3, 0), 0.0f);
+        cv::Mat fullState = (cv::Mat_<float>(stateDim, 1) << initialState.at<float>(0, 0),
+                             initialState.at<float>(1, 0), initialState.at<float>(2, 0),
+                             initialState.at<float>(3, 0), 0.0f);
         kf.statePost = fullState;
     } else if (initialState.rows == stateDim && initialState.cols == 1) {
         kf.statePost = initialState.clone();
@@ -79,22 +76,21 @@ cv::Mat EgoFrame::update(const ImuSample &sample, float dt) {
 
     // Guard against invalid dt
     if (dt <= 0.0f || dt > 0.5f) {
-        dt = 0.01f;  // Default to 10ms
+        dt = 0.01f; // Default to 10ms
     }
 
     // Extract acceleration (in sensor frame)
-    float ax = sample.accel[0];  // Forward acceleration
-    float ay = sample.accel[1];  // Lateral acceleration
-    float az = sample.accel[2];  // Vertical (includes gravity ~9.81)
+    float ax = sample.accel[0]; // Forward acceleration
+    float ay = sample.accel[1]; // Lateral acceleration
+    float az = sample.accel[2]; // Vertical (includes gravity ~9.81)
 
     // Remove gravity component from Z (assuming upright orientation)
     // For proper handling, use quaternion to rotate acceleration to world frame
     // Simplified: assume Z is up, subtract gravity
-    (void)az;  // Not used for 2D velocity estimation
+    (void)az; // Not used for 2D velocity estimation
 
     // Get yaw from quaternion
-    float yaw = quaternionToYaw(sample.quat[0], sample.quat[1], sample.quat[2],
-                                sample.quat[3]);
+    float yaw = quaternionToYaw(sample.quat[0], sample.quat[1], sample.quat[2], sample.quat[3]);
 
     // Get current velocity estimate
     cv::Mat predicted = kf.predict();
@@ -108,8 +104,10 @@ cv::Mat EgoFrame::update(const ImuSample &sample, float dt) {
 
     // Velocity deadband: clamp very small velocities to zero
     // This prevents drift when stationary
-    if (std::abs(vx_new) < 0.1f) vx_new = 0.0f;
-    if (std::abs(vy_new) < 0.1f) vy_new = 0.0f;
+    if (std::abs(vx_new) < 0.1f)
+        vx_new = 0.0f;
+    if (std::abs(vy_new) < 0.1f)
+        vy_new = 0.0f;
 
     // Integrate velocity to get position change
     float x_prev = predicted.at<float>(0, 0);
@@ -118,8 +116,7 @@ cv::Mat EgoFrame::update(const ImuSample &sample, float dt) {
     float y_new = y_prev + vy_new * dt;
 
     // Build measurement vector
-    cv::Mat measurement =
-        (cv::Mat_<float>(measDim, 1) << x_new, y_new, vx_new, vy_new);
+    cv::Mat measurement = (cv::Mat_<float>(measDim, 1) << x_new, y_new, vx_new, vy_new);
 
     // Update transition matrix with actual dt
     updateTransitionMatrix(dt);
@@ -189,4 +186,4 @@ float EgoFrame::quaternionToYaw(float w, float x, float y, float z) {
     return std::atan2(siny_cosp, cosy_cosp);
 }
 
-}  // namespace adas
+} // namespace adas

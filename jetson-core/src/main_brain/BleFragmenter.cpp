@@ -24,8 +24,8 @@ std::vector<uint8_t> createFrame(uint16_t tickId, uint8_t seqNo, uint8_t seqMax,
     return frame;
 }
 
-std::vector<std::vector<uint8_t>> fragmentPayload(
-    uint16_t tickId, const std::vector<uint8_t> &payload, uint16_t mtu) {
+std::vector<std::vector<uint8_t>>
+fragmentPayload(uint16_t tickId, const std::vector<uint8_t> &payload, uint16_t mtu) {
     std::vector<std::vector<uint8_t>> frames;
 
     // Calculate slice capacity
@@ -33,15 +33,14 @@ std::vector<std::vector<uint8_t>> fragmentPayload(
 
     // Calculate number of fragments needed
     size_t payloadSize = payload.size();
-    size_t numFragments =
-        (payloadSize + sliceCap - 1) / sliceCap;  // Ceiling division
+    size_t numFragments = (payloadSize + sliceCap - 1) / sliceCap; // Ceiling division
 
     // Clamp to max 256 fragments (seq_no and seq_max are uint8_t)
     if (numFragments > 256) {
         numFragments = 256;
     }
     if (numFragments == 0) {
-        numFragments = 1;  // At least one empty frame
+        numFragments = 1; // At least one empty frame
     }
 
     uint8_t seqMax = static_cast<uint8_t>(numFragments - 1);
@@ -56,11 +55,11 @@ std::vector<std::vector<uint8_t>> fragmentPayload(
         const uint8_t *sliceData = payload.data() + offset;
 
         frames.push_back(createFrame(tickId,
-                                     static_cast<uint8_t>(i),  // seq_no
+                                     static_cast<uint8_t>(i), // seq_no
                                      seqMax, sliceData, sliceLen));
     }
 
     return frames;
 }
 
-}  // namespace adas
+} // namespace adas

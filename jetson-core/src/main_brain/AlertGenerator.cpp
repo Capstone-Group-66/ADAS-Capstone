@@ -23,9 +23,7 @@ using json = nlohmann::json;
  */
 Alert generateTestAlert(AlertType type, uint32_t sequenceNum) {
     auto now = std::chrono::system_clock::now();
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                  now.time_since_epoch())
-                  .count();
+    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
 
     Alert alert;
     alert.t_ms = static_cast<uint64_t>(ms);
@@ -37,38 +35,36 @@ Alert generateTestAlert(AlertType type, uint32_t sequenceNum) {
 
     alert.type = type;
     alert.severity = Severity::Warning;
-    alert.ttl_ms = 2000;  // 2 second TTL
+    alert.ttl_ms = 2000; // 2 second TTL
     alert.schemaVersion = "v1.0";
     alert.confidence = 0.85f;
 
     // Type-specific fields
     switch (type) {
-        case AlertType::LDW:
-            alert.rationale = R"({"d_ego_lane_m": 0.35, "drift_dir": "left"})";
-            alert.sources = {"FrontCam"};
-            break;
+    case AlertType::LDW:
+        alert.rationale = R"({"d_ego_lane_m": 0.35, "drift_dir": "left"})";
+        alert.sources = {"FrontCam"};
+        break;
 
-        case AlertType::FCW:
-            alert.direction = "front";
-            alert.rationale =
-                R"({"ttc_s": 1.8, "in_path": true, "closing": true})";
-            alert.object_id = 42;
-            alert.sources = {"FrontCam", "FrontRadar"};
-            alert.severity = Severity::Critical;
-            break;
+    case AlertType::FCW:
+        alert.direction = "front";
+        alert.rationale = R"({"ttc_s": 1.8, "in_path": true, "closing": true})";
+        alert.object_id = 42;
+        alert.sources = {"FrontCam", "FrontRadar"};
+        alert.severity = Severity::Critical;
+        break;
 
-        case AlertType::RCW:
-            alert.direction = "rear";
-            alert.rationale =
-                R"({"ttc_s": 2.1, "in_path": true, "closing": true})";
-            alert.object_id = 17;
-            alert.sources = {"RearCam", "RearCornerRadarL", "RearCornerRadarR"};
-            break;
+    case AlertType::RCW:
+        alert.direction = "rear";
+        alert.rationale = R"({"ttc_s": 2.1, "in_path": true, "closing": true})";
+        alert.object_id = 17;
+        alert.sources = {"RearCam", "RearCornerRadarL", "RearCornerRadarR"};
+        break;
 
-        case AlertType::BSD:
-            alert.rationale = R"({"zone": "L", "entering": true})";
-            alert.sources = {"SideCamL", "RearCornerRadarL"};
-            break;
+    case AlertType::BSD:
+        alert.rationale = R"({"zone": "L", "entering": true})";
+        alert.sources = {"SideCamL", "RearCornerRadarL"};
+        break;
     }
 
     return alert;
@@ -84,7 +80,7 @@ json alertToJson(const Alert &alert) {
     j["type"] = alertTypeToString(alert.type);
     j["severity"] = severityToString(alert.severity);
     j["ttl_ms"] = alert.ttl_ms;
-    j["rationale"] = json::parse(alert.rationale);  // Parse nested JSON
+    j["rationale"] = json::parse(alert.rationale); // Parse nested JSON
     j["sources"] = alert.sources;
     j["schemaVersion"] = alert.schemaVersion;
     j["confidence"] = alert.confidence;
@@ -114,16 +110,16 @@ std::vector<uint8_t> encodeAlertToCbor(const Alert &alert) {
  */
 int alertTypeToWireValue(AlertType type) {
     switch (type) {
-        case AlertType::FCW:
-            return 0;
-        case AlertType::LDW:
-            return 1;
-        case AlertType::RCW:
-            return 2;
-        case AlertType::BSD:
-            return 3;
-        default:
-            return 0;
+    case AlertType::FCW:
+        return 0;
+    case AlertType::LDW:
+        return 1;
+    case AlertType::RCW:
+        return 2;
+    case AlertType::BSD:
+        return 3;
+    default:
+        return 0;
     }
 }
 
@@ -135,7 +131,7 @@ json alertToCompactJson(const Alert &alert) {
     json j;
     j["id"] = alertTypeToWireValue(alert.type);
     j["s"] = static_cast<int>(alert.severity);
-    j["r"] = alert.rationale;  // Keep as string, mobile parses if needed
+    j["r"] = alert.rationale; // Keep as string, mobile parses if needed
     return j;
 }
 
@@ -150,9 +146,8 @@ json alertToCompactJson(const Alert &alert) {
  * @param bsdMask BSD zone bitmask (bit0=left, bit1=right)
  * @param alerts Vector of alerts to include
  */
-std::vector<uint8_t> encodeTickPayloadToCbor(uint16_t tickId, int speedKmh,
-                                             int healthMask, int bsdMask,
-                                             const std::vector<Alert> &alerts) {
+std::vector<uint8_t> encodeTickPayloadToCbor(uint16_t tickId, int speedKmh, int healthMask,
+                                             int bsdMask, const std::vector<Alert> &alerts) {
     json payload;
     payload["t"] = tickId;
     payload["v"] = speedKmh;
@@ -170,8 +165,7 @@ std::vector<uint8_t> encodeTickPayloadToCbor(uint16_t tickId, int speedKmh,
 
 // Legacy overload for backwards compatibility (defaults speed=0, health=0,
 // bsd=0)
-std::vector<uint8_t> encodeTickPayloadToCbor(uint16_t tickId,
-                                             const std::vector<Alert> &alerts) {
+std::vector<uint8_t> encodeTickPayloadToCbor(uint16_t tickId, const std::vector<Alert> &alerts) {
     return encodeTickPayloadToCbor(tickId, 0, 0, 0, alerts);
 }
 
@@ -179,8 +173,7 @@ std::vector<uint8_t> encodeTickPayloadToCbor(uint16_t tickId,
  * Create a framed BLE packet with Header + Payload
  * This matches the BLE Alert Framing spec in proposal Section 4.9
  */
-std::vector<uint8_t> createBleFrame(uint16_t tickId, uint8_t seqNo,
-                                    uint8_t seqMax,
+std::vector<uint8_t> createBleFrame(uint16_t tickId, uint8_t seqNo, uint8_t seqMax,
                                     const std::vector<uint8_t> &slice) {
     std::vector<uint8_t> frame;
     frame.reserve(4 + slice.size());
@@ -197,4 +190,4 @@ std::vector<uint8_t> createBleFrame(uint16_t tickId, uint8_t seqNo,
     return frame;
 }
 
-}  // namespace adas
+} // namespace adas

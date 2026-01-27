@@ -26,7 +26,7 @@ namespace adas {
 ///   float speed = ego.getForwardVelocity_mps();
 ///
 class EgoFrame {
-   public:
+  public:
     /// Default constructor - creates uninitialized EgoFrame
     EgoFrame();
 
@@ -82,7 +82,7 @@ class EgoFrame {
     /// Last update timestamp (nanoseconds)
     uint64_t previous_time_ns = 0;
 
-   private:
+  private:
     /// Update transition matrix with new dt
     void updateTransitionMatrix(float dt);
 
@@ -98,8 +98,8 @@ class EgoFrame {
     float cached_yaw_ = 0.0f;
 
     // State and measurement dimensions
-    static constexpr int stateDim = 5;  // [x, y, vx, vy, yaw]
-    static constexpr int measDim = 4;   // [x, y, vx, vy]
+    static constexpr int stateDim = 5; // [x, y, vx, vy, yaw]
+    static constexpr int measDim = 4;  // [x, y, vx, vy]
 };
 
-}  // namespace adas
+} // namespace adas
