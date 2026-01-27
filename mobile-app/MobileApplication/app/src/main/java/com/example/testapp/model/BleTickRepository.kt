@@ -17,11 +17,11 @@ open class BleTickRepository(
     private val debugFlow = kotlinx.coroutines.flow.MutableSharedFlow<TickPayload>()
 
     open val dashboardState: StateFlow<VehicleAlert> =
-        kotlinx.coroutines.flow.merge(
-            blePackets.map { TickDecoder.decode(it) },
-            debugFlow,
-        )
-            .runningFold(VehicleAlertReducer.initial()) { state, tick ->
+        kotlinx.coroutines.flow
+            .merge(
+                blePackets.map { TickDecoder.decode(it) },
+                debugFlow,
+            ).runningFold(VehicleAlertReducer.initial()) { state, tick ->
                 VehicleAlertReducer.reduce(state, tick) ?: state
             }.stateIn(
                 scope = scope,
