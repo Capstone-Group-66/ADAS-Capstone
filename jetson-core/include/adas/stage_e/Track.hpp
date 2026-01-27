@@ -25,57 +25,57 @@ namespace adas {
 ///   cv::Mat prediction = track.getPrediction();  // Get predicted state
 ///
 class Track {
-  public:
-    /// Default constructor - creates uninitialized track
-    Track();
+ public:
+  /// Default constructor - creates uninitialized track
+  Track();
 
-    /// Constructor with initial state
-    /// @param initialState 4x1 or 5x1 matrix [x, y, vx, vy, (yaw)]
-    explicit Track(cv::Mat initialState);
+  /// Constructor with initial state
+  /// @param initialState 4x1 or 5x1 matrix [x, y, vx, vy, (yaw)]
+  explicit Track(cv::Mat initialState);
 
-    /// Initialize the Kalman filter with a state
-    /// @param initialState Initial state vector
-    void init(cv::Mat initialState);
+  /// Initialize the Kalman filter with a state
+  /// @param initialState Initial state vector
+  void init(cv::Mat initialState);
 
-    /// Predict the next state (Kalman predict step)
-    /// @return Predicted state vector (5x1)
-    cv::Mat getPrediction();
+  /// Predict the next state (Kalman predict step)
+  /// @return Predicted state vector (5x1)
+  cv::Mat getPrediction();
 
-    /// Update with a new measurement (Kalman correct step)
-    /// @param measurement 4x1 measurement [x, y, vx, vy]
-    /// @param dt Time since last update (seconds)
-    /// @return Corrected state estimate
-    cv::Mat update(cv::Mat measurement, float dt);
+  /// Update with a new measurement (Kalman correct step)
+  /// @param measurement 4x1 measurement [x, y, vx, vy]
+  /// @param dt Time since last update (seconds)
+  /// @return Corrected state estimate
+  cv::Mat update(cv::Mat measurement, float dt);
 
-    /// Reset the track to uninitialized state
-    void reset();
+  /// Reset the track to uninitialized state
+  void reset();
 
-    /// Check if track is initialized
-    bool isInitialized() const { return kf_initialized; }
+  /// Check if track is initialized
+  bool isInitialized() const { return kf_initialized; }
 
-    /// Check if object was detected in recent frames
-    bool hasObject() const { return object_detected; }
+  /// Check if object was detected in recent frames
+  bool hasObject() const { return object_detected; }
 
-    /// Get track age (number of updates since init)
-    uint32_t getAge() const { return age_; }
+  /// Get track age (number of updates since init)
+  uint32_t getAge() const { return age_; }
 
-    /// Last update timestamp (for staleness checks)
-    uint64_t previous_time_ns = 0;
+  /// Last update timestamp (for staleness checks)
+  uint64_t previous_time_ns = 0;
 
-    /// Flag indicating if object was detected (set by update, cleared by reset)
-    bool object_detected = false;
+  /// Flag indicating if object was detected (set by update, cleared by reset)
+  bool object_detected = false;
 
-  private:
-    /// Update transition matrix with new dt
-    void updateTransitionMatrix(float dt);
+ private:
+  /// Update transition matrix with new dt
+  void updateTransitionMatrix(float dt);
 
-    cv::KalmanFilter kf;
-    bool kf_initialized = false;
-    uint32_t age_ = 0;
+  cv::KalmanFilter kf;
+  bool kf_initialized = false;
+  uint32_t age_ = 0;
 
-    // State and measurement dimensions
-    static constexpr int stateDim = 5; // [x, y, vx, vy, yaw]
-    static constexpr int measDim = 4;  // [x, y, vx, vy]
+  // State and measurement dimensions
+  static constexpr int stateDim = 5;  // [x, y, vx, vy, yaw]
+  static constexpr int measDim = 4;   // [x, y, vx, vy]
 };
 
-} // namespace adas
+}  // namespace adas
