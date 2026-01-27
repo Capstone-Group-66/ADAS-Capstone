@@ -3,8 +3,8 @@
 // Adapted from John's work with fixes for noise covariances and thread safety
 #pragma once
 
-#include <opencv2/video/tracking.hpp>
 #include <cstdint>
+#include <opencv2/video/tracking.hpp>
 
 namespace adas {
 
@@ -25,7 +25,7 @@ namespace adas {
 ///   cv::Mat prediction = track.getPrediction();  // Get predicted state
 ///
 class Track {
-public:
+  public:
     /// Default constructor - creates uninitialized track
     Track();
 
@@ -65,7 +65,7 @@ public:
     /// Flag indicating if object was detected (set by update, cleared by reset)
     bool object_detected = false;
 
-private:
+  private:
     /// Update transition matrix with new dt
     void updateTransitionMatrix(float dt);
 
@@ -74,8 +74,8 @@ private:
     uint32_t age_ = 0;
 
     // State and measurement dimensions
-    static constexpr int stateDim = 5;   // [x, y, vx, vy, yaw]
-    static constexpr int measDim = 4;    // [x, y, vx, vy]
+    static constexpr int stateDim = 5; // [x, y, vx, vy, yaw]
+    static constexpr int measDim = 4;  // [x, y, vx, vy]
 };
 
-}  // namespace adas
+} // namespace adas

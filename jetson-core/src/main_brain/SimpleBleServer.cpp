@@ -6,38 +6,38 @@
 #include "adas/main_brain/SimpleBleServer.hpp"
 #include "adas/main_brain/BleUuids.hpp"
 
-#include <iostream>
-#include <thread>
+#include <array>
 #include <chrono>
 #include <cstdio>
-#include <array>
+#include <iostream>
 #include <mutex>
+#include <thread>
 
 #ifdef __linux__
-#include <unistd.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <unistd.h>
 #endif
 
 namespace adas {
 
 /**
  * Implementation class (PIMPL pattern)
- * 
+ *
  * On Linux: Spawns ble_peripheral.py and writes alerts to its stdin
  * On Windows: Stub mode (prints to console)
  */
 class SimpleBleServer::Impl {
-public:
+  public:
     bool initialized = false;
     bool advertising = false;
-    
+
 #ifdef __linux__
     pid_t python_pid = -1;
-    FILE* python_stdin = nullptr;
+    FILE *python_stdin = nullptr;
     std::mutex write_mutex;
 #endif
-    
+
     ~Impl() {
 #ifdef __linux__
         if (python_stdin) {
@@ -51,7 +51,7 @@ public:
         }
 #endif
     }
-    
+
     bool launchPythonBle() {
 #ifdef __linux__
         // Create pipe for communication
@@ -60,38 +60,38 @@ public:
             std::cerr << "[BLE] Failed to create pipe\n";
             return false;
         }
-        
+
         python_pid = fork();
         if (python_pid == -1) {
             std::cerr << "[BLE] Failed to fork\n";
             return false;
         }
-        
+
         if (python_pid == 0) {
             // Child process: run Python script
-            close(pipefd[1]);  // Close write end
-            dup2(pipefd[0], STDIN_FILENO);  // Redirect stdin
+            close(pipefd[1]);              // Close write end
+            dup2(pipefd[0], STDIN_FILENO); // Redirect stdin
             close(pipefd[0]);
-            
+
             // Execute Python BLE peripheral
             execlp("python3", "python3", "scripts/ble_peripheral.py", nullptr);
             std::cerr << "[BLE] Failed to exec python3\n";
             _exit(1);
         }
-        
+
         // Parent process
-        close(pipefd[0]);  // Close read end
+        close(pipefd[0]); // Close read end
         python_stdin = fdopen(pipefd[1], "w");
-        
+
         if (!python_stdin) {
             std::cerr << "[BLE] Failed to open pipe for writing\n";
             kill(python_pid, SIGTERM);
             return false;
         }
-        
+
         // Set line buffering
         setlinebuf(python_stdin);
-        
+
         std::cout << "[BLE] Python BLE peripheral launched (PID: " << python_pid << ")\n";
         return true;
 #else
@@ -99,11 +99,12 @@ public:
         return true;
 #endif
     }
-    
-    bool sendToPython(const std::string& json_alert) {
+
+    bool sendToPython(const std::string &json_alert) {
 #ifdef __linux__
-        if (!python_stdin) return false;
-        
+        if (!python_stdin)
+            return false;
+
         std::lock_guard<std::mutex> lock(write_mutex);
         if (fprintf(python_stdin, "%s\n", json_alert.c_str()) < 0) {
             std::cerr << "[BLE] Failed to write to Python\n";
@@ -121,9 +122,7 @@ public:
 
 SimpleBleServer::SimpleBleServer() : impl_(std::make_unique<Impl>()) {}
 
-SimpleBleServer::~SimpleBleServer() {
-    shutdown();
-}
+SimpleBleServer::~SimpleBleServer() { shutdown(); }
 
 bool SimpleBleServer::initialize() {
     std::cout << "[BLE] Initializing SimpleBleServer...\n";
@@ -142,20 +141,21 @@ bool SimpleBleServer::startAdvertising() {
     }
 
     std::cout << "[BLE] Starting BLE peripheral...\n";
-    
+
     if (!impl_->launchPythonBle()) {
         std::cerr << "[BLE] Failed to launch BLE peripheral\n";
         return false;
     }
 
     impl_->advertising = true;
-    connected_.store(true);  // Assume connected for now
+    connected_.store(true); // Assume connected for now
     mtu_.store(185);
-    
+
     std::cout << "[BLE] Now discoverable as 'ADAS-Jetson'\n";
-    
-    if (onConnected_) onConnected_();
-    
+
+    if (onConnected_)
+        onConnected_();
+
     return true;
 }
 
@@ -166,7 +166,7 @@ void SimpleBleServer::stopAdvertising() {
     }
 }
 
-bool SimpleBleServer::notifyAlertStream(const std::vector<uint8_t>& data) {
+bool SimpleBleServer::notifyAlertStream(const std::vector<uint8_t> &data) {
     if (!connected_.load()) {
         return false;
     }
@@ -179,12 +179,12 @@ bool SimpleBleServer::notifyAlertStream(const std::vector<uint8_t>& data) {
         snprintf(buf, sizeof(buf), "%02x", b);
         hex += buf;
     }
-    
+
     // Send as JSON command to Python
     std::string json = "{\"cmd\":\"notify\",\"data\":\"" + hex + "\"}";
-    
+
     std::cout << "[BLE] Notifying AlertStream: " << data.size() << " bytes\n";
-    
+
     return impl_->sendToPython(json);
 }
 
@@ -194,11 +194,12 @@ void SimpleBleServer::shutdown() {
 
     if (connected_.load()) {
         connected_.store(false);
-        if (onDisconnected_) onDisconnected_();
+        if (onDisconnected_)
+            onDisconnected_();
     }
 
     impl_->initialized = false;
     std::cout << "[BLE] Shutdown complete\n";
 }
 
-}  // namespace adas
+} // namespace adas

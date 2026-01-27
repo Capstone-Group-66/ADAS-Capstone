@@ -39,11 +39,12 @@ class BleManager(
     private var currentMtu: Int = 23
 
     // Expose data stream
-    private val _packetFlow = kotlinx.coroutines.flow.MutableSharedFlow<ByteArray>(
-        replay = 0,
-        extraBufferCapacity = 64,
-        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
-    )
+    private val _packetFlow =
+        kotlinx.coroutines.flow.MutableSharedFlow<ByteArray>(
+            replay = 0,
+            extraBufferCapacity = 64,
+            onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+        )
     val packetFlow: kotlinx.coroutines.flow.Flow<ByteArray> = _packetFlow
 
     // Expose status logs
@@ -56,7 +57,7 @@ class BleManager(
 
     private var bluetoothAdapter: android.bluetooth.BluetoothAdapter? = null
     private var bluetoothLeScanner: android.bluetooth.le.BluetoothLeScanner? = null
-    
+
     // Scan retry logic
     private val handler = android.os.Handler(android.os.Looper.getMainLooper())
     private var isScanning = false
@@ -142,26 +143,28 @@ class BleManager(
             scheduleRetry()
             return
         }
-        
+
         if (isScanning) {
             log("Already scanning...")
             return
         }
-        
+
         log("Starting scan for ADAS-Jetson...")
         _connectionState.value = "Scanning..."
         isScanning = true
-        
-        val filter = android.bluetooth.le.ScanFilter.Builder()
-            .setServiceUuid(android.os.ParcelUuid(ADAS_SERVICE_UUID))
-            .build()
-            
-        val settings = android.bluetooth.le.ScanSettings.Builder()
-            .setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY)
-            .build()
-            
+
+        val filter =
+            android.bluetooth.le.ScanFilter.Builder()
+                .setServiceUuid(android.os.ParcelUuid(ADAS_SERVICE_UUID))
+                .build()
+
+        val settings =
+            android.bluetooth.le.ScanSettings.Builder()
+                .setScanMode(android.bluetooth.le.ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .build()
+
         bluetoothLeScanner?.startScan(listOf(filter), settings, scanCallback)
-        
+
         // Schedule timeout - if nothing found, stop and retry
         handler.postDelayed({
             if (isScanning && bluetoothGatt == null) {
@@ -170,7 +173,7 @@ class BleManager(
             }
         }, SCAN_TIMEOUT_MS)
     }
-    
+
     @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     private fun stopScanAndRetry() {
         try {
@@ -181,10 +184,10 @@ class BleManager(
         isScanning = false
         scheduleRetry()
     }
-    
+
     private fun scheduleRetry() {
-        if (bluetoothGatt != null) return  // Already connected
-        _connectionState.value = "Retrying in ${SCAN_RETRY_DELAY_MS/1000}s..."
+        if (bluetoothGatt != null) return // Already connected
+        _connectionState.value = "Retrying in ${SCAN_RETRY_DELAY_MS / 1000}s..."
         handler.postDelayed({
             if (bluetoothGatt == null) {
                 try {
@@ -196,35 +199,45 @@ class BleManager(
         }, SCAN_RETRY_DELAY_MS)
     }
 
-    private val scanCallback = object : android.bluetooth.le.ScanCallback() {
-        @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-        override fun onScanResult(callbackType: Int, result: android.bluetooth.le.ScanResult?) {
-            result?.device?.let { device ->
-                log("Found device: ${device.name} (${device.address})")
-                if (bluetoothGatt == null) {
-                    try {
-                        bluetoothLeScanner?.stopScan(this)
-                    } catch (e: SecurityException) {
-                        // ignore
+    private val scanCallback =
+        object : android.bluetooth.le.ScanCallback() {
+            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+            override fun onScanResult(
+                callbackType: Int,
+                result: android.bluetooth.le.ScanResult?,
+            ) {
+                result?.device?.let { device ->
+                    log("Found device: ${device.name} (${device.address})")
+                    if (bluetoothGatt == null) {
+                        try {
+                            bluetoothLeScanner?.stopScan(this)
+                        } catch (e: SecurityException) {
+                            // ignore
+                        }
+                        connectToJetson(device)
                     }
-                    connectToJetson(device)
                 }
             }
+
+            override fun onScanFailed(errorCode: Int) {
+                log("Scan failed: $errorCode")
+                isScanning = false
+                _connectionState.value = "Scan Failed: $errorCode"
+                scheduleRetry()
+            }
         }
-        
-        override fun onScanFailed(errorCode: Int) {
-            log("Scan failed: $errorCode")
-            isScanning = false
-            _connectionState.value = "Scan Failed: $errorCode"
-            scheduleRetry()
-        }
-    }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun connectToJetson(device: BluetoothDevice) {
         log("Connecting to ${device.address}...")
         _connectionState.value = "Connecting..."
-        bluetoothGatt = device.connectGatt(context, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
+        bluetoothGatt =
+            device.connectGatt(
+                context,
+                false,
+                gattCallback,
+                BluetoothDevice.TRANSPORT_LE,
+            )
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
@@ -237,7 +250,11 @@ class BleManager(
     private val gattCallback =
         object : BluetoothGattCallback() {
             @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-            override fun onConnectionStateChange(gatt: BluetoothGatt?, status: Int, newState: Int) {
+            override fun onConnectionStateChange(
+                gatt: BluetoothGatt?,
+                status: Int,
+                newState: Int,
+            ) {
                 if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
                     log("Connected to GATT server.")
                     _connectionState.value = "Connected"
@@ -249,9 +266,12 @@ class BleManager(
                     // Retry scan after delay? For now just log
                 }
             }
-            
+
             @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-            override fun onServicesDiscovered(gatt: BluetoothGatt?, status: Int) {
+            override fun onServicesDiscovered(
+                gatt: BluetoothGatt?,
+                status: Int,
+            ) {
                 if (status == BluetoothGatt.GATT_SUCCESS) {
                     log("Services discovered.")
                     val service = gatt?.getService(ADAS_SERVICE_UUID)
@@ -267,7 +287,7 @@ class BleManager(
                             } else {
                                 log("CCCD descriptor not found")
                             }
-                            
+
                             // Request MTU
                             gatt.requestMtu(185)
                         } else {
@@ -357,12 +377,12 @@ class BleManager(
     private fun rebuildFullPayload(tick: InProgressTick): ByteArray? {
         val size = tick.fragments.values.sumOf { it.size }
         val buffer = ByteBuffer.allocate(size)
-        
+
         for (i in 0..tick.seqMax) {
             val frag = tick.fragments[i] ?: return null // Missing fragment
             buffer.put(frag)
         }
-        
+
         return buffer.array()
     }
 
@@ -372,7 +392,7 @@ class BleManager(
         cborBuffer: ByteArray,
     ) {
         log("Received full tick payload: $tickId (${cborBuffer.size} bytes)")
-        
+
         // Debug: Decode and log the payload contents
         try {
             val payload = com.example.testapp.model.TickDecoder.decode(cborBuffer)
@@ -382,21 +402,23 @@ class BleManager(
             log("  Health Mask: ${payload.healthMask}")
             log("  BSD Mask: ${payload.bsdMask}")
             log("  Alerts: ${payload.alerts.size}")
-            
+
             payload.alerts.forEachIndexed { idx, alert ->
-                val typeStr = when(alert.type) {
-                    0 -> "FCW"
-                    1 -> "LDW"
-                    2 -> "RCW"
-                    3 -> "BSD"
-                    else -> "UNKNOWN(${alert.type})"
-                }
-                val sevStr = when(alert.severity) {
-                    0 -> "Info"
-                    1 -> "Warning"
-                    2 -> "Critical"
-                    else -> "Unknown(${alert.severity})"
-                }
+                val typeStr =
+                    when (alert.type) {
+                        0 -> "FCW"
+                        1 -> "LDW"
+                        2 -> "RCW"
+                        3 -> "BSD"
+                        else -> "UNKNOWN(${alert.type})"
+                    }
+                val sevStr =
+                    when (alert.severity) {
+                        0 -> "Info"
+                        1 -> "Warning"
+                        2 -> "Critical"
+                        else -> "Unknown(${alert.severity})"
+                    }
                 log("  Alert[$idx]: type=$typeStr severity=$sevStr")
                 log("    rationale: ${alert.rationale}")
             }
@@ -404,7 +426,7 @@ class BleManager(
         } catch (e: Exception) {
             log("DEBUG decode error: ${e.message}")
         }
-        
+
         // Emit to flow
         _packetFlow.tryEmit(cborBuffer)
     }
