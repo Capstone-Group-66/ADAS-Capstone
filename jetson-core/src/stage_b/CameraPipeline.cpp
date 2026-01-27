@@ -227,10 +227,10 @@ void StageBManager::printStatus() const {
     std::cout << "----------------------------------------------------------------\n";
 
     for (const auto &pipeline : pipelines_) {
-        std::cout << "  " << mountToString(pipeline->getMount()) << ": "
-                  << (pipeline->isHealthy() ? "[OK] " : "[--] ") << pipeline->getFramesProcessed()
-                  << " frames, "
-                  << "avg " << pipeline->getAvgInferenceTimeUs() / 1000.0 << "ms\n";
+        std::cout << "  " << mountToString(pipeline->getMount()) << ": ";
+        std::cout << (pipeline->isHealthy() ? "[OK] " : "[--] ") << pipeline->getFramesProcessed();
+        std::cout << " frames, ";
+        std::cout << "avg " << pipeline->getAvgInferenceTimeUs() / 1000.0 << "ms\n";
     }
 
     std::cout << "----------------------------------------------------------------\n";

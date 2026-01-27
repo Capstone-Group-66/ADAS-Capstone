@@ -462,13 +462,13 @@ void statusBarThread() {
         auto uptime = std::chrono::duration_cast<std::chrono::seconds>(now - g_pipeline_start_time);
 
         // Format status bar
-        std::cout << "\r[ADAS] "
-                  << "FrontCam:" << (front_cam_ok ? "\033[32m✓\033[0m" : "\033[31m✗\033[0m") << " "
-                  << "FrontRadar:" << (front_radar_ok ? "\033[32m✓\033[0m" : "\033[31m✗\033[0m")
-                  << " "
-                  << "IMU:" << (imu_ok ? "\033[32m✓\033[0m" : "\033[31m✗\033[0m") << " | "
-                  << "Drops:" << health.total_drops << " | " << formatUptime(uptime) << "     "
-                  << std::flush;
+        std::cout << "\r[ADAS] ";
+        std::cout << "FrontCam:" << (front_cam_ok ? "\033[32m✓\033[0m" : "\033[31m✗\033[0m") << " ";
+        std::cout << "FrontRadar:" << (front_radar_ok ? "\033[32m✓\033[0m" : "\033[31m✗\033[0m");
+        std::cout << " ";
+        std::cout << "IMU:" << (imu_ok ? "\033[32m✓\033[0m" : "\033[31m✗\033[0m") << " | ";
+        std::cout << "Drops:" << health.total_drops << " | " << formatUptime(uptime) << "     ";
+        std::cout << std::flush;
 
         std::this_thread::sleep_for(std::chrono::seconds(1));
     }

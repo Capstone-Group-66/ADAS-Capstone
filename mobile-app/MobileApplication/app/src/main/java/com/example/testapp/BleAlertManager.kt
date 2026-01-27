@@ -12,6 +12,7 @@ import android.content.Context
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
+import com.example.testapp.model.TickDecoder
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.time.LocalTime
@@ -71,7 +72,8 @@ class BleManager(
     private fun log(msg: String) {
         val list = _logFlow.value.toMutableList()
         // Add timestamped log
-        val time = DateTimeFormatter.ofPattern("HH:mm:ss").format(LocalTime.now())
+        val formatter = DateTimeFormatter.ofPattern("HH:mm:ss")
+        val time = formatter.format(LocalTime.now())
         list.add(0, "$time $msg")
         if (list.size > 100) list.removeLast()
         _logFlow.value = list
@@ -157,15 +159,13 @@ class BleManager(
         _connectionState.value = "Scanning..."
         isScanning = true
 
-        val filter =
-            ScanFilter.Builder()
-                .setServiceUuid(android.os.ParcelUuid(ADAS_SERVICE_UUID))
-                .build()
+        val filterBuilder = ScanFilter.Builder()
+        filterBuilder.setServiceUuid(android.os.ParcelUuid(ADAS_SERVICE_UUID))
+        val filter = filterBuilder.build()
 
-        val settings =
-            ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-                .build()
+        val settingsBuilder = ScanSettings.Builder()
+        settingsBuilder.setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+        val settings = settingsBuilder.build()
 
         bluetoothLeScanner?.startScan(listOf(filter), settings, scanCallback)
 
@@ -399,7 +399,7 @@ class BleManager(
 
         // Debug: Decode and log the payload contents
         try {
-            val payload = com.example.testapp.model.TickDecoder.decode(cborBuffer)
+            val payload = TickDecoder.decode(cborBuffer)
             log("=== FCW DEBUG ===")
             log("  Tick ID: ${payload.tickId}")
             log("  Speed: ${payload.speed} km/h")
