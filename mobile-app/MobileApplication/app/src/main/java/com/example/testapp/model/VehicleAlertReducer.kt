@@ -27,7 +27,7 @@ object VehicleAlertReducer {
         prev: VehicleAlert,
         tick: TickPayload,
     ): VehicleAlert? {
-        // Strict ordering for remote ticks (tickId >= 0). 
+        // Strict ordering for remote ticks (tickId >= 0).
         // Local heartbeats (-1) and Manual Triggers (-2) bypass check.
         if (tick.tickId >= 0 && tick.tickId <= prev.lastTickId) return null
 
@@ -42,19 +42,21 @@ object VehicleAlertReducer {
         // Determine active state based on Latch
         val isLatched = now < newFcwExpiry
 
-        val sonar = if (isLatched) {
-            prev.sonar.copy(front = SonarColor.RED)
-        } else {
-            prev.sonar.copy(front = SonarColor.GREEN)
-        }
+        val sonar =
+            if (isLatched) {
+                prev.sonar.copy(front = SonarColor.RED)
+            } else {
+                prev.sonar.copy(front = SonarColor.GREEN)
+            }
 
-        val detection = if (isLatched) {
-            val severity = tick.alerts.find { it.type == 0 }?.severity ?: 2
-            ObjectDetection.Car(confidence = severity * 33)
-        } else {
-            ObjectDetection.None
-        }
-        
+        val detection =
+            if (isLatched) {
+                val severity = tick.alerts.find { it.type == 0 }?.severity ?: 2
+                ObjectDetection.Car(confidence = severity * 33)
+            } else {
+                ObjectDetection.None
+            }
+
         // Don't update lastTickId if it's a local event (< 0)
         val newLastTickId = if (tick.tickId >= 0) tick.tickId else prev.lastTickId
 

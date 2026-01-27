@@ -34,7 +34,6 @@ import com.example.testapp.ui.theme.TestAppTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.emptyFlow
 
 class MainActivity : ComponentActivity() {
     private val appScope =
@@ -63,10 +62,10 @@ class MainActivity : ComponentActivity() {
                 // sets the theme of the app (colours structure etc)
                 // Pass logs and status to the app composable
                 TestAppApp(
-                    repository, 
+                    repository,
                     logs = bleManager.logFlow,
-                    status = bleManager.connectionState
-                ) 
+                    status = bleManager.connectionState,
+                )
             }
         }
     }
@@ -96,7 +95,7 @@ fun TestAppAppPreview() {
     // Dummy flows for preview
     val logs = kotlinx.coroutines.flow.MutableStateFlow(listOf("Log 1", "Log 2"))
     val status = kotlinx.coroutines.flow.MutableStateFlow("Connected")
-    
+
     TestAppApp(fakeRepository1, logs, status)
 }
 
@@ -104,7 +103,7 @@ fun TestAppAppPreview() {
 fun TestAppApp(
     repository: BleTickRepository,
     logs: kotlinx.coroutines.flow.StateFlow<List<String>>,
-    status: kotlinx.coroutines.flow.StateFlow<String>
+    status: kotlinx.coroutines.flow.StateFlow<String>,
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
     // give the app a navigation controller

@@ -46,9 +46,9 @@ void printBanner() {
     std::cout << "\n";
 }
 
-}  // namespace
+} // namespace
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
     printBanner();
 
     // Setup signal handlers
@@ -58,13 +58,10 @@ int main(int argc, char* argv[]) {
     // Create BLE server
     adas::SimpleBleServer bleServer;
 
-    bleServer.setOnConnected([]() {
-        std::cout << "[MainBrain] Phone connected! Ready to send alerts.\n";
-    });
+    bleServer.setOnConnected(
+        []() { std::cout << "[MainBrain] Phone connected! Ready to send alerts.\n"; });
 
-    bleServer.setOnDisconnected([]() {
-        std::cout << "[MainBrain] Phone disconnected.\n";
-    });
+    bleServer.setOnDisconnected([]() { std::cout << "[MainBrain] Phone disconnected.\n"; });
 
     // Initialize BLE
     if (!bleServer.initialize()) {
@@ -93,12 +90,8 @@ int main(int argc, char* argv[]) {
         auto now = std::chrono::steady_clock::now();
         if (now - lastAlertTime >= ALERT_INTERVAL && bleServer.isConnected()) {
             // Cycle through alert types for demo
-            adas::AlertType types[] = {
-                adas::AlertType::LDW,
-                adas::AlertType::FCW,
-                adas::AlertType::RCW,
-                adas::AlertType::BSD
-            };
+            adas::AlertType types[] = {adas::AlertType::LDW, adas::AlertType::FCW,
+                                       adas::AlertType::RCW, adas::AlertType::BSD};
             auto type = types[alertSeq % 4];
 
             // Generate and encode alert as TickPayload
@@ -114,7 +107,7 @@ int main(int argc, char* argv[]) {
                       << ", payload=" << payload.size() << " bytes)\n";
 
             // Send all fragments
-            for (const auto& frame : frames) {
+            for (const auto &frame : frames) {
                 bleServer.notifyAlertStream(frame);
             }
 

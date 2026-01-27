@@ -31,7 +31,7 @@ namespace adas {
  *   - Thermal/disk monitoring
  */
 class SimpleBleServer {
-public:
+  public:
     using OnConnectedCallback = std::function<void()>;
     using OnDisconnectedCallback = std::function<void()>;
 
@@ -49,7 +49,7 @@ public:
 
     // Send a notification on the AlertStream characteristic
     // Returns true if sent successfully
-    bool notifyAlertStream(const std::vector<uint8_t>& data);
+    bool notifyAlertStream(const std::vector<uint8_t> &data);
 
     // Get current MTU (default 23, updated on connection)
     uint16_t getCurrentMtu() const { return mtu_; }
@@ -64,7 +64,7 @@ public:
     // Shutdown cleanly
     void shutdown();
 
-private:
+  private:
     class Impl;
     std::unique_ptr<Impl> impl_;
 
@@ -75,4 +75,4 @@ private:
     OnDisconnectedCallback onDisconnected_;
 };
 
-}  // namespace adas
+} // namespace adas

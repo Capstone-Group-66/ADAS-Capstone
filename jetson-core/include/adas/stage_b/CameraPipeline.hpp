@@ -24,17 +24,16 @@ class CameraPipeline {
     /// @param output_queue Queue to Stage E (Fusion)
     /// @param calib_dir Directory containing calibration files
     /// @param model_path Path to ONNX model file
-    CameraPipeline(Mount mount,
-                   SPSCQueue<CameraFrameData, 8>& input_queue,
-                   SPSCQueue<DetBatch, 8>& output_queue,
-                   const std::string& calib_dir = "config/calibration",
-                   const std::string& model_path = "models/yolov8n.onnx");
+    CameraPipeline(Mount mount, SPSCQueue<CameraFrameData, 8> &input_queue,
+                   SPSCQueue<DetBatch, 8> &output_queue,
+                   const std::string &calib_dir = "config/calibration",
+                   const std::string &model_path = "models/yolov8n.onnx");
 
     ~CameraPipeline();
 
     // Non-copyable
-    CameraPipeline(const CameraPipeline&) = delete;
-    CameraPipeline& operator=(const CameraPipeline&) = delete;
+    CameraPipeline(const CameraPipeline &) = delete;
+    CameraPipeline &operator=(const CameraPipeline &) = delete;
 
     /// Start the processing thread
     void start();
@@ -59,12 +58,12 @@ class CameraPipeline {
     void threadFunc();
 
     Mount mount_;
-    SPSCQueue<CameraFrameData, 8>& input_queue_;
-    SPSCQueue<DetBatch, 8>& output_queue_;
-    
+    SPSCQueue<CameraFrameData, 8> &input_queue_;
+    SPSCQueue<DetBatch, 8> &output_queue_;
+
     std::unique_ptr<CameraPreprocessor> preprocessor_;
     std::unique_ptr<ObjectDetector> detector_;
-    
+
     std::thread thread_;
     std::atomic<bool> running_{false};
     std::atomic<bool> healthy_{false};
@@ -78,8 +77,8 @@ class StageBManager {
     /// Constructor
     /// @param calib_dir Directory containing calibration files
     /// @param model_path Path to ONNX model file
-    explicit StageBManager(const std::string& calib_dir = "config/calibration",
-                           const std::string& model_path = "models/yolov8n.onnx");
+    explicit StageBManager(const std::string &calib_dir = "config/calibration",
+                           const std::string &model_path = "models/yolov8n.onnx");
 
     ~StageBManager();
 
@@ -87,9 +86,8 @@ class StageBManager {
     /// @param mount Camera mount
     /// @param input_queue Queue from Stage A
     /// @param output_queue Queue to Stage E
-    void addCamera(Mount mount,
-                   SPSCQueue<CameraFrameData, 8>& input_queue,
-                   SPSCQueue<DetBatch, 8>& output_queue);
+    void addCamera(Mount mount, SPSCQueue<CameraFrameData, 8> &input_queue,
+                   SPSCQueue<DetBatch, 8> &output_queue);
 
     /// Start all pipelines
     void start();

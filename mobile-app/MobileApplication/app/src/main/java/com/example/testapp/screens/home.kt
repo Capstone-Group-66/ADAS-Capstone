@@ -14,14 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.flow.StateFlow
 
-import androidx.compose.material3.Button
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Arrangement
-
 @Composable
 fun home(
     logs: StateFlow<List<String>>,
-    status: StateFlow<String>
+    status: StateFlow<String>,
 ) {
     val logList by logs.collectAsState()
     val connectionStatus by status.collectAsState()
@@ -29,18 +25,18 @@ fun home(
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
         Text(
             text = "Status: $connectionStatus",
-            style = MaterialTheme.typography.headlineMedium
+            style = MaterialTheme.typography.headlineMedium,
         )
         Text(
             text = "BLE Logs:",
             style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp)
+            modifier = Modifier.padding(top = 16.dp, bottom = 8.dp),
         )
         LazyColumn(modifier = Modifier.weight(1f)) {
             items(logList) { log ->
                 Text(
                     text = log,
-                    style = MaterialTheme.typography.bodySmall
+                    style = MaterialTheme.typography.bodySmall,
                 )
             }
         }

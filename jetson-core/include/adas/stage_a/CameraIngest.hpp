@@ -16,28 +16,28 @@
 namespace cv {
 class VideoCapture;
 class Mat;
-}  // namespace cv
+} // namespace cv
 
 namespace adas {
 
 /// Camera ingest thread for direct USB cameras
 /// Captures frames, timestamps them, and pushes to SPSC queue
 class CameraIngest {
-public:
+  public:
     /// Constructor
     /// @param mount Mount identity (FrontCam, SideCamL, SideCamR)
     /// @param device_path Device path from hardware_map.json (e.g., "/dev/video2")
     /// @param queue Output SPSC queue for frames
     /// @param config Camera configuration (resolution, FPS, MJPEG)
-    CameraIngest(Mount mount, const std::string& device_path,
-                 SPSCQueue<CameraFrameData, 8>& queue, const CameraConfig& config);
+    CameraIngest(Mount mount, const std::string &device_path, SPSCQueue<CameraFrameData, 8> &queue,
+                 const CameraConfig &config);
 
     /// Destructor - ensures thread is stopped
     ~CameraIngest();
 
     // Non-copyable
-    CameraIngest(const CameraIngest&) = delete;
-    CameraIngest& operator=(const CameraIngest&) = delete;
+    CameraIngest(const CameraIngest &) = delete;
+    CameraIngest &operator=(const CameraIngest &) = delete;
 
     /// Start capture thread
     void start();
@@ -55,7 +55,7 @@ public:
     Mount getMount() const { return mount_; }
 
     /// Get device path
-    const std::string& getDevicePath() const { return device_path_; }
+    const std::string &getDevicePath() const { return device_path_; }
 
     /// Get current sequence number
     uint32_t getSequence() const { return seq_.load(std::memory_order_relaxed); }
@@ -70,7 +70,7 @@ public:
     };
     Stats getStats() const;
 
-private:
+  private:
     /// Thread entry point
     void run();
 
@@ -82,7 +82,7 @@ private:
 
     Mount mount_;
     std::string device_path_;
-    SPSCQueue<CameraFrameData, 8>& queue_;
+    SPSCQueue<CameraFrameData, 8> &queue_;
     CameraConfig config_;
 
     std::unique_ptr<cv::VideoCapture> cap_;
@@ -99,4 +99,4 @@ private:
     size_t frame_time_idx_ = 0;
 };
 
-}  // namespace adas
+} // namespace adas

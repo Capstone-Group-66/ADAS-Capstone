@@ -15,7 +15,7 @@ using namespace adas::protocol;
 
 namespace adas {
 
-NetworkReceiver::NetworkReceiver(const std::string& pi_ip) : pi_ip_(pi_ip) {
+NetworkReceiver::NetworkReceiver(const std::string &pi_ip) : pi_ip_(pi_ip) {
     context_ = zmq_ctx_new();
     if (!context_) {
         throw std::runtime_error("Failed to create ZMQ context");
@@ -34,10 +34,10 @@ std::string NetworkReceiver::buildAddr(int port) const {
     return "tcp://" + pi_ip_ + ":" + std::to_string(port);
 }
 
-bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8>* cam_queue,
-                            SPSCQueue<ImuSample, 32>* imu_queue) {
+bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
+                            SPSCQueue<ImuSample, 32> *imu_queue) {
     if (running_.load()) {
-        return true;  // Already running
+        return true; // Already running
     }
 
     cam_queue_ = cam_queue;
@@ -48,13 +48,13 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8>* cam_queue,
     radar_l_socket_ = zmq_socket(context_, ZMQ_PULL);
     radar_r_socket_ = zmq_socket(context_, ZMQ_PULL);
     imu_socket_ = zmq_socket(context_, ZMQ_PULL);
-    heartbeat_socket_ = zmq_socket(context_, ZMQ_REQ);  // REQ/REP pattern for control
+    heartbeat_socket_ = zmq_socket(context_, ZMQ_REQ); // REQ/REP pattern for control
 
     // Set socket options
     int hwm = 10;
-    int timeout = 200;  // 200ms receive timeout
-    
-    auto configure_socket = [&](void* sock) {
+    int timeout = 200; // 200ms receive timeout
+
+    auto configure_socket = [&](void *sock) {
         zmq_setsockopt(sock, ZMQ_RCVHWM, &hwm, sizeof(hwm));
         zmq_setsockopt(sock, ZMQ_RCVTIMEO, &timeout, sizeof(timeout));
     };
@@ -67,7 +67,7 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8>* cam_queue,
 
     // Connect to Pi (Pi binds, we connect)
     std::cout << "[NetworkReceiver] Connecting to Pi at " << pi_ip_ << "...\n";
-    
+
     if (zmq_connect(cam_socket_, buildAddr(PORT_REAR_CAM).c_str()) != 0) {
         std::cerr << "[NetworkReceiver] Failed to connect camera socket\n";
         return false;
@@ -111,29 +111,49 @@ void NetworkReceiver::stop() {
     running_.store(false);
 
     // Wait for threads
-    if (cam_thread_.joinable()) cam_thread_.join();
-    if (radar_l_thread_.joinable()) radar_l_thread_.join();
-    if (radar_r_thread_.joinable()) radar_r_thread_.join();
-    if (imu_thread_.joinable()) imu_thread_.join();
-    if (heartbeat_thread_.joinable()) heartbeat_thread_.join();
+    if (cam_thread_.joinable())
+        cam_thread_.join();
+    if (radar_l_thread_.joinable())
+        radar_l_thread_.join();
+    if (radar_r_thread_.joinable())
+        radar_r_thread_.join();
+    if (imu_thread_.joinable())
+        imu_thread_.join();
+    if (heartbeat_thread_.joinable())
+        heartbeat_thread_.join();
 
     // Close sockets
-    if (cam_socket_) { zmq_close(cam_socket_); cam_socket_ = nullptr; }
-    if (radar_l_socket_) { zmq_close(radar_l_socket_); radar_l_socket_ = nullptr; }
-    if (radar_r_socket_) { zmq_close(radar_r_socket_); radar_r_socket_ = nullptr; }
-    if (imu_socket_) { zmq_close(imu_socket_); imu_socket_ = nullptr; }
-    if (heartbeat_socket_) { zmq_close(heartbeat_socket_); heartbeat_socket_ = nullptr; }
+    if (cam_socket_) {
+        zmq_close(cam_socket_);
+        cam_socket_ = nullptr;
+    }
+    if (radar_l_socket_) {
+        zmq_close(radar_l_socket_);
+        radar_l_socket_ = nullptr;
+    }
+    if (radar_r_socket_) {
+        zmq_close(radar_r_socket_);
+        radar_r_socket_ = nullptr;
+    }
+    if (imu_socket_) {
+        zmq_close(imu_socket_);
+        imu_socket_ = nullptr;
+    }
+    if (heartbeat_socket_) {
+        zmq_close(heartbeat_socket_);
+        heartbeat_socket_ = nullptr;
+    }
 
     std::cout << "[NetworkReceiver] Stopped\n";
 }
 
 void NetworkReceiver::cameraThread() {
-    std::vector<uint8_t> buffer(1024 * 1024);  // 1MB buffer
+    std::vector<uint8_t> buffer(1024 * 1024); // 1MB buffer
 
     while (running_.load()) {
         int len = zmq_recv(cam_socket_, buffer.data(), buffer.size(), 0);
         if (len < 0) {
-            continue;  // Timeout or error
+            continue; // Timeout or error
         }
 
         if (static_cast<size_t>(len) < sizeof(PiMessageHeader) + sizeof(CameraPayloadHeader)) {
@@ -145,7 +165,7 @@ void NetworkReceiver::cameraThread() {
         PiMessageHeader header;
         std::memcpy(&header, buffer.data(), sizeof(header));
 
-        if (!validateHeader(header) || 
+        if (!validateHeader(header) ||
             static_cast<MessageType>(header.msg_type) != MessageType::REAR_CAM_FRAME) {
             stats_.errors++;
             continue;
@@ -165,8 +185,8 @@ void NetworkReceiver::cameraThread() {
         size_t jpeg_offset = sizeof(PiMessageHeader) + sizeof(CameraPayloadHeader);
         size_t jpeg_size = header.payload_size - sizeof(CameraPayloadHeader);
 
-        std::vector<uint8_t> jpeg_data(buffer.data() + jpeg_offset, 
-                                        buffer.data() + jpeg_offset + jpeg_size);
+        std::vector<uint8_t> jpeg_data(buffer.data() + jpeg_offset,
+                                       buffer.data() + jpeg_offset + jpeg_size);
         cv::Mat frame = cv::imdecode(jpeg_data, cv::IMREAD_COLOR);
 
         if (frame.empty()) {
@@ -179,8 +199,8 @@ void NetworkReceiver::cameraThread() {
             CameraFrameData frame_data;
             frame_data.h.mount = Mount::RearCam;
             frame_data.h.seq = header.sequence;
-            frame_data.h.t_device_ns = header.timestamp_ns;  // Use Pi's timestamp!
-            frame_data.h.t_ingest_ns = header.timestamp_ns;   // Same - already timestamped
+            frame_data.h.t_device_ns = header.timestamp_ns; // Use Pi's timestamp!
+            frame_data.h.t_ingest_ns = header.timestamp_ns; // Same - already timestamped
             frame_data.frame = frame.clone();
 
             cam_queue_->try_push(std::move(frame_data));
@@ -195,7 +215,8 @@ void NetworkReceiver::radarLThread() {
 
     while (running_.load()) {
         int len = zmq_recv(radar_l_socket_, buffer.data(), buffer.size(), 0);
-        if (len < 0) continue;
+        if (len < 0)
+            continue;
 
         if (static_cast<size_t>(len) < sizeof(PiMessageHeader)) {
             stats_.errors++;
@@ -228,7 +249,8 @@ void NetworkReceiver::radarRThread() {
 
     while (running_.load()) {
         int len = zmq_recv(radar_r_socket_, buffer.data(), buffer.size(), 0);
-        if (len < 0) continue;
+        if (len < 0)
+            continue;
 
         if (static_cast<size_t>(len) < sizeof(PiMessageHeader)) {
             stats_.errors++;
@@ -255,7 +277,7 @@ void NetworkReceiver::radarRThread() {
 
 void NetworkReceiver::imuThread() {
     std::vector<uint8_t> buffer(256);
-    
+
     // Debug: track samples received in last 5 seconds
     auto last_debug_time = std::chrono::steady_clock::now();
     uint64_t samples_in_window = 0;
@@ -268,13 +290,15 @@ void NetworkReceiver::imuThread() {
             // Check debug timer even on timeout (only if verbose mode enabled)
             if (g_verbose_mode.load()) {
                 auto now = std::chrono::steady_clock::now();
-                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_debug_time).count();
+                auto elapsed =
+                    std::chrono::duration_cast<std::chrono::seconds>(now - last_debug_time).count();
                 if (elapsed >= 5) {
-                    std::cout << "\n[IMU DEBUG] Last 5s: received=" << samples_in_window 
+                    std::cout << "\n[IMU DEBUG] Last 5s: received=" << samples_in_window
                               << ", errors=" << errors_in_window
                               << ", total_samples=" << stats_.imu_samples
                               << ", total_errors=" << stats_.errors
-                              << ", last_accel_z=" << last_accel_z << "\n" << std::flush;
+                              << ", last_accel_z=" << last_accel_z << "\n"
+                              << std::flush;
                     samples_in_window = 0;
                     errors_in_window = 0;
                     last_debug_time = now;
@@ -315,8 +339,8 @@ void NetworkReceiver::imuThread() {
             sample.accel = {imu_payload.accel_x, imu_payload.accel_y, imu_payload.accel_z};
             sample.gyro = {imu_payload.gyro_x, imu_payload.gyro_y, imu_payload.gyro_z};
             sample.mag = {imu_payload.mag_x, imu_payload.mag_y, imu_payload.mag_z};
-            sample.quat = {imu_payload.quat_w, imu_payload.quat_x, 
-                           imu_payload.quat_y, imu_payload.quat_z};
+            sample.quat = {imu_payload.quat_w, imu_payload.quat_x, imu_payload.quat_y,
+                           imu_payload.quat_z};
             sample.temperature = imu_payload.temperature;
             sample.calibration_status = imu_payload.calibration_status;
 
@@ -326,17 +350,19 @@ void NetworkReceiver::imuThread() {
 
         stats_.imu_samples++;
         samples_in_window++;
-        
+
         // Debug output every 5 seconds (only if verbose mode enabled)
         if (g_verbose_mode.load()) {
             auto now = std::chrono::steady_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_debug_time).count();
+            auto elapsed =
+                std::chrono::duration_cast<std::chrono::seconds>(now - last_debug_time).count();
             if (elapsed >= 5) {
-                std::cout << "\n[IMU DEBUG] Last 5s: received=" << samples_in_window 
+                std::cout << "\n[IMU DEBUG] Last 5s: received=" << samples_in_window
                           << ", errors=" << errors_in_window
                           << ", total_samples=" << stats_.imu_samples
-                          << ", total_errors=" << stats_.errors
-                          << ", last_accel_z=" << last_accel_z << "\n" << std::flush;
+                          << ", total_errors=" << stats_.errors << ", last_accel_z=" << last_accel_z
+                          << "\n"
+                          << std::flush;
                 samples_in_window = 0;
                 errors_in_window = 0;
                 last_debug_time = now;
@@ -374,7 +400,7 @@ void NetworkReceiver::heartbeatThread() {
 
             if (validateHeader(header) &&
                 static_cast<MessageType>(header.msg_type) == MessageType::HEARTBEAT) {
-                
+
                 HeartbeatPayload hb;
                 std::memcpy(&hb, buffer.data() + sizeof(PiMessageHeader), sizeof(hb));
 
@@ -384,9 +410,9 @@ void NetworkReceiver::heartbeatThread() {
                 last_heartbeat = std::chrono::steady_clock::now();
 
                 // Warn if clock drift is too high
-                if (std::abs(hb.chrony_offset_us) > 5000) {  // > 5ms
-                    std::cerr << "[NetworkReceiver] WARNING: Chrony offset " 
-                              << hb.chrony_offset_us << "us - check time sync!\n";
+                if (std::abs(hb.chrony_offset_us) > 5000) { // > 5ms
+                    std::cerr << "[NetworkReceiver] WARNING: Chrony offset " << hb.chrony_offset_us
+                              << "us - check time sync!\n";
                 }
             }
         }
@@ -406,14 +432,15 @@ void NetworkReceiver::heartbeatThread() {
 }
 
 // Static discovery function
-std::vector<NetworkReceiver::DiscoveredDevice> 
-NetworkReceiver::discoverDevices(const std::string& pi_ip, int timeout_ms) {
+std::vector<NetworkReceiver::DiscoveredDevice>
+NetworkReceiver::discoverDevices(const std::string &pi_ip, int timeout_ms) {
     std::vector<DiscoveredDevice> devices;
 
-    void* ctx = zmq_ctx_new();
-    if (!ctx) return devices;
+    void *ctx = zmq_ctx_new();
+    if (!ctx)
+        return devices;
 
-    void* sock = zmq_socket(ctx, ZMQ_REQ);
+    void *sock = zmq_socket(ctx, ZMQ_REQ);
     if (!sock) {
         zmq_ctx_term(ctx);
         return devices;
@@ -451,7 +478,7 @@ NetworkReceiver::discoverDevices(const std::string& pi_ip, int timeout_ms) {
     // Receive response
     std::vector<uint8_t> buffer(1024);
     int len = zmq_recv(sock, buffer.data(), buffer.size(), 0);
-    
+
     if (len < static_cast<int>(sizeof(PiMessageHeader) + sizeof(DiscoveryResponsePayload))) {
         std::cerr << "[Discovery] No response or invalid response\n";
         zmq_close(sock);
@@ -477,7 +504,8 @@ NetworkReceiver::discoverDevices(const std::string& pi_ip, int timeout_ms) {
     // Parse device list
     size_t offset = sizeof(PiMessageHeader) + sizeof(DiscoveryResponsePayload);
     for (int i = 0; i < resp.num_devices; i++) {
-        if (offset + sizeof(DeviceInfo) > static_cast<size_t>(len)) break;
+        if (offset + sizeof(DeviceInfo) > static_cast<size_t>(len))
+            break;
 
         DeviceInfo info;
         std::memcpy(&info, buffer.data() + offset, sizeof(info));
@@ -498,11 +526,12 @@ NetworkReceiver::discoverDevices(const std::string& pi_ip, int timeout_ms) {
 }
 
 // Static RTT measurement using ZMQ
-double NetworkReceiver::measureRTT(const std::string& pi_ip) {
-    void* ctx = zmq_ctx_new();
-    if (!ctx) return -1.0;
+double NetworkReceiver::measureRTT(const std::string &pi_ip) {
+    void *ctx = zmq_ctx_new();
+    if (!ctx)
+        return -1.0;
 
-    void* sock = zmq_socket(ctx, ZMQ_REQ);
+    void *sock = zmq_socket(ctx, ZMQ_REQ);
     if (!sock) {
         zmq_ctx_term(ctx);
         return -1.0;

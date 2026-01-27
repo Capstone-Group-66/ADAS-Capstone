@@ -116,7 +116,7 @@ void IngestManager::launchNetworkIngest() {
         std::cout << "[IngestManager] RearCam not in hardware_map, skipping ZMQ receiver\n";
         return;
     }
-    
+
     // Extract Pi IP from hardware map (format: "zmq://IP:PORT")
     std::string addr = rear_cam_it->second;
     std::string pi_ip;
@@ -126,7 +126,7 @@ void IngestManager::launchNetworkIngest() {
             pi_ip = addr.substr(6, colon - 6);
         }
     }
-    
+
     if (pi_ip.empty()) {
         std::cerr << "[IngestManager] Invalid RearCam address: " << addr << "\n";
         std::cerr << "[IngestManager] Falling back to TCP NetworkIngest\n";
@@ -135,12 +135,12 @@ void IngestManager::launchNetworkIngest() {
         network_->start();
         return;
     }
-    
+
     std::cout << "[IngestManager] Launching ZMQ receiver for Pi at " << pi_ip << "...\n";
-    
+
     // Create NetworkReceiver (constructor takes only IP)
     zmq_receiver_ = std::make_unique<NetworkReceiver>(pi_ip);
-    
+
     // Start with queue pointers
     if (zmq_receiver_->start(&cam_rear_queue_, &imu_queue_)) {
         std::cout << "[IngestManager] ZMQ receiver started for RearCam + IMU\n";
@@ -148,7 +148,7 @@ void IngestManager::launchNetworkIngest() {
         std::cerr << "[IngestManager] Failed to start ZMQ receiver\n";
         zmq_receiver_.reset();
     }
-    
+
 #else
     std::cout << "[IngestManager] Launching TCP network ingest (Pi4 rear sector)...\n";
 
@@ -244,7 +244,7 @@ IngestManager::HealthStatus IngestManager::getHealth() const {
     if (zmq_receiver_) {
         bool h = zmq_receiver_->isPiConnected();
         status.sensor_health[Mount::RearCam] = h;
-        status.sensor_health[Mount::IMU] = h;  // IMU also comes from Pi
+        status.sensor_health[Mount::IMU] = h; // IMU also comes from Pi
         status.total_drops += cam_rear_queue_.drops();
         status.total_drops += imu_queue_.drops();
         if (!h) {
@@ -252,7 +252,7 @@ IngestManager::HealthStatus IngestManager::getHealth() const {
         }
     } else
 #endif
-    if (network_) {
+        if (network_) {
         bool h = network_->isHealthy();
         status.sensor_health[Mount::RearCam] = h;
         status.sensor_health[Mount::RearCornerRadarL] = h;

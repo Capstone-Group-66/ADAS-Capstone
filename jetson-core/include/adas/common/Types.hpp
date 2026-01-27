@@ -27,34 +27,34 @@ enum class Mount : uint8_t {
     RearCornerRadarL = 5,
     RearCornerRadarR = 6,
     IMU = 7,
-    LiDAR2D = 8,  // Reserved for extensibility (NFR26) — NO IMPLEMENTATION
+    LiDAR2D = 8, // Reserved for extensibility (NFR26) — NO IMPLEMENTATION
 
-    COUNT = 9  // For array sizing
+    COUNT = 9 // For array sizing
 };
 
 /// Convert Mount to string for logging/debugging
-inline const char* mountToString(Mount m) {
+inline const char *mountToString(Mount m) {
     switch (m) {
-        case Mount::FrontCam:
-            return "FrontCam";
-        case Mount::SideCamL:
-            return "SideCamL";
-        case Mount::SideCamR:
-            return "SideCamR";
-        case Mount::RearCam:
-            return "RearCam";
-        case Mount::FrontRadar:
-            return "FrontRadar";
-        case Mount::RearCornerRadarL:
-            return "RearCornerRadarL";
-        case Mount::RearCornerRadarR:
-            return "RearCornerRadarR";
-        case Mount::IMU:
-            return "IMU";
-        case Mount::LiDAR2D:
-            return "LiDAR2D";
-        default:
-            return "Unknown";
+    case Mount::FrontCam:
+        return "FrontCam";
+    case Mount::SideCamL:
+        return "SideCamL";
+    case Mount::SideCamR:
+        return "SideCamR";
+    case Mount::RearCam:
+        return "RearCam";
+    case Mount::FrontRadar:
+        return "FrontRadar";
+    case Mount::RearCornerRadarL:
+        return "RearCornerRadarL";
+    case Mount::RearCornerRadarR:
+        return "RearCornerRadarR";
+    case Mount::IMU:
+        return "IMU";
+    case Mount::LiDAR2D:
+        return "LiDAR2D";
+    default:
+        return "Unknown";
     }
 }
 
@@ -66,15 +66,15 @@ inline const char* mountToString(Mount m) {
 /// Used in Track.sources and Alert.sources per FR70 schema
 enum SensorSource : uint16_t {
     SRC_NONE = 0,
-    SRC_CAM_F = 1 << 0,   // FrontCam
-    SRC_CAM_L = 1 << 1,   // SideCamL
-    SRC_CAM_R = 1 << 2,   // SideCamR
-    SRC_CAM_B = 1 << 3,   // RearCam
-    SRC_RAD_F = 1 << 4,   // FrontRadar
-    SRC_RAD_L = 1 << 5,   // RearCornerRadarL
-    SRC_RAD_R = 1 << 6,   // RearCornerRadarR
-    SRC_IMU = 1 << 7,     // IMU
-    SRC_LIDAR = 1 << 8    // LiDAR2D - reserved, not implemented
+    SRC_CAM_F = 1 << 0, // FrontCam
+    SRC_CAM_L = 1 << 1, // SideCamL
+    SRC_CAM_R = 1 << 2, // SideCamR
+    SRC_CAM_B = 1 << 3, // RearCam
+    SRC_RAD_F = 1 << 4, // FrontRadar
+    SRC_RAD_L = 1 << 5, // RearCornerRadarL
+    SRC_RAD_R = 1 << 6, // RearCornerRadarR
+    SRC_IMU = 1 << 7,   // IMU
+    SRC_LIDAR = 1 << 8  // LiDAR2D - reserved, not implemented
 };
 
 /// Combine sensor sources with bitwise OR
@@ -82,7 +82,7 @@ inline SensorSource operator|(SensorSource a, SensorSource b) {
     return static_cast<SensorSource>(static_cast<uint16_t>(a) | static_cast<uint16_t>(b));
 }
 
-inline SensorSource& operator|=(SensorSource& a, SensorSource b) {
+inline SensorSource &operator|=(SensorSource &a, SensorSource b) {
     a = a | b;
     return a;
 }
@@ -94,14 +94,13 @@ inline SensorSource& operator|=(SensorSource& a, SensorSource b) {
 /// Authoritative frame/packet header for ALL sensor payloads
 /// Per Section 4.2.1 of proposal
 struct Header {
-    uint64_t t_device_ns;  // Device clock if provided (0 if unavailable)
-    uint64_t t_ingest_ns;  // AUTHORITATIVE: receive time (CLOCK_MONOTONIC_RAW)
-    Mount mount;           // Which mount this data came from
-    uint32_t seq;          // Per-mount sequence counter (monotonic)
-    bool healthy;          // Device/ingest health bit
+    uint64_t t_device_ns; // Device clock if provided (0 if unavailable)
+    uint64_t t_ingest_ns; // AUTHORITATIVE: receive time (CLOCK_MONOTONIC_RAW)
+    Mount mount;          // Which mount this data came from
+    uint32_t seq;         // Per-mount sequence counter (monotonic)
+    bool healthy;         // Device/ingest health bit
 
-    Header()
-        : t_device_ns(0), t_ingest_ns(0), mount(Mount::FrontCam), seq(0), healthy(true) {}
+    Header() : t_device_ns(0), t_ingest_ns(0), mount(Mount::FrontCam), seq(0), healthy(true) {}
 
     Header(uint64_t t_ingest, Mount m, uint32_t s, bool h = true)
         : t_device_ns(0), t_ingest_ns(t_ingest), mount(m), seq(s), healthy(h) {}
@@ -119,8 +118,8 @@ struct CameraFrameData {
     int width;
     int height;
     int channels;
-    std::vector<uint8_t> data;  // BGR pixel data (row-major) - optional
-    cv::Mat frame;              // OpenCV Mat for frame data
+    std::vector<uint8_t> data; // BGR pixel data (row-major) - optional
+    cv::Mat frame;             // OpenCV Mat for frame data
 
     CameraFrameData() : width(0), height(0), channels(3) {}
 };
@@ -128,21 +127,16 @@ struct CameraFrameData {
 /// Single radar target (kept in radar frame until Stage E fusion)
 /// Per Section 4.2.2 of proposal
 struct RadarTarget {
-    float range_m;       // Radial distance to target
-    float azimuth_rad;   // Angle in radar frame (+left)
-    float radial_vel_mps;  // Toward-negative, away-positive
-    float rcs_db;        // Radar cross section (dBsm)
-    float sigma_r;       // Measurement stdev for range
-    float sigma_az;      // Measurement stdev for azimuth
-    float sigma_v;       // Measurement stdev for velocity
+    float range_m;        // Radial distance to target
+    float azimuth_rad;    // Angle in radar frame (+left)
+    float radial_vel_mps; // Toward-negative, away-positive
+    float rcs_db;         // Radar cross section (dBsm)
+    float sigma_r;        // Measurement stdev for range
+    float sigma_az;       // Measurement stdev for azimuth
+    float sigma_v;        // Measurement stdev for velocity
 
     RadarTarget()
-        : range_m(0),
-          azimuth_rad(0),
-          radial_vel_mps(0),
-          rcs_db(0),
-          sigma_r(0.5f),
-          sigma_az(0.05f),
+        : range_m(0), azimuth_rad(0), radial_vel_mps(0), rcs_db(0), sigma_r(0.5f), sigma_az(0.05f),
           sigma_v(0.2f) {}
 };
 
@@ -152,29 +146,24 @@ struct RadarTargets {
     std::vector<RadarTarget> targets;
 
     RadarTargets() = default;
-    explicit RadarTargets(const Header& header) : h(header) {}
+    explicit RadarTargets(const Header &header) : h(header) {}
 };
 
 /// IMU sample (high-rate: ≥100 Hz)
 /// Per Section 4.2.2 - sensor frame coordinates
 /// Extended for BNO085 data from Pi
 struct ImuSample {
-    uint64_t t_capture;             // Timestamp (nanoseconds)
-    std::array<float, 3> accel;     // Accelerometer [ax, ay, az] m/s²
-    std::array<float, 3> gyro;      // Gyroscope [wx, wy, wz] rad/s
-    std::array<float, 3> mag;       // Magnetometer [mx, my, mz] µT (optional)
-    std::array<float, 4> quat;      // Quaternion [w, x, y, z] (optional)
-    float temperature;              // Temperature °C
-    uint8_t calibration_status;     // BNO085 calibration 0-3
+    uint64_t t_capture;         // Timestamp (nanoseconds)
+    std::array<float, 3> accel; // Accelerometer [ax, ay, az] m/s²
+    std::array<float, 3> gyro;  // Gyroscope [wx, wy, wz] rad/s
+    std::array<float, 3> mag;   // Magnetometer [mx, my, mz] µT (optional)
+    std::array<float, 4> quat;  // Quaternion [w, x, y, z] (optional)
+    float temperature;          // Temperature °C
+    uint8_t calibration_status; // BNO085 calibration 0-3
 
-    ImuSample() 
-        : t_capture(0),
-          accel{0, 0, 0}, 
-          gyro{0, 0, 0}, 
-          mag{0, 0, 0},
-          quat{1, 0, 0, 0},
-          temperature(0),
-          calibration_status(0) {}
+    ImuSample()
+        : t_capture(0), accel{0, 0, 0}, gyro{0, 0, 0}, mag{0, 0, 0}, quat{1, 0, 0, 0},
+          temperature(0), calibration_status(0) {}
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -196,41 +185,46 @@ enum class ObjectClass : uint8_t {
 /// Convert COCO class ID to ObjectClass
 inline ObjectClass cocoToObjectClass(int coco_id) {
     switch (coco_id) {
-        case 0: return ObjectClass::Person;
-        case 1: return ObjectClass::Bicycle;
-        case 2: return ObjectClass::Car;
-        case 3: return ObjectClass::Motorcycle;
-        case 5: return ObjectClass::Bus;
-        case 7: return ObjectClass::Truck;
-        default: return ObjectClass::Unknown;
+    case 0:
+        return ObjectClass::Person;
+    case 1:
+        return ObjectClass::Bicycle;
+    case 2:
+        return ObjectClass::Car;
+    case 3:
+        return ObjectClass::Motorcycle;
+    case 5:
+        return ObjectClass::Bus;
+    case 7:
+        return ObjectClass::Truck;
+    default:
+        return ObjectClass::Unknown;
     }
 }
 
 /// Single detection from camera (Stage B output)
 /// Per Section 4.2.2 of proposal
 struct Det {
-    cv::Rect2f box_px;      // [x, y, w, h] in pixels (after preproc)
-    cv::Point2f centroid;   // Center point in pixels (for fusion)
-    int cls;                // Class ID (ObjectClass enum value)
-    float score;            // Confidence score [0, 1]
-    
+    cv::Rect2f box_px;    // [x, y, w, h] in pixels (after preproc)
+    cv::Point2f centroid; // Center point in pixels (for fusion)
+    int cls;              // Class ID (ObjectClass enum value)
+    float score;          // Confidence score [0, 1]
+
     Det() : box_px(), centroid(), cls(static_cast<int>(ObjectClass::Unknown)), score(0.0f) {}
-    
-    Det(const cv::Rect2f& box, int class_id, float confidence)
-        : box_px(box), 
-          centroid(box.x + box.width / 2.0f, box.y + box.height / 2.0f),
-          cls(class_id), 
+
+    Det(const cv::Rect2f &box, int class_id, float confidence)
+        : box_px(box), centroid(box.x + box.width / 2.0f, box.y + box.height / 2.0f), cls(class_id),
           score(confidence) {}
 };
 
 /// Batch of detections from a single frame
 /// Per Section 4.2.2 of proposal
 struct DetBatch {
-    Header h;                       // Inherited from source frame
-    std::vector<Det> dets;          // All detections in frame
-    uint64_t inference_time_us;     // Inference latency (microseconds)
-    cv::Mat frame;                  // Undistorted frame for visualization (optional)
-    
+    Header h;                   // Inherited from source frame
+    std::vector<Det> dets;      // All detections in frame
+    uint64_t inference_time_us; // Inference latency (microseconds)
+    cv::Mat frame;              // Undistorted frame for visualization (optional)
+
     DetBatch() : inference_time_us(0) {}
 };
 
@@ -241,11 +235,11 @@ struct DetBatch {
 /// Network packet types from Raspberry Pi 4
 /// Used by NetworkIngest to demultiplex incoming stream
 enum class NetPacketType : uint8_t {
-    RearCamera = 0x01,    // MJPEG-encoded frame
-    RearRadarL = 0x02,    // Left rear corner radar data
-    RearRadarR = 0x03,    // Right rear corner radar data
-    Heartbeat = 0xFE,     // Keep-alive ping
-    Error = 0xFF          // Error indication
+    RearCamera = 0x01, // MJPEG-encoded frame
+    RearRadarL = 0x02, // Left rear corner radar data
+    RearRadarR = 0x03, // Right rear corner radar data
+    Heartbeat = 0xFE,  // Keep-alive ping
+    Error = 0xFF       // Error indication
 };
 
 /// Magic word for packet validation (0xADA5DA7A = "ADAS DATA")
@@ -255,16 +249,16 @@ constexpr uint32_t NET_MAGIC_WORD = 0xADA5DA7A;
 /// All multi-byte fields are little-endian
 #pragma pack(push, 1)
 struct NetPacketHeader {
-    uint32_t magic;          // Must be NET_MAGIC_WORD
-    uint8_t type;            // NetPacketType
-    uint8_t reserved;        // Padding for alignment
-    uint16_t flags;          // Reserved for future use
-    uint32_t payload_size;   // Size of payload in bytes
-    uint32_t seq;            // Sequence number (per-type)
-    uint64_t pi_timestamp;   // Pi's local timestamp (informational only)
+    uint32_t magic;        // Must be NET_MAGIC_WORD
+    uint8_t type;          // NetPacketType
+    uint8_t reserved;      // Padding for alignment
+    uint16_t flags;        // Reserved for future use
+    uint32_t payload_size; // Size of payload in bytes
+    uint32_t seq;          // Sequence number (per-type)
+    uint64_t pi_timestamp; // Pi's local timestamp (informational only)
 };
 #pragma pack(pop)
 
 static_assert(sizeof(NetPacketHeader) == 24, "NetPacketHeader must be 24 bytes");
 
-}  // namespace adas
+} // namespace adas

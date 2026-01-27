@@ -21,22 +21,21 @@ namespace adas {
 /// Based on test_scripts/radar_freq_test.cpp which demonstrated ≥20Hz data rate.
 ///
 class RadarIngest {
-public:
+  public:
     /// Constructor
     /// @param mount Mount identity (should be FrontRadar)
     /// @param port Serial port path (e.g., "/dev/ttyACM0")
     /// @param queue Output SPSC queue for radar targets
     /// @param config Radar configuration (baud rate, timeout)
-    RadarIngest(Mount mount, const std::string& port,
-                SPSCQueue<RadarTargets, 8>& queue,
-                const RadarConfig& config);
+    RadarIngest(Mount mount, const std::string &port, SPSCQueue<RadarTargets, 8> &queue,
+                const RadarConfig &config);
 
     /// Destructor
     ~RadarIngest();
 
     // Non-copyable
-    RadarIngest(const RadarIngest&) = delete;
-    RadarIngest& operator=(const RadarIngest&) = delete;
+    RadarIngest(const RadarIngest &) = delete;
+    RadarIngest &operator=(const RadarIngest &) = delete;
 
     /// Start ingest thread
     void start();
@@ -62,7 +61,7 @@ public:
     };
     Stats getStats() const;
 
-private:
+  private:
     /// Thread entry point
     void run();
 
@@ -70,14 +69,14 @@ private:
     bool setupSerialPort();
 
     /// Read complete frame from serial
-    bool readFrame(std::vector<uint8_t>& buffer);
+    bool readFrame(std::vector<uint8_t> &buffer);
 
     /// Parse raw bytes into RadarTargets
-    RadarTargets parseFrame(const uint8_t* data, size_t len, uint64_t t_ingest);
+    RadarTargets parseFrame(const uint8_t *data, size_t len, uint64_t t_ingest);
 
     Mount mount_;
     std::string port_;
-    SPSCQueue<RadarTargets, 8>& queue_;
+    SPSCQueue<RadarTargets, 8> &queue_;
     RadarConfig config_;
 
     int fd_{-1};
@@ -97,4 +96,4 @@ private:
     std::atomic<double> rate_hz_{0.0};
 };
 
-}  // namespace adas
+} // namespace adas

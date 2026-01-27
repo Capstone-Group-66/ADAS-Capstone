@@ -25,18 +25,18 @@ namespace adas {
 /// 3. Test rate verification (FR4: ≥100 Hz)
 ///
 class IMUIngest {
-public:
+  public:
     /// Constructor
     /// @param queue Output SPSC queue for IMU samples
     /// @param config IMU configuration (bus, rate, protocol)
-    IMUIngest(SPSCQueue<ImuSample, 32>& queue, const IMUConfig& config);
+    IMUIngest(SPSCQueue<ImuSample, 32> &queue, const IMUConfig &config);
 
     /// Destructor
     ~IMUIngest();
 
     // Non-copyable
-    IMUIngest(const IMUIngest&) = delete;
-    IMUIngest& operator=(const IMUIngest&) = delete;
+    IMUIngest(const IMUIngest &) = delete;
+    IMUIngest &operator=(const IMUIngest &) = delete;
 
     /// Start ingest thread
     void start();
@@ -57,7 +57,7 @@ public:
     };
     Stats getStats() const;
 
-private:
+  private:
     /// Thread entry point
     void run();
 
@@ -69,7 +69,7 @@ private:
     /// @return IMU sample with accelerometer and gyroscope data
     ImuSample readSample();
 
-    SPSCQueue<ImuSample, 32>& queue_;
+    SPSCQueue<ImuSample, 32> &queue_;
     IMUConfig config_;
 
     int fd_{-1};
@@ -83,4 +83,4 @@ private:
     std::atomic<double> rate_hz_{0.0};
 };
 
-}  // namespace adas
+} // namespace adas

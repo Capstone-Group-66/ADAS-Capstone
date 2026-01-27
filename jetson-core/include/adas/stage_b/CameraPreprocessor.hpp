@@ -15,8 +15,8 @@ namespace adas {
 
 /// CameraIntrinsics loaded from calibration YAML
 struct CameraIntrinsics {
-    cv::Mat camera_matrix;      // 3x3 intrinsic matrix (fx, fy, cx, cy)
-    cv::Mat dist_coeffs;        // Distortion coefficients (k1, k2, p1, p2, k3)
+    cv::Mat camera_matrix; // 3x3 intrinsic matrix (fx, fy, cx, cy)
+    cv::Mat dist_coeffs;   // Distortion coefficients (k1, k2, p1, p2, k3)
     int image_width;
     int image_height;
     double rms_error;
@@ -30,13 +30,13 @@ class CameraPreprocessor {
     /// Constructor - loads calibration for the given mount
     /// @param mount Camera mount to load calibration for
     /// @param calib_dir Directory containing calibration YAML files
-    explicit CameraPreprocessor(Mount mount, const std::string& calib_dir = "config/calibration");
+    explicit CameraPreprocessor(Mount mount, const std::string &calib_dir = "config/calibration");
 
     /// Check if calibration was loaded successfully
     bool isCalibrated() const { return calibrated_; }
 
     /// Get loaded intrinsics (for downstream use in projection)
-    const CameraIntrinsics& getIntrinsics() const { return intrinsics_; }
+    const CameraIntrinsics &getIntrinsics() const { return intrinsics_; }
 
     /// Get the valid image region after undistortion
     cv::Rect getROI() const { return roi_; }
@@ -45,16 +45,16 @@ class CameraPreprocessor {
     /// @param input Raw camera frame (BGR)
     /// @param crop_to_roi If true, crop result to valid ROI
     /// @return Undistorted frame (or input unchanged if not calibrated)
-    cv::Mat process(const cv::Mat& input, bool crop_to_roi = false);
+    cv::Mat process(const cv::Mat &input, bool crop_to_roi = false);
 
     /// Process frame data from queue
     /// @param input CameraFrameData from Stage A
     /// @param crop_to_roi If true, crop result to valid ROI
     /// @return Processed CameraFrameData with undistorted image
-    CameraFrameData process(const CameraFrameData& input, bool crop_to_roi = false);
+    CameraFrameData process(const CameraFrameData &input, bool crop_to_roi = false);
 
   private:
-    bool loadCalibration(const std::string& yaml_path);
+    bool loadCalibration(const std::string &yaml_path);
     void computeUndistortMaps();
 
     Mount mount_;

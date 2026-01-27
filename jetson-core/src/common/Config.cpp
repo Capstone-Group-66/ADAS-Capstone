@@ -43,13 +43,13 @@ Config ConfigLoader::loadConfig(const std::string &path) {
     // In production, use yaml-cpp library
     std::istringstream stream(content);
     std::string line;
-    std::string current_section;  // Track which section we're in
+    std::string current_section; // Track which section we're in
 
     while (std::getline(stream, line)) {
         // Check indentation to determine if this is a section header
         size_t indent = line.find_first_not_of(" \t");
         std::string trimmed = trim(line);
-        
+
         if (trimmed.empty() || trimmed[0] == '#') {
             continue;
         }
@@ -62,7 +62,7 @@ Config ConfigLoader::loadConfig(const std::string &path) {
 
         std::string key = trim(trimmed.substr(0, colonPos));
         std::string value = trim(trimmed.substr(colonPos + 1));
-        
+
         // If value is empty, this is a section header
         if (value.empty() || value[0] == '#') {
             if (indent == 0) {
@@ -115,7 +115,7 @@ Config ConfigLoader::loadConfig(const std::string &path) {
         // Front radar config
         else if (current_section == "front_radar") {
             if (key == "port") {
-                config.front_radar.port = value;  // String, not int!
+                config.front_radar.port = value; // String, not int!
             } else if (key == "baud_rate") {
                 config.front_radar.baud_rate = std::stoi(value);
             } else if (key == "poll_timeout_ms") {
@@ -171,8 +171,9 @@ HardwareMap ConfigLoader::loadHardwareMap(const std::string &path) {
             // Parse mount -> path mappings
             // Helper lambda to extract value
             auto extractValue = [&line]() -> std::string {
-                size_t colon = line.find(':');  // Find FIRST colon (after key name)
-                if (colon == std::string::npos) return "";
+                size_t colon = line.find(':'); // Find FIRST colon (after key name)
+                if (colon == std::string::npos)
+                    return "";
                 size_t quote1 = line.find('"', colon);
                 size_t quote2 = line.find('"', quote1 + 1);
                 if (quote1 != std::string::npos && quote2 != std::string::npos) {

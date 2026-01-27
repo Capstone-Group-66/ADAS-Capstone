@@ -142,12 +142,12 @@ ImuSample IMUIngest::readSample() {
 
     ImuSample sample;
     sample.t_capture = t_ingest;
-    sample.accel = {0.0f, 0.0f, 9.81f};  // Stub: gravity on Z
+    sample.accel = {0.0f, 0.0f, 9.81f}; // Stub: gravity on Z
     sample.gyro = {0.0f, 0.0f, 0.0f};
     sample.mag = {0.0f, 0.0f, 0.0f};
-    sample.quat = {1.0f, 0.0f, 0.0f, 0.0f};  // Identity quaternion
+    sample.quat = {1.0f, 0.0f, 0.0f, 0.0f}; // Identity quaternion
     sample.temperature = 25.0f;
-    sample.calibration_status = 0;  // Not calibrated (stub)
+    sample.calibration_status = 0; // Not calibrated (stub)
 
     return sample;
 }

@@ -11,7 +11,7 @@ namespace adas {
 /// Unified clock wrapper using CLOCK_MONOTONIC_RAW
 /// This is the AUTHORITATIVE time source for all sensor timestamps
 class Clock {
-public:
+  public:
     /// Get current time in nanoseconds
     /// This is the authoritative timestamp for all ingest operations
     static uint64_t now_ns() {
@@ -19,13 +19,11 @@ public:
         // Windows fallback for development (not used on Jetson)
         struct timespec ts;
         timespec_get(&ts, TIME_UTC);
-        return static_cast<uint64_t>(ts.tv_sec) * NS_PER_SEC +
-               static_cast<uint64_t>(ts.tv_nsec);
+        return static_cast<uint64_t>(ts.tv_sec) * NS_PER_SEC + static_cast<uint64_t>(ts.tv_nsec);
 #else
         struct timespec ts;
         clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-        return static_cast<uint64_t>(ts.tv_sec) * NS_PER_SEC +
-               static_cast<uint64_t>(ts.tv_nsec);
+        return static_cast<uint64_t>(ts.tv_sec) * NS_PER_SEC + static_cast<uint64_t>(ts.tv_nsec);
 #endif
     }
 
@@ -68,11 +66,11 @@ public:
     static constexpr uint64_t MS_PER_SEC = 1'000ULL;
 
     // Pipeline timing constants (from componentConfig.yaml)
-    static constexpr uint64_t FUSION_PERIOD_MS = 50;     // 20 Hz
-    static constexpr uint64_t MAX_SKEW_MS = 5;           // FR6
-    static constexpr uint64_t BUFFER_MS = 150;           // Buffer depth
-    static constexpr uint64_t LATE_DROP_MS = 100;        // Drop threshold
-    static constexpr int WARMUP_TICKS = 40;              // ~2 seconds
+    static constexpr uint64_t FUSION_PERIOD_MS = 50; // 20 Hz
+    static constexpr uint64_t MAX_SKEW_MS = 5;       // FR6
+    static constexpr uint64_t BUFFER_MS = 150;       // Buffer depth
+    static constexpr uint64_t LATE_DROP_MS = 100;    // Drop threshold
+    static constexpr int WARMUP_TICKS = 40;          // ~2 seconds
 };
 
-}  // namespace adas
+} // namespace adas

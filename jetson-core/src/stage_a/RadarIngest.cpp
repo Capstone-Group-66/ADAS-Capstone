@@ -90,11 +90,11 @@ void RadarIngest::run() {
 
             // Parse latest frame to get target count for debug
             RadarTargets latest = parseFrame(buffer.data(), buffer.size(), Clock::now_ns());
-            
+
             std::cout << "[RadarIngest] " << mountToString(mount_) << " rate: " << hz << " Hz"
                       << " | Targets: " << latest.targets.size();
             if (!latest.targets.empty()) {
-                std::cout << " | Closest: range=" << latest.targets[0].range_m 
+                std::cout << " | Closest: range=" << latest.targets[0].range_m
                           << "m, vel=" << latest.targets[0].radial_vel_mps << "m/s";
             }
             std::cout << std::endl;
@@ -247,19 +247,19 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len, uint64_t t
     // and create a target when we have valid range data.
 
     std::string str(reinterpret_cast<const char *>(data), len);
-    
+
     // Static variables to accumulate range/velocity across frames
     // (since they come on separate lines)
     static float last_range = 0.0f;
     static float last_velocity = 0.0f;
     static bool has_range = false;
-    
+
     // Look for range: "m",<value>
     size_t range_pos = str.find("\"m\",");
     if (range_pos != std::string::npos) {
-        range_pos += 4;  // Skip "m",
+        range_pos += 4; // Skip "m",
         size_t num_end = range_pos;
-        while (num_end < str.size() && 
+        while (num_end < str.size() &&
                (std::isdigit(str[num_end]) || str[num_end] == '.' || str[num_end] == '-')) {
             ++num_end;
         }
@@ -267,32 +267,34 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len, uint64_t t
             try {
                 last_range = std::stof(str.substr(range_pos, num_end - range_pos));
                 has_range = true;
-            } catch (...) {}
+            } catch (...) {
+            }
         }
     }
-    
+
     // Look for velocity: "mps",<value>
     size_t vel_pos = str.find("\"mps\",");
     if (vel_pos != std::string::npos) {
-        vel_pos += 6;  // Skip "mps",
+        vel_pos += 6; // Skip "mps",
         size_t num_end = vel_pos;
-        while (num_end < str.size() && 
+        while (num_end < str.size() &&
                (std::isdigit(str[num_end]) || str[num_end] == '.' || str[num_end] == '-')) {
             ++num_end;
         }
         if (num_end > vel_pos) {
             try {
                 last_velocity = std::stof(str.substr(vel_pos, num_end - vel_pos));
-            } catch (...) {}
+            } catch (...) {
+            }
         }
     }
-    
+
     // Create a target if we have valid range data
-    if (has_range && last_range > 0.1f) {  // Ignore very close readings
+    if (has_range && last_range > 0.1f) { // Ignore very close readings
         RadarTarget target;
         target.range_m = last_range;
-        target.radial_vel_mps = last_velocity;  // Positive = closing, negative = opening
-        target.azimuth_rad = 0.0f;  // OPS243-A doesn't provide azimuth
+        target.radial_vel_mps = last_velocity; // Positive = closing, negative = opening
+        target.azimuth_rad = 0.0f;             // OPS243-A doesn't provide azimuth
         target.rcs_db = 0.0f;
         target.sigma_r = 0.1f;
         target.sigma_v = 0.05f;

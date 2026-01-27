@@ -17,25 +17,24 @@ namespace adas {
 ///
 /// @tparam T Element type (must be movable)
 /// @tparam Capacity Maximum number of elements (default 8)
-template <typename T, size_t Capacity = 8>
-class SPSCQueue {
+template <typename T, size_t Capacity = 8> class SPSCQueue {
     static_assert(Capacity > 0, "Capacity must be positive");
     static_assert((Capacity & (Capacity - 1)) == 0 || true,
                   "Capacity need not be power of 2, but modulo is used");
 
-public:
+  public:
     SPSCQueue() = default;
 
     // Non-copyable, non-movable (queues own their buffer)
-    SPSCQueue(const SPSCQueue&) = delete;
-    SPSCQueue& operator=(const SPSCQueue&) = delete;
-    SPSCQueue(SPSCQueue&&) = delete;
-    SPSCQueue& operator=(SPSCQueue&&) = delete;
+    SPSCQueue(const SPSCQueue &) = delete;
+    SPSCQueue &operator=(const SPSCQueue &) = delete;
+    SPSCQueue(SPSCQueue &&) = delete;
+    SPSCQueue &operator=(SPSCQueue &&) = delete;
 
     /// Push item to queue (producer thread only)
     /// @param item Item to push (will be moved)
     /// @return true if successful, false if queue full (increments drop counter)
-    bool try_push(T&& item) {
+    bool try_push(T &&item) {
         const size_t curr_tail = tail_.load(std::memory_order_relaxed);
         const size_t next_tail = next_index(curr_tail);
 
@@ -51,7 +50,7 @@ public:
     }
 
     /// Push item to queue (lvalue version)
-    bool try_push(const T& item) {
+    bool try_push(const T &item) {
         T copy = item;
         return try_push(std::move(copy));
     }
@@ -59,7 +58,7 @@ public:
     /// Pop item from queue (consumer thread only)
     /// @param item Output parameter for popped item
     /// @return true if item retrieved, false if queue empty
-    bool try_pop(T& item) {
+    bool try_pop(T &item) {
         const size_t curr_head = head_.load(std::memory_order_relaxed);
 
         // Check if empty (head caught up to tail)
@@ -83,7 +82,7 @@ public:
 
     /// Peek at front item without consuming (useful for timestamp checks)
     /// Note: Not thread-safe for modifications, only for reads
-    std::optional<const T*> peek() const {
+    std::optional<const T *> peek() const {
         const size_t curr_head = head_.load(std::memory_order_relaxed);
         if (curr_head == tail_.load(std::memory_order_acquire)) {
             return std::nullopt;
@@ -93,8 +92,7 @@ public:
 
     /// Check if queue is empty
     bool empty() const {
-        return head_.load(std::memory_order_relaxed) ==
-               tail_.load(std::memory_order_relaxed);
+        return head_.load(std::memory_order_relaxed) == tail_.load(std::memory_order_relaxed);
     }
 
     /// Check if queue is full
@@ -128,7 +126,7 @@ public:
         tail_.store(0, std::memory_order_relaxed);
     }
 
-private:
+  private:
     /// Compute next index with wrap-around
     static constexpr size_t next_index(size_t idx) { return (idx + 1) % (Capacity + 1); }
 
@@ -141,4 +139,4 @@ private:
     alignas(64) std::atomic<uint64_t> drops_{0};
 };
 
-}  // namespace adas
+} // namespace adas

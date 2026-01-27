@@ -30,23 +30,22 @@ namespace adas {
 ///   t_ingest = t_arrival - latency_offset_ns
 ///
 class NetworkIngest {
-public:
+  public:
     /// Constructor
     /// @param cam_queue Output queue for RearCam frames
     /// @param radar_l_queue Output queue for RearCornerRadarL
     /// @param radar_r_queue Output queue for RearCornerRadarR
     /// @param config Network configuration (port, latency correction)
-    NetworkIngest(SPSCQueue<CameraFrameData, 8>& cam_queue,
-                  SPSCQueue<RadarTargets, 8>& radar_l_queue,
-                  SPSCQueue<RadarTargets, 8>& radar_r_queue,
-                  const NetworkConfig& config);
+    NetworkIngest(SPSCQueue<CameraFrameData, 8> &cam_queue,
+                  SPSCQueue<RadarTargets, 8> &radar_l_queue,
+                  SPSCQueue<RadarTargets, 8> &radar_r_queue, const NetworkConfig &config);
 
     /// Destructor - ensures thread is stopped and sockets closed
     ~NetworkIngest();
 
     // Non-copyable
-    NetworkIngest(const NetworkIngest&) = delete;
-    NetworkIngest& operator=(const NetworkIngest&) = delete;
+    NetworkIngest(const NetworkIngest &) = delete;
+    NetworkIngest &operator=(const NetworkIngest &) = delete;
 
     /// Start network listener thread
     void start();
@@ -75,7 +74,7 @@ public:
     };
     Stats getStats() const;
 
-private:
+  private:
     /// Thread entry point
     void run();
 
@@ -86,20 +85,18 @@ private:
     bool acceptConnection();
 
     /// Read exact number of bytes from socket
-    bool readExact(uint8_t* buffer, size_t length);
+    bool readExact(uint8_t *buffer, size_t length);
 
     /// Process received packet
-    void handlePacket(const NetPacketHeader& header, 
-                      const std::vector<uint8_t>& payload,
+    void handlePacket(const NetPacketHeader &header, const std::vector<uint8_t> &payload,
                       uint64_t t_arrival);
 
     /// Decode MJPEG payload to CameraFrameData
-    CameraFrameData decodeCameraPacket(const uint8_t* payload, size_t size,
-                                        uint64_t t_ingest);
+    CameraFrameData decodeCameraPacket(const uint8_t *payload, size_t size, uint64_t t_ingest);
 
     /// Parse radar payload to RadarTargets
-    RadarTargets parseRadarPacket(const uint8_t* payload, size_t size,
-                                   Mount mount, uint64_t t_ingest);
+    RadarTargets parseRadarPacket(const uint8_t *payload, size_t size, Mount mount,
+                                  uint64_t t_ingest);
 
     /// Close client connection
     void closeClient();
@@ -108,9 +105,9 @@ private:
     void closeServer();
 
     // Queues
-    SPSCQueue<CameraFrameData, 8>& cam_queue_;
-    SPSCQueue<RadarTargets, 8>& radar_l_queue_;
-    SPSCQueue<RadarTargets, 8>& radar_r_queue_;
+    SPSCQueue<CameraFrameData, 8> &cam_queue_;
+    SPSCQueue<RadarTargets, 8> &radar_l_queue_;
+    SPSCQueue<RadarTargets, 8> &radar_r_queue_;
 
     // Configuration
     NetworkConfig config_;
@@ -141,4 +138,4 @@ private:
     std::atomic<uint64_t> reconnects_{0};
 };
 
-}  // namespace adas
+} // namespace adas

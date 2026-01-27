@@ -31,18 +31,18 @@ namespace adas {
 /// - Implement graceful shutdown (FR93)
 ///
 class IngestManager {
-public:
+  public:
     /// Constructor
     /// @param config Pipeline configuration
     /// @param hw_map Hardware device mapping (from DeviceWizard)
-    IngestManager(const Config& config, const HardwareMap& hw_map);
+    IngestManager(const Config &config, const HardwareMap &hw_map);
 
     /// Destructor - stops all threads
     ~IngestManager();
 
     // Non-copyable
-    IngestManager(const IngestManager&) = delete;
-    IngestManager& operator=(const IngestManager&) = delete;
+    IngestManager(const IngestManager &) = delete;
+    IngestManager &operator=(const IngestManager &) = delete;
 
     /// Start all ingest threads
     void start();
@@ -59,14 +59,14 @@ public:
 
     /// Get camera queue by mount
     /// @throws std::out_of_range if mount is not a camera
-    SPSCQueue<CameraFrameData, 8>& getCameraQueue(Mount mount);
+    SPSCQueue<CameraFrameData, 8> &getCameraQueue(Mount mount);
 
     /// Get radar queue by mount
     /// @throws std::out_of_range if mount is not a radar
-    SPSCQueue<RadarTargets, 8>& getRadarQueue(Mount mount);
+    SPSCQueue<RadarTargets, 8> &getRadarQueue(Mount mount);
 
     /// Get IMU queue
-    SPSCQueue<ImuSample, 32>& getIMUQueue() { return imu_queue_; }
+    SPSCQueue<ImuSample, 32> &getIMUQueue() { return imu_queue_; }
 
     // ═══════════════════════════════════════════════════════════════════════════
     //                             HEALTH MONITORING
@@ -86,7 +86,7 @@ public:
     /// Print status to stdout
     void printStatus() const;
 
-private:
+  private:
     void launchDirectCameras();
     void launchNetworkIngest();
     void launchFrontRadar();
@@ -139,4 +139,4 @@ private:
     std::atomic<bool> running_{false};
 };
 
-}  // namespace adas
+} // namespace adas

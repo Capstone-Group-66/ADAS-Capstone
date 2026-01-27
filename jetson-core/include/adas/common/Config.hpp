@@ -18,19 +18,19 @@ namespace adas {
 
 /// Mount extrinsics (position and orientation in ego frame)
 struct MountExtrinsics {
-    std::array<float, 3> xyz_m;     // Position [x, y, z] in meters
-    std::array<float, 3> rpy_deg;   // Rotation [roll, pitch, yaw] in degrees
+    std::array<float, 3> xyz_m;   // Position [x, y, z] in meters
+    std::array<float, 3> rpy_deg; // Rotation [roll, pitch, yaw] in degrees
 
     MountExtrinsics() : xyz_m{0, 0, 0}, rpy_deg{0, 0, 0} {}
 };
 
 /// Time synchronization parameters (FR6)
 struct TimeConfig {
-    int fusion_hz = 20;               // Fusion tick rate
-    int max_skew_ms = 5;              // Maximum inter-sensor skew
-    int buffer_ms = 150;              // Buffer depth for alignment
-    int late_drop_ms = 100;           // Drop threshold for late frames
-    int warmup_ticks = 40;            // Warmup period (~2 seconds at 20Hz)
+    int fusion_hz = 20;     // Fusion tick rate
+    int max_skew_ms = 5;    // Maximum inter-sensor skew
+    int buffer_ms = 150;    // Buffer depth for alignment
+    int late_drop_ms = 100; // Drop threshold for late frames
+    int warmup_ticks = 40;  // Warmup period (~2 seconds at 20Hz)
 };
 
 /// Camera configuration
@@ -44,7 +44,7 @@ struct CameraConfig {
 /// Network ingest configuration (Pi4 rear sector)
 struct NetworkConfig {
     int port = 9000;
-    int latency_correction_ms = 25;   // Timestamp correction offset
+    int latency_correction_ms = 25; // Timestamp correction offset
     int reconnect_timeout_ms = 5000;
 };
 
@@ -80,7 +80,7 @@ struct Config {
 struct HardwareMap {
     std::string schema_version = "1.0";
     std::string generated_at;
-    std::map<Mount, std::string> mappings;  // Mount -> device path
+    std::map<Mount, std::string> mappings; // Mount -> device path
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -89,26 +89,26 @@ struct HardwareMap {
 
 /// Configuration loader for YAML and JSON files
 class ConfigLoader {
-public:
+  public:
     /// Load componentConfig.yaml
     /// @param path Path to YAML config file
     /// @return Parsed configuration
     /// @throws std::runtime_error if file cannot be read or parsed
-    static Config loadConfig(const std::string& path);
+    static Config loadConfig(const std::string &path);
 
     /// Load hardware_map.json
     /// @param path Path to JSON mapping file
     /// @return Parsed hardware mapping
     /// @throws std::runtime_error if file cannot be read or parsed
-    static HardwareMap loadHardwareMap(const std::string& path);
+    static HardwareMap loadHardwareMap(const std::string &path);
 
     /// Check if hardware_map.json exists
-    static bool hardwareMapExists(const std::string& path);
+    static bool hardwareMapExists(const std::string &path);
 
     /// Save hardware_map.json
     /// @param path Output path
     /// @param map Hardware mapping to save
-    static void saveHardwareMap(const std::string& path, const HardwareMap& map);
+    static void saveHardwareMap(const std::string &path, const HardwareMap &map);
 
     /// Get default config path (relative to executable)
     static std::string getDefaultConfigPath();
@@ -117,4 +117,4 @@ public:
     static std::string getDefaultHardwareMapPath();
 };
 
-}  // namespace adas
+} // namespace adas

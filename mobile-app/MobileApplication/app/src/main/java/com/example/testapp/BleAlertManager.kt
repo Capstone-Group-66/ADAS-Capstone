@@ -1,7 +1,5 @@
 package com.example.testapp
 
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import android.Manifest
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothGatt
@@ -12,6 +10,8 @@ import android.content.Context
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 /**
  * BLE Manager

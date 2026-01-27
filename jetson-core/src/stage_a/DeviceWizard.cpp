@@ -78,7 +78,7 @@ void DeviceWizard::runRegistration(const std::string &output_path, bool show_pre
                 cap.set(cv::CAP_PROP_FRAME_HEIGHT, 480);
                 window_name = "Preview: " + device_path + " (make selection in terminal)";
                 cv::namedWindow(window_name, cv::WINDOW_AUTOSIZE);
-                
+
                 // Show initial frame
                 cv::Mat frame;
                 if (cap.read(frame)) {
@@ -119,7 +119,7 @@ void DeviceWizard::runRegistration(const std::string &output_path, bool show_pre
                     cv::imshow(window_name, frame);
                 }
                 cv::waitKey(100);
-                
+
                 // Check if input is available (non-blocking on Windows is tricky, use blocking)
                 // For simplicity, just do blocking input after showing preview
                 if (std::cin.rdbuf()->in_avail() > 0 || true) {
@@ -348,7 +348,8 @@ void DeviceWizard::printSummary(const std::map<Mount, std::string> &mappings) {
     for (Mount m : direct_mounts) {
         if (mappings.find(m) == mappings.end()) {
             std::cout << "  " << std::left << std::setw(15) << mountToString(m) << " -> "
-                      << std::setw(20) << "(not assigned)" << "\n";
+                      << std::setw(20) << "(not assigned)"
+                      << "\n";
         }
     }
 
@@ -367,56 +368,55 @@ std::string DeviceWizard::getCurrentTimestamp() {
     return oss.str();
 }
 
-void DeviceWizard::runCalibration(const HardwareMap& hw_map, 
-                                   const std::string& calib_dir,
-                                   bool recalibrate) {
+void DeviceWizard::runCalibration(const HardwareMap &hw_map, const std::string &calib_dir,
+                                  bool recalibrate) {
     std::cout << "\n";
     std::cout << "==============================================================\n";
     std::cout << "                    CAMERA CALIBRATION                        \n";
     std::cout << "==============================================================\n";
-    
+
     // Ensure calibration directory exists
     if (!std::filesystem::exists(calib_dir)) {
         std::filesystem::create_directories(calib_dir);
     }
-    
+
     // Get camera mounts from hardware map
-    std::vector<Mount> camera_mounts = {Mount::FrontCam, Mount::SideCamL, 
-                                        Mount::SideCamR, Mount::RearCam};
-    
+    std::vector<Mount> camera_mounts = {Mount::FrontCam, Mount::SideCamL, Mount::SideCamR,
+                                        Mount::RearCam};
+
     int calibrated_count = 0;
-    
+
     for (Mount mount : camera_mounts) {
         auto it = hw_map.mappings.find(mount);
         if (it == hw_map.mappings.end()) {
-            continue;  // Mount not mapped
+            continue; // Mount not mapped
         }
-        
+
         std::string device_path = it->second;
         std::string calib_file = calib_dir + "/" + mountToString(mount) + "_calibration.yaml";
-        
+
         // Check if calibration already exists
         if (!recalibrate && std::filesystem::exists(calib_file)) {
-            std::cout << "[Calibration] " << mountToString(mount) 
+            std::cout << "[Calibration] " << mountToString(mount)
                       << " already calibrated. Skipping.\n";
             continue;
         }
-        
+
         std::cout << "\n";
         std::cout << "==============================================================\n";
         std::cout << "          Camera Calibration: " << mountToString(mount) << "\n";
         std::cout << "==============================================================\n";
         std::cout << "  Device: " << device_path << "\n";
-        
+
         // Create calibrator and run
         CameraCalibrator calibrator;
         auto result = calibrator.runCalibration(device_path, mount, calib_dir);
-        
+
         if (result.has_value()) {
             calibrated_count++;
         }
     }
-    
+
     std::cout << "\n";
     std::cout << "==============================================================\n";
     std::cout << "                 CALIBRATION COMPLETE                         \n";
@@ -425,8 +425,8 @@ void DeviceWizard::runCalibration(const HardwareMap& hw_map,
     std::cout << "==============================================================\n";
 }
 
-void DeviceWizard::registerNetworkDevices(const std::string& hw_map_path,
-                                           const std::string& pi_ip_arg) {
+void DeviceWizard::registerNetworkDevices(const std::string &hw_map_path,
+                                          const std::string &pi_ip_arg) {
     std::cout << "\n";
     std::cout << "==============================================================\n";
     std::cout << "          PI4 NETWORK DEVICE REGISTRATION                     \n";
@@ -437,7 +437,7 @@ void DeviceWizard::registerNetworkDevices(const std::string& hw_map_path,
     std::cout << "    - RearCornerRadarR (via ZMQ port 5557)                    \n";
     std::cout << "    - IMU (via ZMQ port 5558)                                 \n";
     std::cout << "==============================================================\n\n";
-    
+
     // Get Pi IP
     std::string pi_ip = pi_ip_arg;
     if (pi_ip.empty()) {
@@ -445,15 +445,15 @@ void DeviceWizard::registerNetworkDevices(const std::string& hw_map_path,
         std::cin >> pi_ip;
         std::cin.ignore(10000, '\n');
     }
-    
+
     if (pi_ip.empty()) {
         std::cerr << "\n[ERROR] No IP address provided.\n";
         return;
     }
-    
+
     // Test connectivity
     std::cout << "\n[Network] Testing connectivity to " << pi_ip << "...\n";
-    
+
 #ifdef HAS_ZMQ
     // Use ZMQ-based RTT measurement (more accurate)
     double rtt = NetworkReceiver::measureRTT(pi_ip);
@@ -483,17 +483,18 @@ void DeviceWizard::registerNetworkDevices(const std::string& hw_map_path,
             std::cout << "[Network] Status: WARNING - High latency\n";
         }
     }
-    
+
 #ifdef HAS_ZMQ
     // Try ZMQ device discovery
     std::cout << "\n[Network] Attempting device discovery via ZMQ...\n";
     auto devices = NetworkReceiver::discoverDevices(pi_ip, 3000);
-    
+
     if (!devices.empty()) {
         std::cout << "[Network] Discovered " << devices.size() << " devices:\n";
-        for (const auto& dev : devices) {
-            std::string type_str = dev.type == protocol::DeviceType::CAMERA ? "Camera" :
-                                   dev.type == protocol::DeviceType::RADAR ? "Radar" : "IMU";
+        for (const auto &dev : devices) {
+            std::string type_str = dev.type == protocol::DeviceType::CAMERA  ? "Camera"
+                                   : dev.type == protocol::DeviceType::RADAR ? "Radar"
+                                                                             : "IMU";
             std::string status_str = dev.status == protocol::DeviceStatus::OK ? "OK" : "ERROR";
             std::cout << "  - " << type_str << " (" << dev.serial << ") - " << status_str << "\n";
         }
@@ -504,7 +505,7 @@ void DeviceWizard::registerNetworkDevices(const std::string& hw_map_path,
 #else
     std::cout << "[Network] ZMQ not available, registering default devices.\n";
 #endif
-    
+
     // Load existing hardware map or create new one
     HardwareMap hw_map;
     if (std::filesystem::exists(hw_map_path)) {
@@ -515,26 +516,26 @@ void DeviceWizard::registerNetworkDevices(const std::string& hw_map_path,
             std::cout << "\n[Network] Creating new hardware map\n";
         }
     }
-    
+
     hw_map.schema_version = "1.0";
     hw_map.generated_at = getCurrentTimestamp();
-    
+
     // Build network device addresses
     // Format: "zmq://IP:PORT" for network devices
     std::string rear_cam_addr = "zmq://" + pi_ip + ":5555";
     std::string radar_l_addr = "zmq://" + pi_ip + ":5556";
     std::string radar_r_addr = "zmq://" + pi_ip + ":5557";
     std::string imu_addr = "zmq://" + pi_ip + ":5558";
-    
+
     // Add network devices
     hw_map.mappings[Mount::RearCam] = rear_cam_addr;
     hw_map.mappings[Mount::RearCornerRadarL] = radar_l_addr;
     hw_map.mappings[Mount::RearCornerRadarR] = radar_r_addr;
     hw_map.mappings[Mount::IMU] = imu_addr;
-    
+
     // Save updated hardware map
     ConfigLoader::saveHardwareMap(hw_map_path, hw_map);
-    
+
     std::cout << "\n";
     std::cout << "==============================================================\n";
     std::cout << "             NETWORK DEVICES REGISTERED                       \n";
@@ -547,7 +548,7 @@ void DeviceWizard::registerNetworkDevices(const std::string& hw_map_path,
     std::cout << "\nSaved to: " << hw_map_path << "\n";
 }
 
-double DeviceWizard::measureRTT(const std::string& pi_ip) {
+double DeviceWizard::measureRTT(const std::string &pi_ip) {
 #ifdef HAS_ZMQ
     // Use ZMQ-based RTT measurement
     return NetworkReceiver::measureRTT(pi_ip);
@@ -558,20 +559,18 @@ double DeviceWizard::measureRTT(const std::string& pi_ip) {
 #else
     std::string cmd = "ping -c 1 -W 1 " + pi_ip + " > /dev/null 2>&1";
 #endif
-    
+
     auto start = std::chrono::high_resolution_clock::now();
     int result = std::system(cmd.c_str());
     auto end = std::chrono::high_resolution_clock::now();
-    
+
     if (result != 0) {
-        return -1.0;  // Ping failed
+        return -1.0; // Ping failed
     }
-    
+
     double rtt_ms = std::chrono::duration<double, std::milli>(end - start).count();
     return rtt_ms;
 #endif
 }
 
 } // namespace adas
-
-

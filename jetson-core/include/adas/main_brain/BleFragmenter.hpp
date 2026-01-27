@@ -20,7 +20,7 @@ namespace adas {
  */
 constexpr uint16_t DEFAULT_MTU = 23;
 constexpr uint16_t BLE_HEADER_SIZE = 4;
-constexpr uint16_t ATT_OVERHEAD = 3;  // ATT opcode + handle
+constexpr uint16_t ATT_OVERHEAD = 3; // ATT opcode + handle
 
 /**
  * Calculate slice capacity for a given MTU
@@ -44,19 +44,13 @@ inline uint16_t calculateSliceCap(uint16_t mtu) {
  * @param mtu        Current negotiated MTU
  * @return           Vector of framed packets ready for BLE notification
  */
-std::vector<std::vector<uint8_t>> fragmentPayload(
-    uint16_t tickId,
-    const std::vector<uint8_t>& payload,
-    uint16_t mtu = DEFAULT_MTU);
+std::vector<std::vector<uint8_t>>
+fragmentPayload(uint16_t tickId, const std::vector<uint8_t> &payload, uint16_t mtu = DEFAULT_MTU);
 
 /**
  * Create a single BLE frame with header + slice
  */
-std::vector<uint8_t> createFrame(
-    uint16_t tickId,
-    uint8_t seqNo,
-    uint8_t seqMax,
-    const uint8_t* sliceData,
-    size_t sliceLen);
+std::vector<uint8_t> createFrame(uint16_t tickId, uint8_t seqNo, uint8_t seqMax,
+                                 const uint8_t *sliceData, size_t sliceLen);
 
-}  // namespace adas
+} // namespace adas

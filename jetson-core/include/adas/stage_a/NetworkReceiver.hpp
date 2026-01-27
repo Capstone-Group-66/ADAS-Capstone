@@ -16,14 +16,14 @@
 #include <vector>
 
 // Forward declare ZMQ context to avoid header pollution
-typedef void* zmq_context_t;
+typedef void *zmq_context_t;
 
 namespace adas {
 
 /// NetworkReceiver: Receives sensor data from Pi4 via ZMQ
 /// Integrates directly with Stage A queues
 class NetworkReceiver {
-public:
+  public:
     /// Statistics
     struct Stats {
         uint64_t cam_frames = 0;
@@ -47,21 +47,20 @@ public:
 
     /// Constructor
     /// @param pi_ip IP address of Pi4
-    NetworkReceiver(const std::string& pi_ip);
-    
+    NetworkReceiver(const std::string &pi_ip);
+
     /// Destructor - stops all threads and cleans up ZMQ
     ~NetworkReceiver();
 
     // Non-copyable
-    NetworkReceiver(const NetworkReceiver&) = delete;
-    NetworkReceiver& operator=(const NetworkReceiver&) = delete;
+    NetworkReceiver(const NetworkReceiver &) = delete;
+    NetworkReceiver &operator=(const NetworkReceiver &) = delete;
 
     /// Connect and start receiving data
     /// @param cam_queue Queue for RearCam frames
     /// @param imu_queue Queue for IMU samples
     /// @return true if connected successfully
-    bool start(SPSCQueue<CameraFrameData, 8>* cam_queue,
-               SPSCQueue<ImuSample, 32>* imu_queue);
+    bool start(SPSCQueue<CameraFrameData, 8> *cam_queue, SPSCQueue<ImuSample, 32> *imu_queue);
 
     /// Stop receiving and disconnect
     void stop();
@@ -79,15 +78,15 @@ public:
     /// @param pi_ip IP address of Pi4
     /// @param timeout_ms Timeout in milliseconds
     /// @return List of discovered devices, empty if failed
-    static std::vector<DiscoveredDevice> discoverDevices(const std::string& pi_ip, 
-                                                          int timeout_ms = 3000);
+    static std::vector<DiscoveredDevice> discoverDevices(const std::string &pi_ip,
+                                                         int timeout_ms = 3000);
 
     /// Static: Test RTT using ZMQ (more accurate than ping)
     /// @param pi_ip IP address of Pi4
     /// @return RTT in milliseconds, or -1 if failed
-    static double measureRTT(const std::string& pi_ip);
+    static double measureRTT(const std::string &pi_ip);
 
-private:
+  private:
     /// Thread functions
     void cameraThread();
     void radarLThread();
@@ -96,8 +95,8 @@ private:
     void heartbeatThread();
 
     /// Process received message
-    bool processMessage(const uint8_t* data, size_t len, protocol::MessageType expected);
-    
+    bool processMessage(const uint8_t *data, size_t len, protocol::MessageType expected);
+
     /// Build ZMQ address
     std::string buildAddr(int port) const;
 
@@ -105,16 +104,16 @@ private:
     std::string pi_ip_;
 
     // ZMQ context and sockets (void* to avoid zmq.h in header)
-    void* context_ = nullptr;
-    void* cam_socket_ = nullptr;
-    void* radar_l_socket_ = nullptr;
-    void* radar_r_socket_ = nullptr;
-    void* imu_socket_ = nullptr;
-    void* heartbeat_socket_ = nullptr;
+    void *context_ = nullptr;
+    void *cam_socket_ = nullptr;
+    void *radar_l_socket_ = nullptr;
+    void *radar_r_socket_ = nullptr;
+    void *imu_socket_ = nullptr;
+    void *heartbeat_socket_ = nullptr;
 
     // Output queues (not owned)
-    SPSCQueue<CameraFrameData, 8>* cam_queue_ = nullptr;
-    SPSCQueue<ImuSample, 32>* imu_queue_ = nullptr;
+    SPSCQueue<CameraFrameData, 8> *cam_queue_ = nullptr;
+    SPSCQueue<ImuSample, 32> *imu_queue_ = nullptr;
 
     // Threads
     std::thread cam_thread_;
