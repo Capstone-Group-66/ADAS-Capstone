@@ -115,8 +115,7 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
         // Formatting check for CI
         std::cout << "[Fusion] Matched " << (det.cls == 0 ? "person" : "object")
                   << " with radar: range=" << target.range_m << "m"
-                  << ", vel=" << target.radial_vel_mps << "m/s"
-                  << ", TTC="
+                  << ", vel=" << target.radial_vel_mps << "m/s" << ", TTC="
                   << (obj.ttc_s < 100 ? std::to_string((int)obj.ttc_s) + "s"
                                       : "inf")
                   << "\n";

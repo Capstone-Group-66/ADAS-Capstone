@@ -250,8 +250,8 @@ void StageBManager::printStatus() const {
   for (const auto &pipeline : pipelines_) {
     std::cout << "  " << mountToString(pipeline->getMount()) << ": "
               << (pipeline->isHealthy() ? "[OK] " : "[--] ")
-              << pipeline->getFramesProcessed() << " frames, "
-              << "avg " << pipeline->getAvgInferenceTimeUs() / 1000.0 << "ms\n";
+              << pipeline->getFramesProcessed() << " frames, " << "avg "
+              << pipeline->getAvgInferenceTimeUs() / 1000.0 << "ms\n";
   }
 
   std::cout

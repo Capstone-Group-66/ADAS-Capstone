@@ -366,8 +366,7 @@ void DeviceWizard::printSummary(const std::map<Mount, std::string> &mappings) {
   for (Mount m : direct_mounts) {
     if (mappings.find(m) == mappings.end()) {
       std::cout << "  " << std::left << std::setw(15) << mountToString(m)
-                << " -> " << std::setw(20) << "(not assigned)"
-                << "\n";
+                << " -> " << std::setw(20) << "(not assigned)" << "\n";
     }
   }
 

@@ -94,8 +94,7 @@ void RadarIngest::run() {
           parseFrame(buffer.data(), buffer.size(), Clock::now_ns());
 
       std::cout << "[RadarIngest] " << mountToString(mount_) << " rate: " << hz
-                << " Hz"
-                << " | Targets: " << latest.targets.size();
+                << " Hz" << " | Targets: " << latest.targets.size();
       if (!latest.targets.empty()) {
         std::cout << " | Closest: range=" << latest.targets[0].range_m
                   << "m, vel=" << latest.targets[0].radial_vel_mps << "m/s";
