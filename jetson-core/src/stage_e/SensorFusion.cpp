@@ -109,6 +109,7 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera, const RadarT
             obj.ttc_s = computeTTC(target.range_m, target.radial_vel_mps);
 
             if (g_verbose_mode.load()) {
+                // Formatting check for CI
                 std::cout << "[Fusion] Matched " << (det.cls == 0 ? "person" : "object")
                           << " with radar: range=" << target.range_m << "m"
                           << ", vel=" << target.radial_vel_mps << "m/s"

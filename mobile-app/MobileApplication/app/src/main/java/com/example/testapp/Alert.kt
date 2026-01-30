@@ -12,17 +12,21 @@ data class Point(
 @Serializable
 data class Alert(
     val id: String,
-    @SerialName("type") val type: String = "FCW", // Default to FCW if missing
+    // Default to FCW if missing
+    @SerialName("type") val type: String = "FCW",
     val timestamp: Double,
-    val coordinates: List<Point> = emptyList(), // Default to empty list
+    // Default to empty list
+    val coordinates: List<Point> = emptyList(),
 )
 
 @Serializable
 data class TickPayload(
     @SerialName("tick_id") val tickId: Int,
-    @SerialName("seq_max") val seqMax: Int, // Included for completeness, though used in header
+    // Included for completeness, though used in header
+    @SerialName("seq_max") val seqMax: Int,
     // Timestamp of the alert
     val timestamp: Long,
-    val n: Int, // Number of alerts
+    // Number of alerts
+    val n: Int,
     val alerts: List<Alert>,
 )
