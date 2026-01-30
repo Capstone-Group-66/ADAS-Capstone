@@ -25,15 +25,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.testapp.R
 import com.example.testapp.UpdateUIstate
+<<<<<<< HEAD
+=======
+import com.example.testapp.model.Direction
+>>>>>>> origin/main
 import com.example.testapp.model.SonarColor
 import com.example.testapp.viewmodel.VehicleStatusViewModel
 
 @Composable
+<<<<<<< HEAD
 fun Drive(
     vehicleStatusViewModel: VehicleStatusViewModel,
     onDebugFcw: () -> Unit,
     onDebugClear: () -> Unit,
 ) {
+=======
+fun Drive(vehicleStatusViewModel: VehicleStatusViewModel) {
+>>>>>>> origin/main
     val state by vehicleStatusViewModel.driveState.collectAsState()
 
     DriveContent(
@@ -73,6 +81,7 @@ fun DriveContent(
     }
 
     CenteredCar()
+<<<<<<< HEAD
     FrontDetection(state.sonarValue)
     FcwWarningOverlay(state)
 }
@@ -111,6 +120,9 @@ fun FcwWarningOverlay(state: UpdateUIstate) {
             }
         }
     }
+=======
+    MapDetection(state.alertDirection, state.sonarValue)
+>>>>>>> origin/main
 }
 
 @Composable
@@ -151,6 +163,26 @@ fun FrontDetection(detectionValue: SonarColor) {
             contentDescription = "detection",
             // Will be changed to use detectionValue once the detection system is implemented
             colorFilter = ColorFilter.tint(detectionValue.color),
+<<<<<<< HEAD
+=======
+            modifier =
+                Modifier.offset(y = -130.dp).size(300.dp).rotate(-90f),
+        )
+    }
+}
+
+@Composable
+fun RearDetection(detectionValue: SonarColor) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_detection_re),
+            contentDescription = "detection",
+            // Will be changed to use detectionValue once the detection system is implemented
+            colorFilter = ColorFilter.tint(detectionValue.color),
+>>>>>>> origin/main
             modifier =
                 Modifier.offset(y = -130.dp).size(300.dp).rotate(-90f),
         )
@@ -190,5 +222,19 @@ fun StatusRow(
         StatusItem("Side Radar", s2)
         StatusItem("Blindspot", s3)
         StatusItem("Front Camera", s4)
+    }
+}
+
+@Composable
+fun MapDetection(
+    direction: Direction,
+    detectionValue: SonarColor,
+) {
+    when (direction) {
+        Direction.FRONT -> FrontDetection(detectionValue)
+        Direction.REAR -> FrontDetection(detectionValue)
+        Direction.LEFT -> FrontDetection(detectionValue)
+        Direction.RIGHT -> FrontDetection(detectionValue)
+        // ^fill the rest when rear/side detections are created
     }
 }

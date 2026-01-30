@@ -4,6 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.testapp.UpdateUIstate
 import com.example.testapp.model.BleTickRepository
+<<<<<<< HEAD
+=======
+import com.example.testapp.model.Direction
+>>>>>>> origin/main
 import com.example.testapp.model.SonarColor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.SharingStarted
@@ -24,9 +28,14 @@ class VehicleStatusViewModel(
                     status2 = vehicleAlert.radar.ok,
                     status3 = vehicleAlert.bsd.rightActive,
                     status4 = vehicleAlert.cameras.frontOk,
+<<<<<<< HEAD
                     sonarValue = vehicleAlert.sonar.front,
                     timestamp = vehicleAlert.timestampMs,
                     fcwExpiry = vehicleAlert.fcwExpiry,
+=======
+                    sonarValue = vehicleAlert.severity,
+                    alertDirection = vehicleAlert.direction,
+>>>>>>> origin/main
                 )
             }.stateIn(
                 scope = vmScope,
@@ -38,6 +47,10 @@ class VehicleStatusViewModel(
                         status3 = false,
                         status4 = false,
                         sonarValue = SonarColor.GREEN,
+<<<<<<< HEAD
+=======
+                        alertDirection = Direction.FRONT,
+>>>>>>> origin/main
                     ),
             )
 }

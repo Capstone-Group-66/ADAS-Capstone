@@ -1,0 +1,22 @@
+{
+  "tick_id": 1024,
+  "n": 1,
+  "alerts": [
+    {
+      "t_ms": 1700000000123,
+      "id": "tick1024_track5",
+      "type": 1,
+      "severity": 2,
+      "direction": "front",
+      "ttl_ms": 3000,
+      "schema": "v1.0",
+      "confidence": 0.87,
+      "rationale": {
+        "ttc": 1.25,
+        "range": 8.4,
+        "closing": -4.2,
+        "in_path": true
+      }
+    }
+  ]
+}
