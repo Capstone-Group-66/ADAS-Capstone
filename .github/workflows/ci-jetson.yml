@@ -10,6 +10,9 @@ on:
       - "jetson-core/**"
       - ".github/workflows/ci-jetson.yml"
 
+permissions:
+  contents: write
+
 jobs:
   format-and-lint:
     runs-on: ubuntu-latest
