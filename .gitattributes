@@ -11,3 +11,6 @@
 *.txt text
 *.yml text
 *.yaml text
+*.gradle.kts text
+*.xml text
+
