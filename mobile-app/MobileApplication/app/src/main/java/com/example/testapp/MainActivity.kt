@@ -54,7 +54,9 @@ class MainActivity : ComponentActivity() {
             )
 
         // Initialize BLE (scan/connect)
-        bleManager.initialize()
+        if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            bleManager.initialize()
+        }
 
         enableEdgeToEdge()
         setContent {
