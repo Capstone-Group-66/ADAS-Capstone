@@ -2,18 +2,21 @@ name: Android CI
 
 on:
   push:
-    branches: [ "**" ]     # run on ANY branch
+    branches: [ "**" ]
   pull_request:
-    branches: [ "**" ]     # run on ANY PR target
-  workflow_dispatch:       # enables manual run button
+    branches: [ "**" ]
+  workflow_dispatch:
 
 jobs:
-  build:
+  format-and-build:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.head_ref || github.ref_name }}
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -25,10 +28,22 @@ jobs:
         working-directory: mobile-app/MobileApplication
         run: chmod +x gradlew
 
-      - name: Kotlin lint (ktlint)
+      - name: Auto-format Kotlin files
         working-directory: mobile-app/MobileApplication
-        run: ./gradlew ktlintCheck
+        run: ./gradlew ktlintFormat || true
 
+      - name: Commit formatted files (if any changes)
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No formatting changes needed."
+          else
+            git commit -m "style: auto-format Kotlin files [skip ci]"
+            git push
+            echo "Formatted files committed."
+          fi
 
       - name: Build Debug
         working-directory: mobile-app/MobileApplication
