@@ -11,41 +11,45 @@ on:
       - ".github/workflows/ci-jetson.yml"
 
 jobs:
-  jetson-core:
-    # Run on Windows to match developer environments
-    runs-on: windows-latest
+  format-and-lint:
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          # Need write access to push auto-formatted changes back
+          token: ${{ secrets.GITHUB_TOKEN }}
+          ref: ${{ github.head_ref || github.ref_name }}
 
-      - name: Install clang-format via npm
-        run: npm install -g clang-format
-
-      - name: Clang-format style check
-        shell: pwsh
+      - name: Install clang-format
         run: |
-          $files = Get-ChildItem -Path jetson-core/src -Recurse -Include *.cpp,*.cc,*.c,*.h,*.hpp -ErrorAction SilentlyContinue
-          if ($files.Count -eq 0) {
-            Write-Host "No C/C++ sources under jetson-core/src; skipping clang-format check."
-            exit 0
-          }
-          Write-Host "Running clang-format check on $($files.Count) files..."
-          $failed = $false
-          foreach ($file in $files) {
-            $result = clang-format --dry-run --Werror $file.FullName 2>&1
-            if ($LASTEXITCODE -ne 0) {
-              Write-Host "FAIL: $($file.FullName)"
-              Write-Host $result
-              $failed = $true
-            }
-          }
-          if ($failed) {
-            Write-Host "`nClang-format check failed. Run 'clang-format -i' on the failing files."
-            exit 1
-          }
-          Write-Host "All files passed clang-format check."
+          sudo apt-get update
+          sudo apt-get install -y clang-format-14
+          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-14 100
 
-      # NOTE: CMake build, clang-tidy, cppcheck, gcovr, and lizard are skipped
-      # on Windows CI. The actual Jetson build happens on the Jetson device.
-      # This CI only validates code style to catch formatting issues early.
+      - name: Auto-format C++ files
+        run: |
+          FILES=$(find jetson-core/src -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.c' -o -name '*.h' -o -name '*.hpp' \) 2>/dev/null || true)
+          if [ -n "$FILES" ]; then
+            echo "Formatting $(echo "$FILES" | wc -l) files..."
+            echo "$FILES" | xargs clang-format -i
+          else
+            echo "No C/C++ sources found; skipping format."
+          fi
+
+      - name: Commit formatted files (if any changes)
+        run: |
+          git config --local user.email "github-actions[bot]@users.noreply.github.com"
+          git config --local user.name "github-actions[bot]"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No formatting changes needed."
+          else
+            git commit -m "style: auto-format C++ files [skip ci]"
+            git push
+            echo "Formatted files committed."
+          fi
+
+  # NOTE: Actual build/test happens on Jetson hardware, not in CI.
+  # This workflow only ensures consistent code style.
