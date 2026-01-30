@@ -25,10 +25,6 @@ import com.example.testapp.model.BlindSpotStatus
 import com.example.testapp.model.CameraHealth
 import com.example.testapp.model.ObjectDetection
 import com.example.testapp.model.RadarHealth
-<<<<<<< HEAD
-=======
-import com.example.testapp.model.SerializationDeserialization
->>>>>>> origin/main
 import com.example.testapp.model.SonarColor
 import com.example.testapp.model.SonarColors
 import com.example.testapp.model.VehicleAlert
@@ -45,17 +41,10 @@ class MainActivity : ComponentActivity() {
             SupervisorJob() + Dispatchers.Default,
         )
 
-<<<<<<< HEAD
-=======
-    private lateinit var bleManager: BleManager
-    private val serde = SerializationDeserialization
-
->>>>>>> origin/main
     private lateinit var repository: BleTickRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-<<<<<<< HEAD
         val bleManager = BleManager(this)
 
         repository =
@@ -69,35 +58,16 @@ class MainActivity : ComponentActivity() {
             bleManager.initialize()
         }
 
-=======
-
-        bleManager = BleManager(this, serde)
-
-        repository =
-            BleTickRepository(
-                blePackets = bleManager.blePackets,
-                serde = serde,
-                scope = appScope,
-            )
-
->>>>>>> origin/main
         enableEdgeToEdge()
         setContent {
             TestAppTheme {
                 // sets the theme of the app (colours structure etc)
-<<<<<<< HEAD
                 // Pass logs and status to the app composable
                 TestAppApp(
                     repository,
                     logs = bleManager.logFlow,
                     status = bleManager.connectionState,
                 )
-=======
-
-                // TestAppApp(repository), what we'll actually do on deploy
-                TestAppApp(repository)
-                TestAppAppPreview() // what were using for the IDE
->>>>>>> origin/main
             }
         }
     }
@@ -119,17 +89,11 @@ fun TestAppAppPreview() {
                 ),
             telemetry = VehicleTelemetry(speedKmh = 50),
             detection = ObjectDetection.None,
-<<<<<<< HEAD
-=======
-            severity = SonarColor.RED,
-            direction = com.example.testapp.model.Direction.FRONT,
->>>>>>> origin/main
             bsd = BlindSpotStatus(leftActive = true, rightActive = true),
         )
 
     val fakeRepository1 = FakeBleTickRepositoryRL(vehicleAlert)
 
-<<<<<<< HEAD
     // Dummy flows for preview
     val logs = kotlinx.coroutines.flow.MutableStateFlow(listOf("Log 1", "Log 2"))
     val status = kotlinx.coroutines.flow.MutableStateFlow("Connected")
@@ -143,13 +107,6 @@ fun TestAppApp(
     logs: kotlinx.coroutines.flow.StateFlow<List<String>>,
     status: kotlinx.coroutines.flow.StateFlow<String>,
 ) {
-=======
-    TestAppApp(fakeRepository1)
-}
-
-@Composable
-fun TestAppApp(repository: BleTickRepository) {
->>>>>>> origin/main
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
     // give the app a navigation controller
     val navController = rememberNavController()
@@ -176,12 +133,8 @@ fun TestAppApp(repository: BleTickRepository) {
         },
     ) {
         // add the navigation graph to the scaffold and the repo
-<<<<<<< HEAD
         // Pass logs/status to Navigation -> Home
         Navigation(navController, repository, logs, status)
-=======
-        Navigation(navController = navController, repository)
->>>>>>> origin/main
     }
 }
 
