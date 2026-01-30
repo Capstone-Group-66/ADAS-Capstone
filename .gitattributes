@@ -1,0 +1,13 @@
+# Enforce LF line endings for C++ source files to satisfy CI clang-format
+*.cpp text eol=lf
+*.cc text eol=lf
+*.c text eol=lf
+*.hpp text eol=lf
+*.h text eol=lf
+*.sh text eol=lf
+
+# Standardize other text files
+*.md text
+*.txt text
+*.yml text
+*.yaml text
