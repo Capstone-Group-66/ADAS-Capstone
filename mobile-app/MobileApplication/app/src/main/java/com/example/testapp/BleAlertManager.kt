@@ -73,7 +73,7 @@ class BleManager(
         // Add timestamped log
         val time = DateTimeFormatter.ofPattern("HH:mm:ss").format(LocalTime.now())
         list.add(0, "$time $msg")
-        if (list.size > 100) list.removeLast()
+        if (list.size > 100) list.removeAt(list.lastIndex)
         _logFlow.value = list
         android.util.Log.d("BleManager", msg)
     }
