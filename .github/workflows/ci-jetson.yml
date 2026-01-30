@@ -21,7 +21,8 @@ jobs:
       - name: Install C++ tooling
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake clang-format clang-tidy cppcheck libopencv-dev
+          sudo apt-get install -y build-essential cmake clang-format-14 clang-tidy cppcheck libopencv-dev
+          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-14 100
           python3 -m pip install --user gcovr lizard
 
       - name: Clang-format style check

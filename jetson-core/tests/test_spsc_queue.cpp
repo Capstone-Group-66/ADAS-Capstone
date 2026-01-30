@@ -2,9 +2,9 @@
 // Unit tests for SPSCQueue
 #include "adas/queues/SPSCQueue.hpp"
 
+#include <chrono>
 #include <iostream>
 #include <thread>
-#include <chrono>
 
 using namespace adas;
 
@@ -24,7 +24,7 @@ int main() {
         ok &= q.try_pop(val) && val == 1;
         ok &= q.try_pop(val) && val == 2;
         ok &= q.try_pop(val) && val == 3;
-        ok &= !q.try_pop(val);  // Should be empty
+        ok &= !q.try_pop(val); // Should be empty
 
         if (ok) {
             std::cout << "[PASS] Test 1: Basic push/pop\n";
@@ -41,7 +41,7 @@ int main() {
         bool ok = true;
         ok &= q.try_push(1);
         ok &= q.try_push(2);
-        ok &= !q.try_push(3);  // Should fail, queue full
+        ok &= !q.try_push(3); // Should fail, queue full
         ok &= q.drops() == 1;
 
         if (ok) {
