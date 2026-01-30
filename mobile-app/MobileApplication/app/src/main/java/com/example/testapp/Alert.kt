@@ -21,6 +21,8 @@ data class Alert(
 data class TickPayload(
     @SerialName("tick_id") val tickId: Int,
     @SerialName("seq_max") val seqMax: Int, // Included for completeness, though used in header
+    // Timestamp of the alert
+    val timestamp: Long,
     val n: Int, // Number of alerts
     val alerts: List<Alert>,
 )
