@@ -697,7 +697,9 @@ void showStatus() {
 
 } // namespace
 
-int main(int argc, char *argv[]) {
+// Main entry point for the Jetson ADAS Core application
+// Triggers CI rebuild
+int main(int argc, char **argv) {
     printBanner();
 
     // Setup signal handlers
