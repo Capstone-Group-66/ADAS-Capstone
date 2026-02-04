@@ -6,16 +6,28 @@ import android.bluetooth.BluetoothGatt
 import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
+import android.bluetooth.BluetoothProfile
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import androidx.annotation.RequiresApi
 import androidx.annotation.RequiresPermission
+import com.example.testapp.model.GpsData
+import com.example.testapp.model.SerializationDeserialization
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.serialization.encodeToByteArray
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 
 /**
  * BLE Manager
@@ -27,14 +39,24 @@ import java.time.format.DateTimeFormatter
  * - Managing tick order, TTL, MTU changes
  * - Buffering payloads for reconnect
  *
- * EVERYTHING IS JUST A SKELETON FOR NOW
+ * + TX:
+ * - Sending GPS data as CBOR over BLE (chunked, MTU-safe)
  */
 class BleManager(
     private val context: Context,
 ) {
     // BLE Constants - Official ADAS UUIDs (must match jetson-core/BleUuids.hpp)
-    private val ADAS_SERVICE_UUID = java.util.UUID.fromString("0000ada5-0000-1000-8000-00805f9b34fb")
-    private val ADAS_ALERT_STREAM_UUID = java.util.UUID.fromString("0000a1e7-0000-1000-8000-00805f9b34fb")
+    private val ADAS_SERVICE_UUID: UUID =
+        UUID.fromString("0000ada5-0000-1000-8000-00805f9b34fb")
+
+    // RX: Jetson -> Android notifications (your existing stream)
+    private val ADAS_ALERT_STREAM_UUID: UUID =
+        UUID.fromString("0000a1e7-0000-1000-8000-00805f9b34fb")
+
+    // TX: Android -> Jetson writes (YOU MUST SET THIS TO THE REAL UUID ON JETSON)
+    // If Jetson uses a separate characteristic for inbound commands/GPS, put it here.
+    private val ADAS_GPS_TX_UUID: UUID =
+        UUID.fromString("0000a2e7-0000-1000-8000-00805f9b34fb") // TODO: replace with real TX UUID
 
     // Jetson peripheral reference
     private var bluetoothGatt: BluetoothGatt? = null
@@ -44,33 +66,40 @@ class BleManager(
 
     // Expose data stream
     private val _packetFlow =
-        kotlinx.coroutines.flow.MutableSharedFlow<ByteArray>(
+        MutableSharedFlow<ByteArray>(
             replay = 0,
             extraBufferCapacity = 64,
-            onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST,
+            onBufferOverflow = BufferOverflow.DROP_OLDEST,
         )
-    val packetFlow: kotlinx.coroutines.flow.Flow<ByteArray> = _packetFlow
+    val packetFlow: Flow<ByteArray> = _packetFlow
 
     // Expose status logs
-    private val _logFlow = kotlinx.coroutines.flow.MutableStateFlow<List<String>>(emptyList())
-    val logFlow: kotlinx.coroutines.flow.StateFlow<List<String>> = _logFlow
+    private val _logFlow = MutableStateFlow<List<String>>(emptyList())
+    val logFlow: StateFlow<List<String>> = _logFlow
 
     // Connection state
-    private val _connectionState = kotlinx.coroutines.flow.MutableStateFlow("Disconnected")
-    val connectionState: kotlinx.coroutines.flow.StateFlow<String> = _connectionState
+    private val _connectionState = MutableStateFlow("Disconnected")
+    val connectionState: StateFlow<String> = _connectionState
 
     private var bluetoothAdapter: android.bluetooth.BluetoothAdapter? = null
     private var bluetoothLeScanner: android.bluetooth.le.BluetoothLeScanner? = null
 
     // Scan retry logic
-    private val handler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val handler = Handler(Looper.getMainLooper())
     private var isScanning = false
     private val SCAN_RETRY_DELAY_MS = 2000L
     private val SCAN_TIMEOUT_MS = 5000L
 
+    // CCCD for notifications
+    private val CCCD_UUID: UUID =
+        UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+    // Cached characteristics
+    private var alertStreamChar: BluetoothGattCharacteristic? = null
+    private var gpsTxChar: BluetoothGattCharacteristic? = null
+
     private fun log(msg: String) {
         val list = _logFlow.value.toMutableList()
-        // Add timestamped log
         val time = DateTimeFormatter.ofPattern("HH:mm:ss").format(LocalTime.now())
         list.add(0, "$time $msg")
         if (list.size > 100) list.removeAt(list.lastIndex)
@@ -78,9 +107,12 @@ class BleManager(
         android.util.Log.d("BleManager", msg)
     }
 
-    // Computed slice_cap = MTU - 7
+    // Computed slice_cap = MTU - 7 (used for RX sizing conceptually; Jetson controls RX frag size)
     private val sliceCap: Int
         get() = (currentMtu - 7).coerceAtLeast(1)
+
+    // For TX: ATT payload usable is generally MTU - 3
+    private fun attPayloadMax(): Int = (currentMtu - 3).coerceAtLeast(20)
 
     // Active tick currently being rebuilt
     private data class InProgressTick(
@@ -99,11 +131,8 @@ class BleManager(
     // Matches struct BLEHeader in Jetson code.
     data class BLEHeader(
         val tickId: Int,
-        // uint16
         val seqNo: Int,
-        // uint8
         val seqMax: Int,
-        // uint8
     ) {
         companion object {
             private const val HEADER_SIZE = 4
@@ -111,21 +140,16 @@ class BleManager(
             /**
              * Parse 4-byte header from BLE notification.
              * Byte layout:
-             *   uint16 tick_id
+             *   uint16 tick_id (LE)
              *   uint8  seq_no
              *   uint8  seq_max
              */
-            @RequiresApi(Build.VERSION_CODES.O)
             fun fromBytes(bytes: ByteArray): BLEHeader? {
                 if (bytes.size < HEADER_SIZE) return null
-
                 val bb = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-
-                // placeholder parsing only
                 val tickId = bb.short.toInt() and 0xFFFF
                 val seqNo = bb.get().toInt() and 0xFF
                 val seqMax = bb.get().toInt() and 0xFF
-
                 return BLEHeader(tickId, seqNo, seqMax)
             }
         }
@@ -134,7 +158,8 @@ class BleManager(
     // Initialize BLE stack
     @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     fun initialize() {
-        val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager
+        val bluetoothManager =
+            context.getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
         bluetoothLeScanner = bluetoothAdapter?.bluetoothLeScanner
         scanForJetson()
@@ -158,20 +183,18 @@ class BleManager(
         isScanning = true
 
         val filter =
-            ScanFilter
-                .Builder()
+            ScanFilter.Builder()
                 .setServiceUuid(android.os.ParcelUuid(ADAS_SERVICE_UUID))
                 .build()
 
         val settings =
-            ScanSettings
-                .Builder()
+            ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build()
 
         bluetoothLeScanner?.startScan(listOf(filter), settings, scanCallback)
 
-        // Schedule timeout - if nothing found, stop and retry
+        // timeout -> retry
         handler.postDelayed({
             if (isScanning && bluetoothGatt == null) {
                 log("Scan timeout, retrying...")
@@ -184,15 +207,14 @@ class BleManager(
     private fun stopScanAndRetry() {
         try {
             bluetoothLeScanner?.stopScan(scanCallback)
-        } catch (e: SecurityException) {
-            // ignore
+        } catch (_: SecurityException) {
         }
         isScanning = false
         scheduleRetry()
     }
 
     private fun scheduleRetry() {
-        if (bluetoothGatt != null) return // Already connected
+        if (bluetoothGatt != null) return
         _connectionState.value = "Retrying in ${SCAN_RETRY_DELAY_MS / 1000}s..."
         handler.postDelayed({
             if (bluetoothGatt == null) {
@@ -217,9 +239,9 @@ class BleManager(
                     if (bluetoothGatt == null) {
                         try {
                             bluetoothLeScanner?.stopScan(this)
-                        } catch (e: SecurityException) {
-                            // ignore
+                        } catch (_: SecurityException) {
                         }
+                        isScanning = false
                         connectToJetson(device)
                     }
                 }
@@ -250,6 +272,10 @@ class BleManager(
     fun disconnect() {
         bluetoothGatt?.disconnect()
         bluetoothGatt?.close()
+        bluetoothGatt = null
+        alertStreamChar = null
+        gpsTxChar = null
+        _connectionState.value = "Disconnected"
     }
 
     // BLE GATT Callback (core of receiving alerts)
@@ -261,15 +287,17 @@ class BleManager(
                 status: Int,
                 newState: Int,
             ) {
-                if (newState == android.bluetooth.BluetoothProfile.STATE_CONNECTED) {
+                if (newState == BluetoothProfile.STATE_CONNECTED) {
                     log("Connected to GATT server.")
                     _connectionState.value = "Connected"
                     gatt?.discoverServices()
-                } else if (newState == android.bluetooth.BluetoothProfile.STATE_DISCONNECTED) {
+                } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     log("Disconnected from GATT server.")
                     _connectionState.value = "Disconnected"
                     bluetoothGatt = null
-                    // Retry scan after delay? For now just log
+                    alertStreamChar = null
+                    gpsTxChar = null
+                    // You can call scheduleRetry() here if you want auto-reconnect via scan
                 }
             }
 
@@ -278,32 +306,61 @@ class BleManager(
                 gatt: BluetoothGatt?,
                 status: Int,
             ) {
-                if (status == BluetoothGatt.GATT_SUCCESS) {
-                    log("Services discovered.")
-                    val service = gatt?.getService(ADAS_SERVICE_UUID)
-                    if (service != null) {
-                        val characteristic = service.getCharacteristic(ADAS_ALERT_STREAM_UUID)
-                        if (characteristic != null) {
-                            gatt.setCharacteristicNotification(characteristic, true)
-                            val descriptor = characteristic.getDescriptor(java.util.UUID.fromString("00002902-0000-1000-8000-00805f9b34fb"))
-                            if (descriptor != null) {
-                                descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                                gatt.writeDescriptor(descriptor)
-                                log("Subscribed to AlertStream.")
-                            } else {
-                                log("CCCD descriptor not found")
-                            }
-
-                            // Request MTU
-                            gatt.requestMtu(185)
-                        } else {
-                            log("AlertStream characteristic not found!")
-                        }
-                    } else {
-                        log("ADAS Service not found!")
-                    }
-                } else {
+                if (status != BluetoothGatt.GATT_SUCCESS) {
                     log("Service discovery failed: $status")
+                    return
+                }
+
+                log("Services discovered.")
+                val service = gatt?.getService(ADAS_SERVICE_UUID)
+                if (service == null) {
+                    log("ADAS Service not found!")
+                    return
+                }
+
+                // RX characteristic
+                val rx = service.getCharacteristic(ADAS_ALERT_STREAM_UUID)
+                if (rx == null) {
+                    log("AlertStream characteristic not found!")
+                } else {
+                    alertStreamChar = rx
+                    gatt.setCharacteristicNotification(rx, true)
+
+                    val descriptor = rx.getDescriptor(CCCD_UUID)
+                    if (descriptor != null) {
+                        descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                        gatt.writeDescriptor(descriptor)
+                        log("Subscribing to AlertStream...")
+                    } else {
+                        log("CCCD descriptor not found for AlertStream")
+                    }
+                }
+
+                // TX characteristic
+                val tx = service.getCharacteristic(ADAS_GPS_TX_UUID)
+                if (tx != null) {
+                    gpsTxChar = tx
+                    log("GPS TX characteristic found.")
+                } else {
+                    log("GPS TX characteristic not found! (check ADAS_GPS_TX_UUID)")
+                }
+
+                // Request MTU (you can change to 247/185 depending on Jetson stack)
+                gatt.requestMtu(185)
+            }
+
+            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+            override fun onDescriptorWrite(
+                gatt: BluetoothGatt?,
+                descriptor: BluetoothGattDescriptor?,
+                status: Int,
+            ) {
+                if (descriptor?.uuid == CCCD_UUID) {
+                    if (status == BluetoothGatt.GATT_SUCCESS) {
+                        log("Subscribed to AlertStream.")
+                    } else {
+                        log("Failed to subscribe (CCCD write): $status")
+                    }
                 }
             }
 
@@ -313,8 +370,12 @@ class BleManager(
                 mtu: Int,
                 status: Int,
             ) {
-                log("MTU changed to $mtu")
-                currentMtu = mtu
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    currentMtu = mtu
+                    log("MTU changed to $mtu (attPayloadMax=${attPayloadMax()}, sliceCap=$sliceCap)")
+                } else {
+                    log("MTU change failed: $status (mtu=$mtu)")
+                }
             }
 
             // whenever a fragment arrives from Jetson, process here
@@ -325,7 +386,6 @@ class BleManager(
             ) {
                 if (characteristic?.uuid == ADAS_ALERT_STREAM_UUID) {
                     val raw = characteristic.value ?: return
-                    // log("RX ${raw.size} bytes")
                     handleIncomingFragment(raw)
                 }
             }
@@ -334,22 +394,18 @@ class BleManager(
     // Fragment Handler — central logic
 
     /**
-     * Fragment Handler
-     *
      * Handles:
      * 1. Read the header
      * 2. Determine which tick the fragment belongs to
      * 3. Store fragment in the right place
      * 4. When all fragments arrive, rebuild full payload
      * 5. Send complete CBOR TickPayload to the app/UI
-     *
      */
     @RequiresApi(Build.VERSION_CODES.O)
     private fun handleIncomingFragment(data: ByteArray) {
-        // Extract header
         val header = BLEHeader.fromBytes(data) ?: return
+        if (data.size <= 4) return
 
-        // Extract slice (payload fragment)
         val slice = data.copyOfRange(4, data.size)
 
         // Ensure activeTick exists and matches tick_id, else reset
@@ -368,13 +424,12 @@ class BleManager(
             tick.receivedCount++
         }
 
-        // If complete → reassemble full CBOR payload B
+        // If complete → reassemble full CBOR payload
         if (tick.receivedCount == (tick.seqMax + 1)) {
             val full = rebuildFullPayload(tick)
             if (full != null) {
                 onFullTickPayloadReceived(tick.tickId, full)
             }
-            // Reset buffer afterwards
             activeTick = null
         }
     }
@@ -385,10 +440,9 @@ class BleManager(
         val buffer = ByteBuffer.allocate(size)
 
         for (i in 0..tick.seqMax) {
-            val frag = tick.fragments[i] ?: return null // Missing fragment
+            val frag = tick.fragments[i] ?: return null
             buffer.put(frag)
         }
-
         return buffer.array()
     }
 
@@ -402,8 +456,8 @@ class BleManager(
         // Debug: Decode and log the payload contents
         try {
             val payload =
-                com.example.testapp.model.TickDecoder
-                    .decode(cborBuffer)
+                com.example.testapp.model.TickDecoder.decode(cborBuffer)
+
             log("=== FCW DEBUG ===")
             log("  Tick ID: ${payload.tickId}")
             log("  Speed: ${payload.speed} km/h")
@@ -435,21 +489,112 @@ class BleManager(
             log("DEBUG decode error: ${e.message}")
         }
 
-        // Emit to flow
         _packetFlow.tryEmit(cborBuffer)
     }
 
     // Resend logic after reconnect
     private fun resendRingBuffer() {
-        // TODO: Iterate through reconnectRing and send CBOR(B) if still valid (TTL)
+        // TODO: Iterate through reconnectRing and send CBOR if still valid (TTL)
     }
 
-    // Placeholder for writing data to the Jetson
+    // Placeholder for writing data to the Jetson (generic)
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun sendCommand(cmd: ByteArray) {
-        // TODO: write to characteristic
+        val gatt =
+            bluetoothGatt ?: run {
+                log("sendCommand: not connected")
+                return
+            }
+        val tx =
+            gpsTxChar ?: run {
+                log("sendCommand: gpsTxChar not ready (or wrong UUID)")
+                return
+            }
+
+        tx.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+        tx.value = cmd
+
+        val ok = gatt.writeCharacteristic(tx)
+        if (!ok) log("sendCommand: writeCharacteristic returned false")
     }
 
-    // Asks Andorid to negotiate a larger BLE MTU
+    // TX: Send GPS data (CBOR) to Jetson (chunked, MTU-safe)
+    private var gpsSeq: Int = 0
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    fun sendGpsData(data: GpsData) {
+        val gatt =
+            bluetoothGatt ?: run {
+                log("sendGpsData: not connected")
+                return
+            }
+        val tx =
+            gpsTxChar ?: run {
+                log("sendGpsData: gpsTxChar not ready (check ADAS_GPS_TX_UUID / discovery)")
+                return
+            }
+
+        val payload: ByteArray =
+            SerializationDeserialization.cbor.encodeToByteArray(data)
+
+        gpsSeq = (gpsSeq + 1) and 0xFFFF
+        val seq = gpsSeq
+
+        // framing:
+        // first chunk: type(1) + seq(2) + totalLen(2) + data...
+        // next chunks: type(1) + seq(2) + data...
+        val type: Byte = 0x01
+        val maxPayload = attPayloadMax()
+
+        var offset = 0
+        var first = true
+
+        while (offset < payload.size) {
+            val header: ByteArray =
+                if (first) {
+                    byteArrayOf(
+                        type,
+                        (seq shr 8).toByte(),
+                        seq.toByte(),
+                        (payload.size shr 8).toByte(),
+                        payload.size.toByte(),
+                    )
+                } else {
+                    byteArrayOf(
+                        type,
+                        (seq shr 8).toByte(),
+                        seq.toByte(),
+                    )
+                }
+
+            val room = maxPayload - header.size
+            if (room <= 0) {
+                log("sendGpsData: MTU too small for header (mtu=$currentMtu)")
+                return
+            }
+
+            val take = minOf(room, payload.size - offset)
+            val packet = ByteArray(header.size + take)
+            System.arraycopy(header, 0, packet, 0, header.size)
+            System.arraycopy(payload, offset, packet, header.size, take)
+
+            tx.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+            tx.value = packet
+
+            val ok = gatt.writeCharacteristic(tx)
+            if (!ok) {
+                log("sendGpsData: writeCharacteristic returned false")
+                return
+            }
+
+            offset += take
+            first = false
+        }
+
+        log("sendGpsData: sent ${payload.size}B CBOR (seq=$seq, mtu=$currentMtu)")
+    }
+
+    // Asks Android to negotiate a larger BLE MTU
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun requestMtu(mtu: Int) {
         bluetoothGatt?.requestMtu(mtu)
