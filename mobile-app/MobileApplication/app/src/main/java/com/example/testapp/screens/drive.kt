@@ -82,15 +82,14 @@ fun DriveContent(
         LaneDepartureDetection(
             count = 9,
             modifier = Modifier.offset(x = 85.dp, y = 100.dp),
-            lane = R.drawable.ic_right_lane
+            lane = R.drawable.ic_right_lane,
         )
 
         LaneDepartureDetection(
             count = 9,
             modifier = Modifier.offset(x = 270.dp, y = 100.dp),
-            lane = R.drawable.ic_right_lane
+            lane = R.drawable.ic_right_lane,
         )
-
     }
 }
 
@@ -239,8 +238,6 @@ fun Bsd() {
             modifier =
                 Modifier.size(300.dp).offset(x = 215.dp, y = 210.dp),
         )
-
-
     }
 
     Box(
@@ -256,24 +253,24 @@ fun Bsd() {
     }
 }
 
-
 @Composable
 fun LaneDepartureDetection(
     count: Int,
     modifier: Modifier = Modifier,
-    @DrawableRes lane: Int
+    @DrawableRes lane: Int,
 ) {
     Column(
         modifier = modifier,
-        verticalArrangement = Arrangement.spacedBy(30.dp)
+        verticalArrangement = Arrangement.spacedBy(30.dp),
     ) {
         repeat(count) {
             Image(
                 painter = painterResource(lane),
                 contentDescription = null,
-                modifier = Modifier
-                    .size(50.dp)
-                    .rotate(90f)
+                modifier =
+                    Modifier
+                        .size(50.dp)
+                        .rotate(90f),
             )
         }
     }
