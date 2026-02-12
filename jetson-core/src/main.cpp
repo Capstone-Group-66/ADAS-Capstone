@@ -86,16 +86,15 @@ std::string formatUptime(std::chrono::seconds uptime) {
 // Visualization control flag (set to false for production)
 std::atomic<bool> g_visualizer_enabled{true};
 
-// Visualization thread - optimized for minimal overhead
+// Stage E thread: fusion, alerting, BLE, metrics, and (optionally) visualization
 void visualizationThread() {
-  std::cout << "[Visualizer] Thread started\n";
+  const bool display_enabled = g_visualizer_enabled.load();
+  std::cout << "[StageE] Thread started (display "
+            << (display_enabled ? "enabled" : "disabled") << ")\n";
 
-  if (!g_visualizer_enabled.load()) {
-    std::cout << "[Visualizer] Visualization disabled, thread exiting\n";
-    return;
+  if (display_enabled) {
+    cv::namedWindow("Stage B: FrontCam", cv::WINDOW_AUTOSIZE);
   }
-
-  cv::namedWindow("Stage B: FrontCam", cv::WINDOW_AUTOSIZE);
 
   auto last_fps_time = std::chrono::steady_clock::now();
   auto last_display_time = std::chrono::steady_clock::now();
@@ -282,6 +281,8 @@ void visualizationThread() {
                                    ttc, range, triggered, e2e_latency_ms);
       }
 
+      // ── Step 10: OpenCV Visualization (only when display is enabled) ──
+      if (display_enabled) {
       // CRITICAL: Clone the frame to get our own memory buffer
       // The original batch.frame may be reused by ingest thread
       cv::Mat vis = batch.frame.clone();
@@ -436,11 +437,14 @@ void visualizationThread() {
         cv::imshow("Stage B: FrontCam", vis);
         last_display_time = now_display;
       }
+      } // end if (display_enabled) — Step 10
     }
 
-    // Non-blocking waitKey with minimal delay
-    if (cv::waitKey(1) == 'q') {
-      g_shutdown_requested.store(true);
+    if (display_enabled) {
+      // Non-blocking waitKey with minimal delay
+      if (cv::waitKey(1) == 'q') {
+        g_shutdown_requested.store(true);
+      }
     }
 
     if (!got_frame) {
@@ -448,8 +452,10 @@ void visualizationThread() {
     }
   }
 
-  cv::destroyWindow("Stage B: FrontCam");
-  std::cout << "[Visualizer] Thread stopped\n";
+  if (display_enabled) {
+    cv::destroyWindow("Stage B: FrontCam");
+  }
+  std::cout << "[StageE] Thread stopped\n";
 }
 
 void statusBarThread() {
