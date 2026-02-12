@@ -6,7 +6,6 @@
 #include "adas/common/Types.hpp"
 #include "adas/queues/SPSCQueue.hpp"
 #include "adas/stage_a/CameraIngest.hpp"
-#include "adas/stage_a/IMUIngest.hpp"
 #include "adas/stage_a/NetworkIngest.hpp"
 #include "adas/stage_a/RadarIngest.hpp"
 
@@ -90,7 +89,6 @@ class IngestManager {
     void launchDirectCameras();
     void launchNetworkIngest();
     void launchFrontRadar();
-    void launchIMU();
 
     Config config_;
     HardwareMap hw_map_;
@@ -132,9 +130,6 @@ class IngestManager {
 
     // Direct front radar
     std::unique_ptr<RadarIngest> radar_front_;
-
-    // IMU (scaffold until hardware arrives)
-    std::unique_ptr<IMUIngest> imu_;
 
     std::atomic<bool> running_{false};
 };

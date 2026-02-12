@@ -38,7 +38,6 @@ void IngestManager::start() {
   launchDirectCameras();
   launchFrontRadar();
   launchNetworkIngest();
-  launchIMU(); // Will run in stub mode until hardware arrives
 
   std::cout << "\n[IngestManager] All ingest threads started\n";
 }
@@ -52,9 +51,6 @@ void IngestManager::stop() {
   running_.store(false, std::memory_order_relaxed);
 
   // Stop in reverse order
-  if (imu_) {
-    imu_->stop();
-  }
 #ifdef HAS_ZMQ
   if (zmq_receiver_) {
     zmq_receiver_->stop();
@@ -177,20 +173,6 @@ void IngestManager::launchFrontRadar() {
   radar_front_->start();
 }
 
-void IngestManager::launchIMU() {
-#ifdef HAS_ZMQ
-  // If ZMQ receiver is active, Pi provides the IMU - skip local
-  if (zmq_receiver_) {
-    std::cout
-        << "[IngestManager] Skipping local IMU (Pi provides IMU via ZMQ)\n";
-    return;
-  }
-#endif
-  std::cout << "[IngestManager] Launching IMU ingest (scaffold mode)...\n";
-
-  imu_ = std::make_unique<IMUIngest>(imu_queue_, config_.imu);
-  imu_->start();
-}
 
 SPSCQueue<CameraFrameData, 8> &IngestManager::getCameraQueue(Mount mount) {
   switch (mount) {
@@ -287,23 +269,14 @@ IngestManager::HealthStatus IngestManager::getHealth() const {
     }
   }
 
-  // Check IMU (expected to be unhealthy until hardware arrives)
-  if (imu_) {
-    bool h = imu_->isHealthy();
-    status.sensor_health[Mount::IMU] = h;
-    // Don't count IMU against all_healthy since hardware is pending
-  }
-
   // Build summary
   std::ostringstream ss;
   int healthy_count = 0;
   int total_count = 0;
   for (const auto &[mount, h] : status.sensor_health) {
-    if (mount != Mount::IMU) { // Exclude IMU from count
-      ++total_count;
-      if (h) {
-        ++healthy_count;
-      }
+    ++total_count;
+    if (h) {
+      ++healthy_count;
     }
   }
   ss << healthy_count << "/" << total_count << " sensors healthy";

@@ -55,7 +55,7 @@ struct RadarConfig {
     int poll_timeout_ms = 50;
 };
 
-/// IMU configuration (BNO085) - SCAFFOLDING ONLY
+/// IMU configuration (BNO085 on Pi, received via ZMQ)
 struct IMUConfig {
     std::string bus = "/dev/i2c-1";
     int rate_hz = 100;
