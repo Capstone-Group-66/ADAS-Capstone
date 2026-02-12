@@ -173,7 +173,6 @@ void IngestManager::launchFrontRadar() {
   radar_front_->start();
 }
 
-
 SPSCQueue<CameraFrameData, 8> &IngestManager::getCameraQueue(Mount mount) {
   switch (mount) {
   case Mount::FrontCam:
