@@ -92,34 +92,14 @@ void CameraPipeline::threadFunc() {
     // cv::Mat undistorted = preprocessor_->process(image, true);
 
     // Step 2: Object detection (on RAW image)
-    // PERF: Skip frames to reduce load. Run inference every 3rd frame (10 FPS).
+    // Run inference on every frame at 20 FPS (camera capped at 20 Hz)
     DetBatch detections;
     detections.h = frame.h;
     detections.frame = image; // Zero-copy ref
 
-    // Cache detections to reuse on skipped frames
-    static std::vector<Det> last_dets;
-    static uint64_t last_inference_time = 0;
-
-    // Use local counter for logic to avoid atomic overhead in loop
-    // PERF: Run inference every 5th frame (6 FPS logic) for better real-time
-    // performance
-    if (frames_processed_.load(std::memory_order_relaxed) % 5 == 0) {
-      // Run full inference
-      DetBatch res = detector_->detect(image, frame.h);
-
-      // Always update cache with current result (even if empty)
-      last_dets = res.dets;
-      last_inference_time = res.inference_time_us;
-
-      // Set output directly from inference
-      detections.dets = res.dets;
-      detections.inference_time_us = res.inference_time_us;
-    } else {
-      // SKIP inference - reuse last detections
-      detections.dets = last_dets;
-      detections.inference_time_us = 0;
-    }
+    DetBatch res = detector_->detect(image, frame.h);
+    detections.dets = res.dets;
+    detections.inference_time_us = res.inference_time_us;
 
     // Update statistics
     frames_processed_.fetch_add(1, std::memory_order_relaxed);

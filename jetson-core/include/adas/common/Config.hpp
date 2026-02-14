@@ -37,7 +37,7 @@ struct TimeConfig {
 struct CameraConfig {
     int width = 1280;
     int height = 720;
-    int target_fps = 30;
+    int target_fps = 20;
     bool use_mjpeg = true;
 };
 
