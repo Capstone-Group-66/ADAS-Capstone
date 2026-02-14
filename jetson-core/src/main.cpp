@@ -86,16 +86,16 @@ std::string formatUptime(std::chrono::seconds uptime) {
 // Visualization control flag (set to false for production)
 std::atomic<bool> g_visualizer_enabled{true};
 
-// Visualization thread - optimized for minimal overhead
+// Stage E thread: fusion, alerting, BLE, metrics, and (optionally)
+// visualization
 void visualizationThread() {
-  std::cout << "[Visualizer] Thread started\n";
+  const bool display_enabled = g_visualizer_enabled.load();
+  std::cout << "[StageE] Thread started (display "
+            << (display_enabled ? "enabled" : "disabled") << ")\n";
 
-  if (!g_visualizer_enabled.load()) {
-    std::cout << "[Visualizer] Visualization disabled, thread exiting\n";
-    return;
+  if (display_enabled) {
+    cv::namedWindow("Stage B: FrontCam", cv::WINDOW_AUTOSIZE);
   }
-
-  cv::namedWindow("Stage B: FrontCam", cv::WINDOW_AUTOSIZE);
 
   auto last_fps_time = std::chrono::steady_clock::now();
   auto last_display_time = std::chrono::steady_clock::now();
@@ -282,165 +282,171 @@ void visualizationThread() {
                                    ttc, range, triggered, e2e_latency_ms);
       }
 
-      // CRITICAL: Clone the frame to get our own memory buffer
-      // The original batch.frame may be reused by ingest thread
-      cv::Mat vis = batch.frame.clone();
-      int vis_width = vis.cols;
-      int vis_height = vis.rows;
+      // ── Step 10: OpenCV Visualization (only when display is enabled) ──
+      if (display_enabled) {
+        // CRITICAL: Clone the frame to get our own memory buffer
+        // The original batch.frame may be reused by ingest thread
+        cv::Mat vis = batch.frame.clone();
+        int vis_width = vis.cols;
+        int vis_height = vis.rows;
 
-      // Detection persistence: Hold detections for 500ms to reduce jitter
-      // Uses a static buffer that persists across frames
-      static std::vector<
-          std::pair<adas::FusedObject, std::chrono::steady_clock::time_point>>
-          persistent_dets;
-      const auto det_hold_duration = std::chrono::milliseconds(500);
+        // Detection persistence: Hold detections for 500ms to reduce jitter
+        // Uses a static buffer that persists across frames
+        static std::vector<
+            std::pair<adas::FusedObject, std::chrono::steady_clock::time_point>>
+            persistent_dets;
+        const auto det_hold_duration = std::chrono::milliseconds(500);
 
-      // Add/update current detections in buffer
-      for (const auto &obj : fused) {
-        // Check if similar detection exists (overlap > 50%)
-        bool found = false;
-        for (auto &[stored_obj, timestamp] : persistent_dets) {
-          cv::Rect2f intersection = stored_obj.box_px & obj.box_px;
-          float overlap = intersection.area() /
-                          std::max(stored_obj.box_px.area(), obj.box_px.area());
-          if (overlap > 0.3f && stored_obj.object_class == obj.object_class) {
-            // Update existing detection
-            stored_obj = obj;
-            timestamp = now_time;
-            found = true;
-            break;
+        // Add/update current detections in buffer
+        for (const auto &obj : fused) {
+          // Check if similar detection exists (overlap > 50%)
+          bool found = false;
+          for (auto &[stored_obj, timestamp] : persistent_dets) {
+            cv::Rect2f intersection = stored_obj.box_px & obj.box_px;
+            float overlap =
+                intersection.area() /
+                std::max(stored_obj.box_px.area(), obj.box_px.area());
+            if (overlap > 0.3f && stored_obj.object_class == obj.object_class) {
+              // Update existing detection
+              stored_obj = obj;
+              timestamp = now_time;
+              found = true;
+              break;
+            }
           }
-        }
-        if (!found) {
-          persistent_dets.push_back({obj, now_time});
-        }
-      }
-
-      // Remove stale detections
-      persistent_dets.erase(
-          std::remove_if(persistent_dets.begin(), persistent_dets.end(),
-                         [&](const auto &item) {
-                           return now_time - item.second > det_hold_duration;
-                         }),
-          persistent_dets.end());
-
-      // Draw persistent detections (instead of just current frame)
-      for (const auto &[obj, timestamp] : persistent_dets) {
-        // Bounds check - skip invalid detections
-        int x = static_cast<int>(obj.box_px.x);
-        int y = static_cast<int>(obj.box_px.y);
-        int w = static_cast<int>(obj.box_px.width);
-        int h = static_cast<int>(obj.box_px.height);
-
-        // Clamp to frame bounds
-        x = std::max(0, std::min(x, vis_width - 1));
-        y = std::max(0, std::min(y, vis_height - 1));
-        w = std::max(1, std::min(w, vis_width - x));
-        h = std::max(1, std::min(h, vis_height - y));
-
-        cv::Rect safe_box(x, y, w, h);
-        cv::Point safe_centroid(
-            std::max(0, std::min(static_cast<int>(obj.centroid_px.x),
-                                 vis_width - 1)),
-            std::max(0, std::min(static_cast<int>(obj.centroid_px.y),
-                                 vis_height - 1)));
-
-        cv::Scalar color((obj.object_class * 50) % 255,
-                         (obj.object_class * 80 + 100) % 255,
-                         (obj.object_class * 120 + 200) % 255);
-
-        cv::rectangle(vis, safe_box, color, 2);
-
-        std::string class_name =
-            adas::ObjectDetector::getClassName(obj.object_class);
-        std::string label = class_name + " " +
-                            std::to_string(static_cast<int>(obj.score * 100)) +
-                            "%";
-
-        // Add TTC if radar matched
-        if (obj.has_radar) {
-          if (obj.ttc_s < 100.0f) {
-            label += " R:" + std::to_string(static_cast<int>(obj.range_m)) +
-                     "m TTC:" + std::to_string(static_cast<int>(obj.ttc_s)) +
-                     "s";
-          } else {
-            label +=
-                " R:" + std::to_string(static_cast<int>(obj.range_m)) + "m";
+          if (!found) {
+            persistent_dets.push_back({obj, now_time});
           }
         }
 
-        int baseLine;
-        cv::Size labelSize =
-            cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
+        // Remove stale detections
+        persistent_dets.erase(
+            std::remove_if(persistent_dets.begin(), persistent_dets.end(),
+                           [&](const auto &item) {
+                             return now_time - item.second > det_hold_duration;
+                           }),
+            persistent_dets.end());
 
-        int label_y = std::max(labelSize.height + 2, y);
+        // Draw persistent detections (instead of just current frame)
+        for (const auto &[obj, timestamp] : persistent_dets) {
+          // Bounds check - skip invalid detections
+          int x = static_cast<int>(obj.box_px.x);
+          int y = static_cast<int>(obj.box_px.y);
+          int w = static_cast<int>(obj.box_px.width);
+          int h = static_cast<int>(obj.box_px.height);
 
-        cv::rectangle(
-            vis, cv::Point(x, label_y - labelSize.height - 2),
-            cv::Point(std::min(x + labelSize.width, vis_width), label_y), color,
-            cv::FILLED);
+          // Clamp to frame bounds
+          x = std::max(0, std::min(x, vis_width - 1));
+          y = std::max(0, std::min(y, vis_height - 1));
+          w = std::max(1, std::min(w, vis_width - x));
+          h = std::max(1, std::min(h, vis_height - y));
 
-        cv::putText(vis, label, cv::Point(x, label_y - 2),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
+          cv::Rect safe_box(x, y, w, h);
+          cv::Point safe_centroid(
+              std::max(0, std::min(static_cast<int>(obj.centroid_px.x),
+                                   vis_width - 1)),
+              std::max(0, std::min(static_cast<int>(obj.centroid_px.y),
+                                   vis_height - 1)));
 
-        cv::circle(vis, safe_centroid, 3, cv::Scalar(0, 255, 0), -1);
-      }
+          cv::Scalar color((obj.object_class * 50) % 255,
+                           (obj.object_class * 80 + 100) % 255,
+                           (obj.object_class * 120 + 200) % 255);
 
-      // Draw FCW alert overlay if active (with 2-second hold)
-      if (now_time < fcw_alert_until) {
-        g_fcw_alert_active.store(true);
-        g_fcw_ttc_ms.store(static_cast<int>(last_fcw_ttc * 1000.0f));
+          cv::rectangle(vis, safe_box, color, 2);
 
-        // Red border
-        if (vis.cols > 10 && vis.rows > 10) {
-          cv::rectangle(vis, cv::Point(4, 4),
-                        cv::Point(vis.cols - 5, vis.rows - 5),
-                        cv::Scalar(0, 0, 255), 8);
+          std::string class_name =
+              adas::ObjectDetector::getClassName(obj.object_class);
+          std::string label =
+              class_name + " " +
+              std::to_string(static_cast<int>(obj.score * 100)) + "%";
+
+          // Add TTC if radar matched
+          if (obj.has_radar) {
+            if (obj.ttc_s < 100.0f) {
+              label += " R:" + std::to_string(static_cast<int>(obj.range_m)) +
+                       "m TTC:" + std::to_string(static_cast<int>(obj.ttc_s)) +
+                       "s";
+            } else {
+              label +=
+                  " R:" + std::to_string(static_cast<int>(obj.range_m)) + "m";
+            }
+          }
+
+          int baseLine;
+          cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX,
+                                               0.5, 1, &baseLine);
+
+          int label_y = std::max(labelSize.height + 2, y);
+
+          cv::rectangle(
+              vis, cv::Point(x, label_y - labelSize.height - 2),
+              cv::Point(std::min(x + labelSize.width, vis_width), label_y),
+              color, cv::FILLED);
+
+          cv::putText(vis, label, cv::Point(x, label_y - 2),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
+
+          cv::circle(vis, safe_centroid, 3, cv::Scalar(0, 255, 0), -1);
         }
 
-        // FCW warning text with range
-        std::string fcw_text =
-            "FCW ALERT! Range:" +
-            std::to_string(static_cast<int>(last_fcw_range * 10) / 10) + "." +
-            std::to_string(static_cast<int>(last_fcw_range * 10) % 10) + "m";
-        int text_x = std::max(10, vis.cols / 2 - 150);
-        cv::putText(vis, fcw_text, cv::Point(text_x, 60),
-                    cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 0, 255), 3);
-      } else {
-        g_fcw_alert_active.store(false);
-      }
+        // Draw FCW alert overlay if active (with 2-second hold)
+        if (now_time < fcw_alert_until) {
+          g_fcw_alert_active.store(true);
+          g_fcw_ttc_ms.store(static_cast<int>(last_fcw_ttc * 1000.0f));
 
-      // Calculate FPS
-      frame_count++;
-      auto now = std::chrono::steady_clock::now();
-      auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                         now - last_fps_time)
-                         .count();
-      if (elapsed >= 1000) {
-        fps = frame_count * 1000.0 / elapsed;
-        frame_count = 0;
-        last_fps_time = now;
-      }
+          // Red border
+          if (vis.cols > 10 && vis.rows > 10) {
+            cv::rectangle(vis, cv::Point(4, 4),
+                          cv::Point(vis.cols - 5, vis.rows - 5),
+                          cv::Scalar(0, 0, 255), 8);
+          }
 
-      // Draw info overlay
-      std::string info =
-          "Inf: " +
-          std::to_string(static_cast<int>(batch.inference_time_us / 1000)) +
-          "ms | FPS: " + std::to_string(static_cast<int>(fps));
-      cv::putText(vis, info, cv::Point(10, 25), cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                  cv::Scalar(0, 255, 0), 2);
+          // FCW warning text with range
+          std::string fcw_text =
+              "FCW ALERT! Range:" +
+              std::to_string(static_cast<int>(last_fcw_range * 10) / 10) + "." +
+              std::to_string(static_cast<int>(last_fcw_range * 10) % 10) + "m";
+          int text_x = std::max(10, vis.cols / 2 - 150);
+          cv::putText(vis, fcw_text, cv::Point(text_x, 60),
+                      cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 0, 255), 3);
+        } else {
+          g_fcw_alert_active.store(false);
+        }
 
-      // Rate-limit display to 5 FPS to reduce stuttering
-      auto now_display = std::chrono::steady_clock::now();
-      if (now_display - last_display_time >= display_interval) {
-        cv::imshow("Stage B: FrontCam", vis);
-        last_display_time = now_display;
-      }
+        // Calculate FPS
+        frame_count++;
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                           now - last_fps_time)
+                           .count();
+        if (elapsed >= 1000) {
+          fps = frame_count * 1000.0 / elapsed;
+          frame_count = 0;
+          last_fps_time = now;
+        }
+
+        // Draw info overlay
+        std::string info =
+            "Inf: " +
+            std::to_string(static_cast<int>(batch.inference_time_us / 1000)) +
+            "ms | FPS: " + std::to_string(static_cast<int>(fps));
+        cv::putText(vis, info, cv::Point(10, 25), cv::FONT_HERSHEY_SIMPLEX, 0.6,
+                    cv::Scalar(0, 255, 0), 2);
+
+        // Rate-limit display to 5 FPS to reduce stuttering
+        auto now_display = std::chrono::steady_clock::now();
+        if (now_display - last_display_time >= display_interval) {
+          cv::imshow("Stage B: FrontCam", vis);
+          last_display_time = now_display;
+        }
+      } // end if (display_enabled) — Step 10
     }
 
-    // Non-blocking waitKey with minimal delay
-    if (cv::waitKey(1) == 'q') {
-      g_shutdown_requested.store(true);
+    if (display_enabled) {
+      // Non-blocking waitKey with minimal delay
+      if (cv::waitKey(1) == 'q') {
+        g_shutdown_requested.store(true);
+      }
     }
 
     if (!got_frame) {
@@ -448,8 +454,10 @@ void visualizationThread() {
     }
   }
 
-  cv::destroyWindow("Stage B: FrontCam");
-  std::cout << "[Visualizer] Thread stopped\n";
+  if (display_enabled) {
+    cv::destroyWindow("Stage B: FrontCam");
+  }
+  std::cout << "[StageE] Thread stopped\n";
 }
 
 void statusBarThread() {
