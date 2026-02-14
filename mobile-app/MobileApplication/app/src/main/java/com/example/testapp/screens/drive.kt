@@ -1,5 +1,6 @@
 package com.example.testapp.screens
 
+import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -74,7 +75,22 @@ fun DriveContent(
 
     CenteredCar()
     FrontDetection(state.sonarValue)
+    RearDetection(state.sonarValue)
     FcwWarningOverlay(state)
+    Bsd()
+    Box(modifier = Modifier.fillMaxSize()) {
+        LaneDepartureDetection(
+            count = 9,
+            modifier = Modifier.offset(x = 85.dp, y = 100.dp),
+            lane = R.drawable.ic_right_lane,
+        )
+
+        LaneDepartureDetection(
+            count = 9,
+            modifier = Modifier.offset(x = 270.dp, y = 100.dp),
+            lane = R.drawable.ic_right_lane,
+        )
+    }
 }
 
 @Composable
@@ -158,6 +174,23 @@ fun FrontDetection(detectionValue: SonarColor) {
 }
 
 @Composable
+fun RearDetection(detectionValue: SonarColor) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_rear_detection),
+            contentDescription = "detection",
+            // Will be changed to use detectionValue once the detection system is implemented
+            colorFilter = ColorFilter.tint(detectionValue.color),
+            modifier =
+                Modifier.offset(x = -5.dp, y = 320.dp).size(250.dp).rotate(-272f),
+        )
+    }
+}
+
+@Composable
 fun StatusItem(
     label: String,
     isGood: Boolean,
@@ -190,5 +223,55 @@ fun StatusRow(
         StatusItem("Side Radar", s2)
         StatusItem("Blindspot", s3)
         StatusItem("Front Camera", s4)
+    }
+}
+
+@Composable
+fun Bsd() {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_bsd_right),
+            contentDescription = "Blindspot left",
+            modifier =
+                Modifier.size(300.dp).offset(x = 215.dp, y = 210.dp),
+        )
+    }
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_bsd_left),
+            contentDescription = "Blindspot Right",
+            modifier =
+                Modifier.size(300.dp).offset(x = -60.dp, y = 210.dp),
+        )
+    }
+}
+
+@Composable
+fun LaneDepartureDetection(
+    count: Int,
+    modifier: Modifier = Modifier,
+    @DrawableRes lane: Int,
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(30.dp),
+    ) {
+        repeat(count) {
+            Image(
+                painter = painterResource(lane),
+                contentDescription = null,
+                modifier =
+                    Modifier
+                        .size(50.dp)
+                        .rotate(90f),
+            )
+        }
     }
 }
