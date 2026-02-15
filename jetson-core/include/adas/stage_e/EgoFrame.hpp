@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <opencv2/video/tracking.hpp>
 
 #include "adas/common/Types.hpp"
@@ -76,6 +77,15 @@ class EgoFrame {
     /// @return Yaw in radians
     float getYaw_rad() const;
 
+    /// Correct velocity magnitude using GPS Doppler speed.
+    /// Called at 1–5 Hz from BLE reader thread when GPS arrives from phone.
+    /// Uses complementary filter: preserves IMU direction, corrects magnitude.
+    /// @param gps_speed_mps GPS ground speed (no drift, ~0.1 m/s accuracy)
+    void correctWithGpsSpeed(float gps_speed_mps);
+
+    /// Check if GPS corrections are being received (not stale)
+    bool hasRecentGps() const;
+
     /// Check if EgoFrame is initialized
     bool isInitialized() const { return kf_initialized; }
 
@@ -100,6 +110,16 @@ class EgoFrame {
     // State and measurement dimensions
     static constexpr int stateDim = 5; // [x, y, vx, vy, yaw]
     static constexpr int measDim = 4;  // [x, y, vx, vy]
+
+    // Thread safety: GPS corrections arrive from BLE reader thread,
+    // while IMU updates come from the visualizer thread
+    mutable std::mutex kf_mutex_;
+
+    // GPS correction state
+    float last_gps_speed_mps_ = 0.0f;
+    uint64_t last_gps_time_ns_ = 0;
+    static constexpr float GPS_CORRECTION_GAIN = 0.5f;
+    static constexpr uint64_t GPS_STALE_NS = 3'000'000'000ULL;  // 3 seconds
 };
 
 } // namespace adas

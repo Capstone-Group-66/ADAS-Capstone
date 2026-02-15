@@ -5,6 +5,8 @@
 #include <cmath>
 #include <iostream>
 
+#include "adas/common/Clock.hpp"
+
 namespace adas {
 
 EgoFrame::EgoFrame() {}
@@ -72,6 +74,7 @@ cv::Mat EgoFrame::getPrediction() {
 }
 
 cv::Mat EgoFrame::update(const ImuSample &sample, float dt) {
+  std::lock_guard<std::mutex> lock(kf_mutex_);
   if (!kf_initialized) {
     init();
   }
@@ -140,6 +143,7 @@ cv::Mat EgoFrame::update(const ImuSample &sample, float dt) {
 }
 
 cv::Mat EgoFrame::update(cv::Mat measurement, float dt) {
+  std::lock_guard<std::mutex> lock(kf_mutex_);
   if (!kf_initialized) {
     init(measurement);
     return getPrediction();
@@ -160,11 +164,14 @@ cv::Mat EgoFrame::update(cv::Mat measurement, float dt) {
 }
 
 void EgoFrame::reset() {
+  std::lock_guard<std::mutex> lock(kf_mutex_);
   kf_initialized = false;
   previous_time_ns = 0;
   cached_vx_ = 0.0f;
   cached_vy_ = 0.0f;
   cached_yaw_ = 0.0f;
+  last_gps_speed_mps_ = 0.0f;
+  last_gps_time_ns_ = 0;
 }
 
 float EgoFrame::getForwardVelocity_mps() const { return cached_vx_; }
@@ -188,6 +195,49 @@ float EgoFrame::quaternionToYaw(float w, float x, float y, float z) {
   float siny_cosp = 2.0f * (w * z + x * y);
   float cosy_cosp = 1.0f - 2.0f * (y * y + z * z);
   return std::atan2(siny_cosp, cosy_cosp);
+}
+
+void EgoFrame::correctWithGpsSpeed(float gps_speed_mps) {
+  std::lock_guard<std::mutex> lock(kf_mutex_);
+  if (!kf_initialized)
+    return;
+
+  last_gps_speed_mps_ = gps_speed_mps;
+  last_gps_time_ns_ = Clock::now_ns();
+
+  float imu_speed = std::sqrt(cached_vx_ * cached_vx_ + cached_vy_ * cached_vy_);
+
+  if (imu_speed < 0.1f && gps_speed_mps < 0.1f) {
+    // Both agree: stationary — nothing to correct
+    return;
+  }
+
+  if (imu_speed < 0.01f) {
+    // IMU says zero but GPS says moving — can't scale, assume forward
+    kf.statePost.at<float>(2, 0) = gps_speed_mps;
+    kf.statePost.at<float>(3, 0) = 0.0f;
+  } else {
+    // Scale IMU velocity vector to match GPS speed magnitude.
+    // Preserves IMU direction, corrects magnitude with gain.
+    float scale = gps_speed_mps / imu_speed;
+    float blended_scale = 1.0f + GPS_CORRECTION_GAIN * (scale - 1.0f);
+
+    kf.statePost.at<float>(2, 0) *= blended_scale;
+    kf.statePost.at<float>(3, 0) *= blended_scale;
+  }
+
+  cached_vx_ = kf.statePost.at<float>(2, 0);
+  cached_vy_ = kf.statePost.at<float>(3, 0);
+
+  std::cout << "[EgoFrame] GPS correction: IMU=" << imu_speed
+            << " GPS=" << gps_speed_mps
+            << " -> " << getSpeed_mps() << " m/s\n";
+}
+
+bool EgoFrame::hasRecentGps() const {
+  if (last_gps_time_ns_ == 0)
+    return false;
+  return (Clock::now_ns() - last_gps_time_ns_) < GPS_STALE_NS;
 }
 
 } // namespace adas

@@ -221,13 +221,17 @@ void visualizationThread() {
 
         if (is_alerting || time_since.count() > 1000) {
           std::vector<adas::Alert> alerts_to_send;
+
+          // Use GPS-corrected ego speed for the phone dashboard
           int speed_kmh = 0;
+          if (g_ego_frame) {
+            speed_kmh = static_cast<int>(g_ego_frame->getSpeed_mps() * 3.6f);
+          }
 
           if (fcw_alert.has_value()) {
             auto alert = adas::FCWAlertAdapter::convert(*fcw_alert,
                                                         adas::Clock::now_ns());
             alerts_to_send.push_back(alert);
-            speed_kmh = static_cast<int>(fcw_alert->velocity_mps * 3.6f);
           } else if (proximity_alert) {
             // Synthetic Alert from Proximity Logic
             adas::Alert alert;
@@ -237,14 +241,8 @@ void visualizationThread() {
             alert.severity = adas::Severity::Critical;
             alert.rationale = "Proximity Warning (< 1.5m)";
             alerts_to_send.push_back(alert);
-
-            if (prox_obj) {
-              speed_kmh = static_cast<int>(prox_obj->radial_vel_mps * 3.6f);
-            }
           } else {
-            // Heartbeat: No alerts, speed 0 (or from telemetry if
-            // available)
-            speed_kmh = 0;
+            // Heartbeat: No alerts
           }
 
           uint16_t tickId =
@@ -633,6 +631,12 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   // Initialize BLE Server
   g_ble_server = std::make_unique<adas::SimpleBleServer>();
   if (g_ble_server->initialize()) {
+    // Wire GPS callback: phone GPS -> EgoFrame drift correction
+    g_ble_server->setOnGpsData([](float speed_mps, uint64_t /*ts_ms*/) {
+      if (g_ego_frame) {
+        g_ego_frame->correctWithGpsSpeed(speed_mps);
+      }
+    });
     g_ble_server->startAdvertising();
   } else {
     std::cerr << "[Main] WARNING: BLE server failed to initialize\n";

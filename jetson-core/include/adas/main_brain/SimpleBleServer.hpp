@@ -34,6 +34,7 @@ class SimpleBleServer {
   public:
     using OnConnectedCallback = std::function<void()>;
     using OnDisconnectedCallback = std::function<void()>;
+    using OnGpsDataCallback = std::function<void(float speed_mps, uint64_t ts_ms)>;
 
     SimpleBleServer();
     ~SimpleBleServer();
@@ -60,6 +61,7 @@ class SimpleBleServer {
     // Set callbacks
     void setOnConnected(OnConnectedCallback cb) { onConnected_ = std::move(cb); }
     void setOnDisconnected(OnDisconnectedCallback cb) { onDisconnected_ = std::move(cb); }
+    void setOnGpsData(OnGpsDataCallback cb) { onGpsData_ = std::move(cb); }
 
     // Shutdown cleanly
     void shutdown();
@@ -73,6 +75,7 @@ class SimpleBleServer {
 
     OnConnectedCallback onConnected_;
     OnDisconnectedCallback onDisconnected_;
+    OnGpsDataCallback onGpsData_;
 };
 
 } // namespace adas

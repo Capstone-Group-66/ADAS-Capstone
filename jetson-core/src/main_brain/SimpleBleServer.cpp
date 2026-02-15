@@ -7,6 +7,7 @@
 
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <iostream>
 #include <mutex>
@@ -36,14 +37,25 @@ public:
 #ifdef __linux__
   pid_t python_pid = -1;
   FILE *python_stdin = nullptr;
+  int python_stdout_fd = -1;
   std::mutex write_mutex;
+  std::thread gps_reader_thread;
+  std::atomic<bool> reader_running{false};
 #endif
 
   ~Impl() {
 #ifdef __linux__
+    reader_running.store(false);
     if (python_stdin) {
       fclose(python_stdin);
       python_stdin = nullptr;
+    }
+    if (python_stdout_fd >= 0) {
+      close(python_stdout_fd);
+      python_stdout_fd = -1;
+    }
+    if (gps_reader_thread.joinable()) {
+      gps_reader_thread.join();
     }
     if (python_pid > 0) {
       kill(python_pid, SIGTERM);
@@ -55,10 +67,11 @@ public:
 
   bool launchPythonBle() {
 #ifdef __linux__
-    // Create pipe for communication
-    int pipefd[2];
-    if (pipe(pipefd) == -1) {
-      std::cerr << "[BLE] Failed to create pipe\n";
+    // Two pipes: stdin (C++ -> Python) and stdout (Python -> C++)
+    int stdin_pipe[2];
+    int stdout_pipe[2];
+    if (pipe(stdin_pipe) == -1 || pipe(stdout_pipe) == -1) {
+      std::cerr << "[BLE] Failed to create pipes\n";
       return false;
     }
 
@@ -70,9 +83,12 @@ public:
 
     if (python_pid == 0) {
       // Child process: run Python script
-      close(pipefd[1]);              // Close write end
-      dup2(pipefd[0], STDIN_FILENO); // Redirect stdin
-      close(pipefd[0]);
+      close(stdin_pipe[1]);                // Close write end of stdin pipe
+      close(stdout_pipe[0]);               // Close read end of stdout pipe
+      dup2(stdin_pipe[0], STDIN_FILENO);   // Redirect stdin
+      dup2(stdout_pipe[1], STDOUT_FILENO); // Redirect stdout
+      close(stdin_pipe[0]);
+      close(stdout_pipe[1]);
 
       // Execute Python BLE peripheral
       execlp("python3", "python3", "scripts/ble_peripheral.py", nullptr);
@@ -81,8 +97,10 @@ public:
     }
 
     // Parent process
-    close(pipefd[0]); // Close read end
-    python_stdin = fdopen(pipefd[1], "w");
+    close(stdin_pipe[0]);  // Close read end of stdin pipe
+    close(stdout_pipe[1]); // Close write end of stdout pipe
+    python_stdin = fdopen(stdin_pipe[1], "w");
+    python_stdout_fd = stdout_pipe[0];
 
     if (!python_stdin) {
       std::cerr << "[BLE] Failed to open pipe for writing\n";
@@ -120,6 +138,50 @@ public:
     return true;
 #endif
   }
+
+  /// Parse a GPS JSON line from Python stdout.
+  /// Expected format: {"event":"gps","speed_mps":12.3,"ts_ms":1234}
+  static bool parseGpsJson(const char *line, float &speed, uint64_t &ts) {
+    // Lightweight parse — avoid adding a JSON library for two fields
+    const char *sp = strstr(line, "\"speed_mps\"");
+    const char *tp = strstr(line, "\"ts_ms\"");
+    if (!sp || !tp)
+      return false;
+    sp = strchr(sp, ':');
+    tp = strchr(tp, ':');
+    if (!sp || !tp)
+      return false;
+    speed = static_cast<float>(atof(sp + 1));
+    ts = static_cast<uint64_t>(strtoull(tp + 1, nullptr, 10));
+    return true;
+  }
+
+  void startGpsReader(SimpleBleServer::OnGpsDataCallback cb) {
+#ifdef __linux__
+    if (python_stdout_fd < 0 || !cb)
+      return;
+    reader_running.store(true);
+    gps_reader_thread = std::thread([this, cb = std::move(cb)]() {
+      FILE *f = fdopen(python_stdout_fd, "r");
+      if (!f) {
+        std::cerr << "[BLE] Failed to open stdout pipe for reading\n";
+        return;
+      }
+      char buf[512];
+      while (reader_running.load()) {
+        if (!fgets(buf, sizeof(buf), f))
+          break;
+        float speed = 0;
+        uint64_t ts = 0;
+        if (parseGpsJson(buf, speed, ts)) {
+          std::cout << "[BLE] GPS received: speed_mps=" << speed << "\n";
+          cb(speed, ts);
+        }
+      }
+      // Don't fclose — fd is owned by Impl and closed in destructor
+    });
+#endif
+  }
 };
 
 SimpleBleServer::SimpleBleServer() : impl_(std::make_unique<Impl>()) {}
@@ -148,6 +210,11 @@ bool SimpleBleServer::startAdvertising() {
   if (!impl_->launchPythonBle()) {
     std::cerr << "[BLE] Failed to launch BLE peripheral\n";
     return false;
+  }
+
+  // Start GPS reader thread if callback is registered
+  if (onGpsData_) {
+    impl_->startGpsReader(onGpsData_);
   }
 
   impl_->advertising = true;
