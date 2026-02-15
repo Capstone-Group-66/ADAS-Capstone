@@ -205,7 +205,8 @@ void EgoFrame::correctWithGpsSpeed(float gps_speed_mps) {
   last_gps_speed_mps_ = gps_speed_mps;
   last_gps_time_ns_ = Clock::now_ns();
 
-  float imu_speed = std::sqrt(cached_vx_ * cached_vx_ + cached_vy_ * cached_vy_);
+  float imu_speed =
+      std::sqrt(cached_vx_ * cached_vx_ + cached_vy_ * cached_vy_);
 
   if (imu_speed < 0.1f && gps_speed_mps < 0.1f) {
     // Both agree: stationary — nothing to correct
@@ -230,8 +231,7 @@ void EgoFrame::correctWithGpsSpeed(float gps_speed_mps) {
   cached_vy_ = kf.statePost.at<float>(3, 0);
 
   std::cout << "[EgoFrame] GPS correction: IMU=" << imu_speed
-            << " GPS=" << gps_speed_mps
-            << " -> " << getSpeed_mps() << " m/s\n";
+            << " GPS=" << gps_speed_mps << " -> " << getSpeed_mps() << " m/s\n";
 }
 
 bool EgoFrame::hasRecentGps() const {
