@@ -1,6 +1,7 @@
 // File: src/stage_a/NetworkReceiver.cpp
 // ZMQ-based receiver for Pi4 sensor data
 #include "adas/stage_a/NetworkReceiver.hpp"
+#include "adas/common/Clock.hpp"
 #include "adas/common/Globals.hpp"
 
 #include <opencv2/imgcodecs.hpp>
@@ -91,6 +92,19 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
   }
 
   std::cout << "[NetworkReceiver] Connected to all Pi streams\n";
+
+  // Measure initial RTT for latency correction on ZMQ-received timestamps
+  double rtt_ms = measureRTT(pi_ip_);
+  if (rtt_ms > 0) {
+    uint64_t one_way_ns = static_cast<uint64_t>(rtt_ms * 0.5 * 1e6);
+    one_way_latency_ns_.store(one_way_ns, std::memory_order_relaxed);
+    std::cout << "[NetworkReceiver] RTT=" << rtt_ms
+              << "ms, one-way latency=" << (rtt_ms / 2.0)
+              << "ms (" << one_way_ns << "ns)\n";
+  } else {
+    std::cout << "[NetworkReceiver] WARNING: Could not measure RTT, "
+              << "timestamps will not be latency-corrected\n";
+  }
 
   running_.store(true);
 
@@ -202,9 +216,9 @@ void NetworkReceiver::cameraThread() {
       CameraFrameData frame_data;
       frame_data.h.mount = Mount::RearCam;
       frame_data.h.seq = header.sequence;
-      frame_data.h.t_device_ns = header.timestamp_ns; // Use Pi's timestamp!
-      frame_data.h.t_ingest_ns =
-          header.timestamp_ns; // Same - already timestamped
+      frame_data.h.t_device_ns = header.timestamp_ns; // Pi's original timestamp
+      frame_data.h.t_ingest_ns = Clock::now_ns()
+          - one_way_latency_ns_.load(std::memory_order_relaxed);
       frame_data.frame = frame.clone();
 
       cam_queue_->try_push(std::move(frame_data));
@@ -244,6 +258,7 @@ void NetworkReceiver::radarLThread() {
     last_radar_l_seq_ = header.sequence;
 
     // TODO: Push to radar queue for Stage C processing
+    // When wired, use: Clock::now_ns() - one_way_latency_ns_ for t_ingest_ns
     // For now, just count
     stats_.radar_l_packets++;
   }
@@ -277,6 +292,7 @@ void NetworkReceiver::radarRThread() {
     }
     last_radar_r_seq_ = header.sequence;
 
+    // TODO: When wired to queue, use: Clock::now_ns() - one_way_latency_ns_ for t_ingest_ns
     stats_.radar_r_packets++;
   }
 }
@@ -344,7 +360,8 @@ void NetworkReceiver::imuThread() {
     // Create ImuSample and push to queue
     if (imu_queue_) {
       ImuSample sample;
-      sample.t_capture = header.timestamp_ns;
+      sample.t_capture = Clock::now_ns()
+          - one_way_latency_ns_.load(std::memory_order_relaxed);
       sample.accel = {imu_payload.accel_x, imu_payload.accel_y,
                       imu_payload.accel_z};
       sample.gyro = {imu_payload.gyro_x, imu_payload.gyro_y,

@@ -133,6 +133,10 @@ class NetworkReceiver {
     uint32_t last_radar_l_seq_ = 0;
     uint32_t last_radar_r_seq_ = 0;
     uint32_t last_imu_seq_ = 0;
+
+    // One-way network latency (RTT/2) in nanoseconds, measured at startup
+    // and used to correct t_ingest_ns on ZMQ-received data
+    std::atomic<uint64_t> one_way_latency_ns_{0};
 };
 
 } // namespace adas
