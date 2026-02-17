@@ -400,10 +400,15 @@ class LaneDeparture:
             )
 
 
-        if self.use_calibration and debugDisplay:
-            side_by_side = np.hstack((frame, cv2.remap(
-                frame, self.map1, self.map2, cv2.INTER_LINEAR)))
-            cv2.imshow("Original | Undistorted", side_by_side)
+        if self.use_calibration:
+            if frame.shape[1] != self.calib_width or frame.shape[0] != self.calib_height:
+                frame = cv2.resize(frame, (self.calib_width, self.calib_height))
+            
+            original = frame.copy()
+            frame = cv2.remap(frame, self.map1, self.map2, interpolation=cv2.INTER_LINEAR)
+
+            if debugDisplay:
+                cv2.imshow("Original | Undistorted", np.hstack((original, frame)))
 
 
         if self.heightcrp > self.width:
