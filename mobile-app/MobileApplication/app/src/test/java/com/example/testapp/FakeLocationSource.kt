@@ -1,4 +1,7 @@
-package com.example.testapp.model
+package com.example.testapp
+
+import com.example.testapp.model.GpsData
+import com.example.testapp.model.LocationSource
 
 class FakeLocationSource : LocationSource {
     private var cb: ((GpsData) -> Unit)? = null

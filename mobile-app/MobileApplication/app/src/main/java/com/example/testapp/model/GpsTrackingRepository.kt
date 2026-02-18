@@ -10,17 +10,7 @@ class GpsTrackingRepository(
     fun gpsDataFlow(): Flow<GpsData> =
         callbackFlow {
             source.start { fix ->
-                trySend(
-                    GpsData(
-                        tsMs = fix.tsMs,
-                        lat = fix.lat,
-                        lon = fix.lon,
-                        altM = fix.altM,
-                        speedMps = fix.speedMps,
-                        bearingDeg = fix.bearingDeg,
-                        accM = fix.accM,
-                    ),
-                )
+                trySend(fix)
             }
             awaitClose { source.stop() }
         }
