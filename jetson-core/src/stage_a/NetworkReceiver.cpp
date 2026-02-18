@@ -100,8 +100,8 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
     uint64_t one_way_ns = static_cast<uint64_t>(rtt_ms * 0.5 * 1e6);
     one_way_latency_ns_.store(one_way_ns, std::memory_order_relaxed);
     std::cout << "[NetworkReceiver] RTT=" << rtt_ms
-              << "ms, one-way latency=" << (rtt_ms / 2.0)
-              << "ms (" << one_way_ns << "ns)\n";
+              << "ms, one-way latency=" << (rtt_ms / 2.0) << "ms ("
+              << one_way_ns << "ns)\n";
   } else {
     std::cout << "[NetworkReceiver] WARNING: Could not measure RTT, "
               << "timestamps will not be latency-corrected\n";
@@ -218,17 +218,16 @@ void NetworkReceiver::cameraThread() {
       frame_data.h.mount = Mount::RearCam;
       frame_data.h.seq = header.sequence;
       frame_data.h.t_device_ns = header.timestamp_ns; // Pi's original timestamp
-      frame_data.h.t_ingest_ns = Clock::now_ns()
-          - one_way_latency_ns_.load(std::memory_order_relaxed);
+      frame_data.h.t_ingest_ns =
+          Clock::now_ns() - one_way_latency_ns_.load(std::memory_order_relaxed);
       frame_data.frame = frame.clone();
 
       // Record pre-decode JPEG (avoids re-encoding)
       if (recorder_) {
-        recorder_->recordCameraJpeg(
-            jpeg_data.data(), jpeg_data.size(),
-            frame_data.h.t_ingest_ns, Mount::RearCam,
-            static_cast<uint16_t>(frame.cols),
-            static_cast<uint16_t>(frame.rows));
+        recorder_->recordCameraJpeg(jpeg_data.data(), jpeg_data.size(),
+                                    frame_data.h.t_ingest_ns, Mount::RearCam,
+                                    static_cast<uint16_t>(frame.cols),
+                                    static_cast<uint16_t>(frame.rows));
       }
 
       cam_queue_->try_push(std::move(frame_data));
@@ -302,7 +301,8 @@ void NetworkReceiver::radarRThread() {
     }
     last_radar_r_seq_ = header.sequence;
 
-    // TODO: When wired to queue, use: Clock::now_ns() - one_way_latency_ns_ for t_ingest_ns
+    // TODO: When wired to queue, use: Clock::now_ns() - one_way_latency_ns_ for
+    // t_ingest_ns
     stats_.radar_r_packets++;
   }
 }
@@ -370,8 +370,8 @@ void NetworkReceiver::imuThread() {
     // Create ImuSample and push to queue
     if (imu_queue_) {
       ImuSample sample;
-      sample.t_capture = Clock::now_ns()
-          - one_way_latency_ns_.load(std::memory_order_relaxed);
+      sample.t_capture =
+          Clock::now_ns() - one_way_latency_ns_.load(std::memory_order_relaxed);
       sample.accel = {imu_payload.accel_x, imu_payload.accel_y,
                       imu_payload.accel_z};
       sample.gyro = {imu_payload.gyro_x, imu_payload.gyro_y,
