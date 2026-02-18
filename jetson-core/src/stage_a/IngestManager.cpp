@@ -310,4 +310,21 @@ void IngestManager::printStatus() const {
       << "----------------------------------------------------------------\n";
 }
 
+void IngestManager::setRecorder(Recorder *recorder) {
+  // Propagate to all active ingest instances
+  if (cam_front_)
+    cam_front_->setRecorder(recorder);
+  if (cam_side_l_)
+    cam_side_l_->setRecorder(recorder);
+  if (cam_side_r_)
+    cam_side_r_->setRecorder(recorder);
+  if (radar_front_)
+    radar_front_->setRecorder(recorder);
+#ifdef HAS_ZMQ
+  if (zmq_receiver_)
+    zmq_receiver_->setRecorder(recorder);
+#endif
+  // NetworkIngest (TCP) not instrumented — deprecated path
+}
+
 } // namespace adas

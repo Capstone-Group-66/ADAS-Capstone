@@ -80,6 +80,11 @@ set(MAIN_BRAIN_SOURCES
     src/main_brain/BleFragmenter.cpp
 )
 
+set(RECORDING_SOURCES
+    src/recording/Recorder.cpp
+    src/recording/ReplayEngine.cpp
+)
+
 add_executable(jetson_core
     src/main.cpp
     ${COMMON_SOURCES}
@@ -87,6 +92,7 @@ add_executable(jetson_core
     ${STAGE_B_SOURCES}
     ${STAGE_E_SOURCES}
     ${MAIN_BRAIN_SOURCES}
+    ${RECORDING_SOURCES}
 )
 
 # Include vendor directory for nlohmann/json (CBOR encoding)

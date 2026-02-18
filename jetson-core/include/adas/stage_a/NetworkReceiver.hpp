@@ -20,6 +20,8 @@ typedef void *zmq_context_t;
 
 namespace adas {
 
+class Recorder; // Forward declaration for recording support
+
 /// NetworkReceiver: Receives sensor data from Pi4 via ZMQ
 /// Integrates directly with Stage A queues
 class NetworkReceiver {
@@ -73,6 +75,9 @@ class NetworkReceiver {
 
     /// Get statistics
     Stats getStats() const { return stats_; }
+
+    /// Set recorder for data capture (optional, nullptr = no recording)
+    void setRecorder(Recorder *rec) { recorder_ = rec; }
 
     /// Static: Discover devices on Pi without starting full receiver
     /// @param pi_ip IP address of Pi4
@@ -137,6 +142,9 @@ class NetworkReceiver {
     // One-way network latency (RTT/2) in nanoseconds, measured at startup
     // and used to correct t_ingest_ns on ZMQ-received data
     std::atomic<uint64_t> one_way_latency_ns_{0};
+
+    // Optional recorder for data capture
+    Recorder *recorder_ = nullptr;
 };
 
 } // namespace adas

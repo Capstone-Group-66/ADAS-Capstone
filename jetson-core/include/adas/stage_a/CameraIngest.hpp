@@ -20,6 +20,8 @@ class Mat;
 
 namespace adas {
 
+class Recorder; // Forward declaration for recording support
+
 /// Camera ingest thread for direct USB cameras
 /// Captures frames, timestamps them, and pushes to SPSC queue
 class CameraIngest {
@@ -53,6 +55,9 @@ class CameraIngest {
 
     /// Get mount identity
     Mount getMount() const { return mount_; }
+
+    /// Set recorder for data capture (optional, nullptr = no recording)
+    void setRecorder(Recorder *rec) { recorder_ = rec; }
 
     /// Get device path
     const std::string &getDevicePath() const { return device_path_; }
@@ -97,6 +102,9 @@ class CameraIngest {
     static constexpr size_t FPS_WINDOW = 100;
     std::array<uint64_t, FPS_WINDOW> frame_times_{};
     size_t frame_time_idx_ = 0;
+
+    // Optional recorder for data capture
+    Recorder *recorder_ = nullptr;
 };
 
 } // namespace adas

@@ -2,6 +2,7 @@
 // Direct USB camera capture implementation
 // Based on test_scripts/cameraintake.py patterns
 #include "adas/stage_a/CameraIngest.hpp"
+#include "adas/recording/Recorder.hpp"
 
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/videoio.hpp>
@@ -163,6 +164,11 @@ bool CameraIngest::captureFrame() {
   size_t data_size = frame.total() * frame.elemSize();
   frame_data.data.resize(data_size);
   std::memcpy(frame_data.data.data(), frame.data, data_size);
+
+  // Record before pushing to queue (if recording active)
+  if (recorder_) {
+    recorder_->recordCamera(frame_data, mount_);
+  }
 
   // Push to queue
   if (!queue_.try_push(std::move(frame_data))) {

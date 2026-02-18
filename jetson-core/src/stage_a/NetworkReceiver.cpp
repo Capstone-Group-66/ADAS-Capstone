@@ -3,6 +3,7 @@
 #include "adas/stage_a/NetworkReceiver.hpp"
 #include "adas/common/Clock.hpp"
 #include "adas/common/Globals.hpp"
+#include "adas/recording/Recorder.hpp"
 
 #include <opencv2/imgcodecs.hpp>
 
@@ -221,6 +222,15 @@ void NetworkReceiver::cameraThread() {
           - one_way_latency_ns_.load(std::memory_order_relaxed);
       frame_data.frame = frame.clone();
 
+      // Record pre-decode JPEG (avoids re-encoding)
+      if (recorder_) {
+        recorder_->recordCameraJpeg(
+            jpeg_data.data(), jpeg_data.size(),
+            frame_data.h.t_ingest_ns, Mount::RearCam,
+            static_cast<uint16_t>(frame.cols),
+            static_cast<uint16_t>(frame.rows));
+      }
+
       cam_queue_->try_push(std::move(frame_data));
     }
 
@@ -371,6 +381,11 @@ void NetworkReceiver::imuThread() {
                      imu_payload.quat_z};
       sample.temperature = imu_payload.temperature;
       sample.calibration_status = imu_payload.calibration_status;
+
+      // Record before pushing to queue
+      if (recorder_) {
+        recorder_->recordIMU(sample);
+      }
 
       imu_queue_->try_push(std::move(sample));
       last_accel_z = imu_payload.accel_z;

@@ -15,6 +15,8 @@
 
 namespace adas {
 
+class Recorder; // Forward declaration for recording support
+
 /// RadarIngest: Serial port reader for OPS243-A front radar
 ///
 /// The OPS243-A outputs target data over serial at 921600 baud.
@@ -51,6 +53,9 @@ class RadarIngest {
 
     /// Get mount identity
     Mount getMount() const { return mount_; }
+
+    /// Set recorder for data capture (optional, nullptr = no recording)
+    void setRecorder(Recorder *rec) { recorder_ = rec; }
 
     /// Get statistics
     struct Stats {
@@ -94,6 +99,9 @@ class RadarIngest {
     uint64_t last_rate_time_{0};
     uint64_t frames_in_window_{0};
     std::atomic<double> rate_hz_{0.0};
+
+    // Optional recorder for data capture
+    Recorder *recorder_ = nullptr;
 };
 
 } // namespace adas

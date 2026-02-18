@@ -26,6 +26,8 @@
 #include "adas/stage_e/EgoFrame.hpp"
 #include "adas/stage_e/FCWMonitor.hpp"
 #include "adas/stage_e/SensorFusion.hpp"
+#include "adas/recording/Recorder.hpp"
+#include "adas/recording/ReplayEngine.hpp"
 
 namespace {
 
@@ -66,6 +68,14 @@ std::unique_ptr<adas::SimpleBleServer> g_ble_server;
 
 // Metrics logger for validation
 std::unique_ptr<adas::MetricsLogger> g_metrics_logger;
+
+// Recording and replay
+std::unique_ptr<adas::Recorder> g_recorder;
+std::unique_ptr<adas::ReplayEngine> g_replay_engine;
+std::string g_record_dir = "./recordings";
+std::string g_replay_file;
+float g_replay_speed = 1.0f;
+bool g_replay_fast = false;
 
 std::string formatUptime(std::chrono::seconds uptime) {
   int hours = uptime.count() / 3600;
@@ -551,6 +561,9 @@ void printMenu() {
             << (g_metrics_logger && g_metrics_logger->isEnabled() ? "ON"
                                                                   : "OFF")
             << "]\n";
+  std::cout << " 11) Toggle Recording ["
+            << (g_recorder && g_recorder->isRecording() ? "REC" : "OFF")
+            << "]\n";
   std::cout << "  0) Exit\n";
   std::cout
       << "==============================================================\n";
@@ -632,9 +645,13 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   g_ble_server = std::make_unique<adas::SimpleBleServer>();
   if (g_ble_server->initialize()) {
     // Wire GPS callback: phone GPS -> EgoFrame drift correction
-    g_ble_server->setOnGpsData([](float speed_mps, uint64_t /*ts_ms*/) {
+    g_ble_server->setOnGpsData([](float speed_mps, uint64_t ts_ms) {
       if (g_ego_frame) {
         g_ego_frame->correctWithGpsSpeed(speed_mps);
+      }
+      // Record GPS data if recording
+      if (g_recorder && g_recorder->isRecording()) {
+        g_recorder->recordGPS(speed_mps, ts_ms);
       }
     });
     g_ble_server->startAdvertising();
@@ -688,6 +705,12 @@ void stopPipeline() {
     } else {
       std::cerr << "[Main] Failed to save metrics\n";
     }
+  }
+
+  // Stop recording if active
+  if (g_recorder && g_recorder->isRecording()) {
+    g_recorder->stop();
+    g_ingest_manager->setRecorder(nullptr);
   }
 
   // Stop BLE
@@ -778,8 +801,20 @@ int main(int argc, char **argv) {
                 << "  --calib-dir <path>     Path to calibration directory\n"
                 << "  --model <path>         Path to YOLOv8 ONNX model\n"
                 << "  --auto-start           Start pipeline automatically\n"
+                << "  --record <dir>         Record sensor data to directory\n"
+                << "  --replay <file>        Replay from .adasrec file\n"
+                << "  --replay-speed <float> Replay speed multiplier (default: 1.0)\n"
+                << "  --replay-fast          Replay as fast as possible\n"
                 << "  --help                 Show this help\n";
       return 0;
+    } else if (arg == "--record" && i + 1 < argc) {
+      g_record_dir = argv[++i];
+    } else if (arg == "--replay" && i + 1 < argc) {
+      g_replay_file = argv[++i];
+    } else if (arg == "--replay-speed" && i + 1 < argc) {
+      g_replay_speed = std::stof(argv[++i]);
+    } else if (arg == "--replay-fast") {
+      g_replay_fast = true;
     }
   }
 
@@ -941,6 +976,31 @@ int main(int argc, char **argv) {
                        "will be saved "
                        "to Desktop on "
                        "pipeline stop.\n";
+        }
+      } break;
+
+      case 11: // Toggle Recording
+      {
+        if (!g_pipeline_running.load()) {
+          std::cout << "[Main] Start the pipeline first\n";
+        } else if (g_recorder && g_recorder->isRecording()) {
+          // Stop recording
+          g_recorder->stop();
+          g_ingest_manager->setRecorder(nullptr);
+          std::cout << "[Main] Recording stopped. File: "
+                    << g_recorder->getFilePath() << "\n";
+        } else {
+          // Start recording
+          if (!g_recorder) {
+            g_recorder = std::make_unique<adas::Recorder>();
+          }
+          if (g_recorder->start(g_record_dir)) {
+            g_ingest_manager->setRecorder(g_recorder.get());
+            std::cout << "[Main] Recording started to: "
+                      << g_recorder->getFilePath() << "\n";
+          } else {
+            std::cerr << "[Main] Failed to start recording\n";
+          }
         }
       } break;
 

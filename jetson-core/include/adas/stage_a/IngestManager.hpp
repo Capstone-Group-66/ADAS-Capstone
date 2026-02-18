@@ -20,6 +20,8 @@
 
 namespace adas {
 
+class Recorder; // Forward declaration for recording support
+
 /// IngestManager: Lifecycle controller for all Stage A ingest threads
 ///
 /// Responsibilities:
@@ -51,6 +53,9 @@ class IngestManager {
 
     /// Check if all ingest threads are running
     bool isRunning() const { return running_.load(std::memory_order_relaxed); }
+
+    /// Set recorder for all ingest threads (call before or after start)
+    void setRecorder(Recorder *recorder);
 
     // ═══════════════════════════════════════════════════════════════════════════
     //                        QUEUE ACCESS FOR DOWNSTREAM
