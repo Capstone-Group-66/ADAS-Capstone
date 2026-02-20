@@ -6,6 +6,7 @@ import androidx.test.filters.LargeTest
 import androidx.test.rule.GrantPermissionRule
 import com.example.testapp.BleManager
 import com.example.testapp.model.SerializationDeserialization
+import com.example.testapp.model.TickStreamDecoder
 import com.example.testapp.model.TickStreamPayload
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.TimeoutCancellationException
@@ -22,8 +23,6 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 class JetsonConnectTest {
-    private val serde = SerializationDeserialization
-
     @get:Rule
     val perms: GrantPermissionRule =
         GrantPermissionRule.grant(
@@ -35,19 +34,23 @@ class JetsonConnectTest {
     fun connectAndReceiveTick() =
         runBlocking {
             val ctx: Context = ApplicationProvider.getApplicationContext()
-            val bleManager = BleManager(ctx, serde)
+            val bleManager = BleManager(ctx)
+            val decoder = TickStreamDecoder(SerializationDeserialization)
 
             try {
                 withContext(Dispatchers.Main) {
-                    bleManager.startScan { device ->
-                        bleManager.connectToJetson(device)
-                    }
+                    bleManager.initialize()
                 }
 
                 val tick: TickStreamPayload =
                     try {
                         withTimeout(30_000) {
-                            bleManager.ticks.first()
+                            while (true) {
+                                val bytes = bleManager.packetFlow.first()
+                                val decoded = decoder.onBytes(bytes)
+                                if (decoded.isNotEmpty()) return@withTimeout decoded.first()
+                            }
+                            error("unreachable")
                         }
                     } catch (e: TimeoutCancellationException) {
                         throw AssertionError(
@@ -61,7 +64,6 @@ class JetsonConnectTest {
             } finally {
                 withContext(Dispatchers.Main) {
                     bleManager.disconnect()
-                    bleManager.stopScan()
                 }
             }
         }

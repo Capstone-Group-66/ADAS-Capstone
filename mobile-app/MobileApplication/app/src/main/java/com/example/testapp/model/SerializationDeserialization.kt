@@ -12,6 +12,7 @@ object SerializationDeserialization {
 
     val cbor =
         Cbor {
-            // defaults are fine
+            ignoreUnknownKeys = true // future-proof Jetson ↔ Android
+            encodeDefaults = false // smaller packets
         }
 }
