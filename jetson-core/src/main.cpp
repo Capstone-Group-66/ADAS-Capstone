@@ -19,6 +19,8 @@
 #include "adas/main_brain/BleFragmenter.hpp"
 #include "adas/main_brain/FCWAlertAdapter.hpp"
 #include "adas/main_brain/SimpleBleServer.hpp"
+#include "adas/recording/Recorder.hpp"
+#include "adas/recording/ReplayEngine.hpp"
 #include "adas/stage_a/DeviceWizard.hpp"
 #include "adas/stage_a/IngestManager.hpp"
 #include "adas/stage_b/CameraPipeline.hpp"
@@ -26,8 +28,6 @@
 #include "adas/stage_e/EgoFrame.hpp"
 #include "adas/stage_e/FCWMonitor.hpp"
 #include "adas/stage_e/SensorFusion.hpp"
-#include "adas/recording/Recorder.hpp"
-#include "adas/recording/ReplayEngine.hpp"
 
 namespace {
 
@@ -794,18 +794,19 @@ int main(int argc, char **argv) {
     } else if (arg == "--auto-start") {
       auto_start = true;
     } else if (arg == "--help") {
-      std::cout << "Usage: " << argv[0] << " [options]\n"
-                << "Options:\n"
-                << "  --config <path>        Path to componentConfig.yaml\n"
-                << "  --hardware-map <path>  Path to hardware_map.json\n"
-                << "  --calib-dir <path>     Path to calibration directory\n"
-                << "  --model <path>         Path to YOLOv8 ONNX model\n"
-                << "  --auto-start           Start pipeline automatically\n"
-                << "  --record <dir>         Record sensor data to directory\n"
-                << "  --replay <file>        Replay from .adasrec file\n"
-                << "  --replay-speed <float> Replay speed multiplier (default: 1.0)\n"
-                << "  --replay-fast          Replay as fast as possible\n"
-                << "  --help                 Show this help\n";
+      std::cout
+          << "Usage: " << argv[0] << " [options]\n"
+          << "Options:\n"
+          << "  --config <path>        Path to componentConfig.yaml\n"
+          << "  --hardware-map <path>  Path to hardware_map.json\n"
+          << "  --calib-dir <path>     Path to calibration directory\n"
+          << "  --model <path>         Path to YOLOv8 ONNX model\n"
+          << "  --auto-start           Start pipeline automatically\n"
+          << "  --record <dir>         Record sensor data to directory\n"
+          << "  --replay <file>        Replay from .adasrec file\n"
+          << "  --replay-speed <float> Replay speed multiplier (default: 1.0)\n"
+          << "  --replay-fast          Replay as fast as possible\n"
+          << "  --help                 Show this help\n";
       return 0;
     } else if (arg == "--record" && i + 1 < argc) {
       g_record_dir = argv[++i];

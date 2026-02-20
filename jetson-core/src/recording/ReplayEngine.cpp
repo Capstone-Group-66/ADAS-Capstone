@@ -47,8 +47,7 @@ bool ReplayEngine::load(const std::string &path) {
     event.payload.resize(hdr.payload_size);
 
     if (hdr.payload_size > 0) {
-      in.read(reinterpret_cast<char *>(event.payload.data()),
-              hdr.payload_size);
+      in.read(reinterpret_cast<char *>(event.payload.data()), hdr.payload_size);
       if (in.gcount() < static_cast<std::streamsize>(hdr.payload_size)) {
         std::cerr << "[ReplayEngine] Truncated event at index "
                   << events_.size() << "\n";
@@ -68,7 +67,8 @@ bool ReplayEngine::load(const std::string &path) {
   std::cout << "[ReplayEngine] Loaded " << events_.size() << " events from "
             << path << "\n";
   if (!events_.empty()) {
-    uint64_t dur_ns = events_.back().timestamp_ns - events_.front().timestamp_ns;
+    uint64_t dur_ns =
+        events_.back().timestamp_ns - events_.front().timestamp_ns;
     double dur_s = dur_ns / 1e9;
     std::cout << "[ReplayEngine] Duration: " << dur_s << "s\n";
   }
@@ -119,21 +119,37 @@ uint64_t ReplayEngine::getDurationNs() const {
 void ReplayEngine::setCameraQueue(Mount mount,
                                   SPSCQueue<CameraFrameData, 8> *queue) {
   switch (mount) {
-  case Mount::FrontCam:  cam_front_queue_ = queue; break;
-  case Mount::SideCamL:  cam_side_l_queue_ = queue; break;
-  case Mount::SideCamR:  cam_side_r_queue_ = queue; break;
-  case Mount::RearCam:   cam_rear_queue_ = queue; break;
-  default: break;
+  case Mount::FrontCam:
+    cam_front_queue_ = queue;
+    break;
+  case Mount::SideCamL:
+    cam_side_l_queue_ = queue;
+    break;
+  case Mount::SideCamR:
+    cam_side_r_queue_ = queue;
+    break;
+  case Mount::RearCam:
+    cam_rear_queue_ = queue;
+    break;
+  default:
+    break;
   }
 }
 
 void ReplayEngine::setRadarQueue(Mount mount,
                                  SPSCQueue<RadarTargets, 8> *queue) {
   switch (mount) {
-  case Mount::FrontRadar:       radar_front_queue_ = queue; break;
-  case Mount::RearCornerRadarL: radar_rear_l_queue_ = queue; break;
-  case Mount::RearCornerRadarR: radar_rear_r_queue_ = queue; break;
-  default: break;
+  case Mount::FrontRadar:
+    radar_front_queue_ = queue;
+    break;
+  case Mount::RearCornerRadarL:
+    radar_rear_l_queue_ = queue;
+    break;
+  case Mount::RearCornerRadarR:
+    radar_rear_r_queue_ = queue;
+    break;
+  default:
+    break;
   }
 }
 
@@ -157,7 +173,8 @@ void ReplayEngine::replayLoop() {
   const auto wall_start = std::chrono::steady_clock::now();
   const bool fast_mode = (speed_ <= 0.0f);
 
-  for (size_t i = 0; i < events_.size() && running_.load(std::memory_order_relaxed); ++i) {
+  for (size_t i = 0;
+       i < events_.size() && running_.load(std::memory_order_relaxed); ++i) {
     current_index_.store(i, std::memory_order_relaxed);
     const auto &event = events_[i];
 
@@ -166,12 +183,12 @@ void ReplayEngine::replayLoop() {
       uint64_t event_offset_ns = event.timestamp_ns - first_event_ts;
       double scaled_offset_ns = event_offset_ns / static_cast<double>(speed_);
 
-      auto target_time = wall_start + std::chrono::nanoseconds(
-                                          static_cast<int64_t>(scaled_offset_ns));
+      auto target_time =
+          wall_start +
+          std::chrono::nanoseconds(static_cast<int64_t>(scaled_offset_ns));
 
       // Coarse sleep: sleep until ~500µs before target
-      auto coarse_target =
-          target_time - std::chrono::microseconds(500);
+      auto coarse_target = target_time - std::chrono::microseconds(500);
       auto now = std::chrono::steady_clock::now();
       if (coarse_target > now) {
         std::this_thread::sleep_until(coarse_target);
@@ -247,11 +264,20 @@ void ReplayEngine::dispatchCamera(const RecordEvent &event) {
   // Push to appropriate queue
   SPSCQueue<CameraFrameData, 8> *queue = nullptr;
   switch (event.type) {
-  case RecEventType::CameraFront: queue = cam_front_queue_; break;
-  case RecEventType::CameraSideL: queue = cam_side_l_queue_; break;
-  case RecEventType::CameraSideR: queue = cam_side_r_queue_; break;
-  case RecEventType::CameraRear:  queue = cam_rear_queue_; break;
-  default: break;
+  case RecEventType::CameraFront:
+    queue = cam_front_queue_;
+    break;
+  case RecEventType::CameraSideL:
+    queue = cam_side_l_queue_;
+    break;
+  case RecEventType::CameraSideR:
+    queue = cam_side_r_queue_;
+    break;
+  case RecEventType::CameraRear:
+    queue = cam_rear_queue_;
+    break;
+  default:
+    break;
   }
 
   if (queue) {
@@ -269,16 +295,24 @@ void ReplayEngine::dispatchRadar(const RecordEvent &event) {
   RadarTargets targets;
   // Map event type back to mount
   switch (event.type) {
-  case RecEventType::RadarFront: targets.h.mount = Mount::FrontRadar; break;
-  case RecEventType::RadarRearL: targets.h.mount = Mount::RearCornerRadarL; break;
-  case RecEventType::RadarRearR: targets.h.mount = Mount::RearCornerRadarR; break;
-  default: break;
+  case RecEventType::RadarFront:
+    targets.h.mount = Mount::FrontRadar;
+    break;
+  case RecEventType::RadarRearL:
+    targets.h.mount = Mount::RearCornerRadarL;
+    break;
+  case RecEventType::RadarRearR:
+    targets.h.mount = Mount::RearCornerRadarR;
+    break;
+  default:
+    break;
   }
   targets.h.t_ingest_ns = event.timestamp_ns;
   targets.h.t_device_ns = event.timestamp_ns;
 
   size_t offset = 1;
-  for (uint8_t i = 0; i < n && offset + per_target <= event.payload.size(); ++i) {
+  for (uint8_t i = 0; i < n && offset + per_target <= event.payload.size();
+       ++i) {
     RadarTarget t;
     std::memcpy(&t.range_m, &event.payload[offset + 0], 4);
     std::memcpy(&t.azimuth_rad, &event.payload[offset + 4], 4);
@@ -294,10 +328,17 @@ void ReplayEngine::dispatchRadar(const RecordEvent &event) {
   // Push to appropriate queue
   SPSCQueue<RadarTargets, 8> *queue = nullptr;
   switch (event.type) {
-  case RecEventType::RadarFront: queue = radar_front_queue_; break;
-  case RecEventType::RadarRearL: queue = radar_rear_l_queue_; break;
-  case RecEventType::RadarRearR: queue = radar_rear_r_queue_; break;
-  default: break;
+  case RecEventType::RadarFront:
+    queue = radar_front_queue_;
+    break;
+  case RecEventType::RadarRearL:
+    queue = radar_rear_l_queue_;
+    break;
+  case RecEventType::RadarRearR:
+    queue = radar_rear_r_queue_;
+    break;
+  default:
+    break;
   }
 
   if (queue) {
