@@ -103,9 +103,14 @@ bool CameraIngest::configureCamera() {
     cap_->set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
   }
 
-  // Set resolution
-  cap_->set(cv::CAP_PROP_FRAME_WIDTH, config_.width);
-  cap_->set(cv::CAP_PROP_FRAME_HEIGHT, config_.height);
+  // Set resolution based on mount
+  if (mount_ == Mount::SideCamL || mount_ == Mount::SideCamR) {
+    cap_->set(cv::CAP_PROP_FRAME_WIDTH, config_.side_width);
+    cap_->set(cv::CAP_PROP_FRAME_HEIGHT, config_.side_height);
+  } else {
+    cap_->set(cv::CAP_PROP_FRAME_WIDTH, config_.width);
+    cap_->set(cv::CAP_PROP_FRAME_HEIGHT, config_.height);
+  }
   cap_->set(cv::CAP_PROP_FPS, config_.target_fps);
 
   // Verify settings

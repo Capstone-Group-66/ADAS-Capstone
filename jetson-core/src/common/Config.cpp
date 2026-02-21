@@ -96,6 +96,10 @@ Config ConfigLoader::loadConfig(const std::string &path) {
         config.cameras.width = std::stoi(value);
       } else if (key == "height") {
         config.cameras.height = std::stoi(value);
+      } else if (key == "side_width") {
+        config.cameras.side_width = std::stoi(value);
+      } else if (key == "side_height") {
+        config.cameras.side_height = std::stoi(value);
       } else if (key == "target_fps") {
         config.cameras.target_fps = std::stoi(value);
       } else if (key == "use_mjpeg") {
