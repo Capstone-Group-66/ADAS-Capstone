@@ -139,6 +139,7 @@ add_executable(device_wizard
     src/common/Globals.cpp
     src/stage_a/DeviceWizard.cpp
     src/stage_a/CameraCalibrator.cpp
+    ${RECORDING_SOURCES}
 )
 
 target_link_libraries(device_wizard
