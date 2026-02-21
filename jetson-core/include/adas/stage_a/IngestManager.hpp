@@ -8,6 +8,7 @@
 #include "adas/stage_a/CameraIngest.hpp"
 #include "adas/stage_a/NetworkIngest.hpp"
 #include "adas/stage_a/RadarIngest.hpp"
+#include "adas/recording/ReplayEngine.hpp"
 
 #ifdef HAS_ZMQ
 #include "adas/stage_a/NetworkReceiver.hpp"
@@ -44,8 +45,14 @@ class IngestManager {
     // Non-copyable
     IngestManager(const IngestManager &) = delete;
     IngestManager &operator=(const IngestManager &) = delete;
+    
+    /// Initialize in Replay Mode
+    /// @param file_path Path to the .adasrec file
+    /// @param speed Playback speed multiplier (1.0 = realtime)
+    /// @return true if file loaded successfully
+    bool initReplay(const std::string& file_path, float speed = 1.0f);
 
-    /// Start all ingest threads
+    /// Start all ingest threads (or replay engine)
     void start();
 
     /// Stop all threads gracefully (FR93)
@@ -53,6 +60,9 @@ class IngestManager {
 
     /// Check if all ingest threads are running
     bool isRunning() const { return running_.load(std::memory_order_relaxed); }
+    
+    /// Check if running in Replay Mode
+    bool isReplayMode() const { return is_replay_mode_; }
 
     /// Set recorder for all ingest threads (call before or after start)
     void setRecorder(Recorder *recorder);
@@ -135,8 +145,12 @@ class IngestManager {
 
     // Direct front radar
     std::unique_ptr<RadarIngest> radar_front_;
+    
+    // Replay Engine (replaces hardware ingestors when active)
+    std::unique_ptr<ReplayEngine> replay_engine_;
 
     std::atomic<bool> running_{false};
+    bool is_replay_mode_{false};
 };
 
 } // namespace adas

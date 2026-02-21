@@ -37,13 +37,17 @@ std::string NetworkReceiver::buildAddr(int port) const {
 }
 
 bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
-                            SPSCQueue<ImuSample, 32> *imu_queue) {
+                            SPSCQueue<ImuSample, 32> *imu_queue,
+                            SPSCQueue<RadarTargets, 8> *radar_l_queue,
+                            SPSCQueue<RadarTargets, 8> *radar_r_queue) {
   if (running_.load()) {
     return true; // Already running
   }
 
   cam_queue_ = cam_queue;
   imu_queue_ = imu_queue;
+  radar_l_queue_ = radar_l_queue;
+  radar_r_queue_ = radar_r_queue;
 
   // Create sockets
   cam_socket_ = zmq_socket(context_, ZMQ_PULL);
@@ -266,9 +270,48 @@ void NetworkReceiver::radarLThread() {
     }
     last_radar_l_seq_ = header.sequence;
 
-    // TODO: Push to radar queue for Stage C processing
-    // When wired, use: Clock::now_ns() - one_way_latency_ns_ for t_ingest_ns
-    // For now, just count
+    // Parse radar payload
+    // Using simple format: [presence | range_cm (2 bytes)] from RadarPayloadHeader + raw bytes
+    size_t payload_size = header.payload_size;
+    if (payload_size >= sizeof(RadarPayloadHeader) + 3) {
+      RadarPayloadHeader rad_header;
+      std::memcpy(&rad_header, buffer.data() + sizeof(PiMessageHeader),
+                  sizeof(rad_header));
+
+      const uint8_t *raw_data = buffer.data() + sizeof(PiMessageHeader) +
+                                sizeof(RadarPayloadHeader);
+      
+      uint8_t presence = raw_data[0];
+      uint16_t range_cm = raw_data[1] | (raw_data[2] << 8);
+
+      if (presence > 0 && range_cm > 0 && radar_l_queue_) {
+        RadarTargets targets;
+        targets.h.mount = Mount::RearCornerRadarL;
+        targets.h.seq = header.sequence;
+        targets.h.t_device_ns = header.timestamp_ns;
+        targets.h.t_ingest_ns =
+            Clock::now_ns() - one_way_latency_ns_.load(std::memory_order_relaxed);
+        targets.h.healthy = true;
+
+        RadarTarget target;
+        target.range_m = static_cast<float>(range_cm) / 100.0f;
+        target.azimuth_rad = 0.0f;
+        target.radial_vel_mps = 0.0f;
+        target.rcs_db = 0.0f;
+        target.sigma_r = 0.1f;
+        target.sigma_az = 0.5f;
+        target.sigma_v = 1.0f;
+
+        targets.targets.push_back(target);
+
+        if (recorder_) {
+          recorder_->recordRadar(targets);
+        }
+
+        radar_l_queue_->try_push(std::move(targets));
+      }
+    }
+
     stats_.radar_l_packets++;
   }
 }
@@ -301,8 +344,47 @@ void NetworkReceiver::radarRThread() {
     }
     last_radar_r_seq_ = header.sequence;
 
-    // TODO: When wired to queue, use: Clock::now_ns() - one_way_latency_ns_ for
-    // t_ingest_ns
+    // Parse radar payload
+    size_t payload_size = header.payload_size;
+    if (payload_size >= sizeof(RadarPayloadHeader) + 3) {
+      RadarPayloadHeader rad_header;
+      std::memcpy(&rad_header, buffer.data() + sizeof(PiMessageHeader),
+                  sizeof(rad_header));
+
+      const uint8_t *raw_data = buffer.data() + sizeof(PiMessageHeader) +
+                                sizeof(RadarPayloadHeader);
+      
+      uint8_t presence = raw_data[0];
+      uint16_t range_cm = raw_data[1] | (raw_data[2] << 8);
+
+      if (presence > 0 && range_cm > 0 && radar_r_queue_) {
+        RadarTargets targets;
+        targets.h.mount = Mount::RearCornerRadarR;
+        targets.h.seq = header.sequence;
+        targets.h.t_device_ns = header.timestamp_ns;
+        targets.h.t_ingest_ns =
+            Clock::now_ns() - one_way_latency_ns_.load(std::memory_order_relaxed);
+        targets.h.healthy = true;
+
+        RadarTarget target;
+        target.range_m = static_cast<float>(range_cm) / 100.0f;
+        target.azimuth_rad = 0.0f;
+        target.radial_vel_mps = 0.0f;
+        target.rcs_db = 0.0f;
+        target.sigma_r = 0.1f;
+        target.sigma_az = 0.5f;
+        target.sigma_v = 1.0f;
+
+        targets.targets.push_back(target);
+
+        if (recorder_) {
+          recorder_->recordRadar(targets);
+        }
+
+        radar_r_queue_->try_push(std::move(targets));
+      }
+    }
+
     stats_.radar_r_packets++;
   }
 }
@@ -370,8 +452,7 @@ void NetworkReceiver::imuThread() {
     // Create ImuSample and push to queue
     if (imu_queue_) {
       ImuSample sample;
-      sample.t_capture =
-          Clock::now_ns() - one_way_latency_ns_.load(std::memory_order_relaxed);
+      sample.t_capture = header.timestamp_ns - one_way_latency_ns_.load(std::memory_order_relaxed);
       sample.accel = {imu_payload.accel_x, imu_payload.accel_y,
                       imu_payload.accel_z};
       sample.gyro = {imu_payload.gyro_x, imu_payload.gyro_y,

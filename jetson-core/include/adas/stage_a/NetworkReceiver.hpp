@@ -61,8 +61,11 @@ class NetworkReceiver {
     /// Connect and start receiving data
     /// @param cam_queue Queue for RearCam frames
     /// @param imu_queue Queue for IMU samples
+    /// @param radar_l_queue Queue for Rear L Radar targets
+    /// @param radar_r_queue Queue for Rear R Radar targets
     /// @return true if connected successfully
-    bool start(SPSCQueue<CameraFrameData, 8> *cam_queue, SPSCQueue<ImuSample, 32> *imu_queue);
+    bool start(SPSCQueue<CameraFrameData, 8> *cam_queue, SPSCQueue<ImuSample, 32> *imu_queue,
+               SPSCQueue<RadarTargets, 8> *radar_l_queue, SPSCQueue<RadarTargets, 8> *radar_r_queue);
 
     /// Stop receiving and disconnect
     void stop();
@@ -119,6 +122,8 @@ class NetworkReceiver {
     // Output queues (not owned)
     SPSCQueue<CameraFrameData, 8> *cam_queue_ = nullptr;
     SPSCQueue<ImuSample, 32> *imu_queue_ = nullptr;
+    SPSCQueue<RadarTargets, 8> *radar_l_queue_ = nullptr;
+    SPSCQueue<RadarTargets, 8> *radar_r_queue_ = nullptr;
 
     // Threads
     std::thread cam_thread_;

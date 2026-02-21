@@ -564,6 +564,7 @@ void printMenu() {
   std::cout << " 11) Toggle Recording ["
             << (g_recorder && g_recorder->isRecording() ? "REC" : "OFF")
             << "]\n";
+  std::cout << " 12) Start Pipeline (Replay Mode)\n";
   std::cout << "  0) Exit\n";
   std::cout
       << "==============================================================\n";
@@ -671,6 +672,73 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   g_visualizer_thread = std::thread(visualizationThread);
 
   std::cout << "\n[Main] Pipeline started successfully!\n";
+  std::cout << "[Main] Press '3' to view status, '2' to stop\n\n";
+}
+
+void startReplayPipeline(const std::string& replay_file, float speed, 
+                         const adas::Config &config, const adas::HardwareMap &hw_map,
+                         const std::string &calib_dir, const std::string &model_path) {
+  if (g_pipeline_running.load()) {
+    std::cout << "[Main] Pipeline is already running\n";
+    return;
+  }
+
+  std::cout << "\n[Main] Starting pipeline in REPLAY MODE...\n";
+
+  // Stage A: Ingest (Replay Engine)
+  g_ingest_manager = std::make_unique<adas::IngestManager>(config, hw_map);
+  if (!g_ingest_manager->initReplay(replay_file, speed)) {
+    std::cerr << "[Main] Failed to initialize Replay Mode. Aborting.\n";
+    g_ingest_manager.reset();
+    return;
+  }
+  g_ingest_manager->start();
+
+  // Stage B: Camera Preprocessing + Inference
+  g_stage_b_manager =
+      std::make_unique<adas::StageBManager>(calib_dir, model_path);
+
+  // Wire FrontCam queue for inference visualizer
+  if (hw_map.mappings.find(adas::Mount::FrontCam) != hw_map.mappings.end()) {
+    g_stage_b_manager->addCamera(
+        adas::Mount::FrontCam,
+        g_ingest_manager->getCameraQueue(adas::Mount::FrontCam),
+        g_det_front_queue);
+  }
+  g_stage_b_manager->start();
+
+  // Stage E: Fusion + FCW + EgoFrame
+  g_sensor_fusion = std::make_unique<adas::SensorFusion>();
+
+  adas::FCWMonitor::Config fcw_config;
+  fcw_config.ttc_threshold_s = 3.0f;
+  fcw_config.use_physics_fcw = true;
+  fcw_config.friction_coefficient = 0.7f;
+  fcw_config.reaction_time_s = 2.5f;
+  g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
+
+  g_ego_frame = std::make_unique<adas::EgoFrame>();
+  g_ego_frame->init();
+
+  std::cout << "[Main] Stage E fusion initialized (Replay Mode)\n";
+
+  // Initialize BLE Server (No real GPS connection needed for playback scaling, but kept for UI output)
+  g_ble_server = std::make_unique<adas::SimpleBleServer>();
+  if (g_ble_server->initialize()) {
+    g_ble_server->startAdvertising();
+  }
+
+  g_pipeline_running.store(true);
+  g_pipeline_start_time = std::chrono::steady_clock::now();
+
+  g_status_running.store(true);
+  g_status_thread = std::thread(statusBarThread);
+
+  g_visualizer_running.store(true);
+  g_visualizer_thread = std::thread(visualizationThread);
+
+  std::cout << "\n[Main] Replay Pipeline started successfully!\n";
+  std::cout << "[Main] Replaying: " << replay_file << " at " << speed << "x speed\n";
   std::cout << "[Main] Press '3' to view status, '2' to stop\n\n";
 }
 
@@ -1002,6 +1070,41 @@ int main(int argc, char **argv) {
           } else {
             std::cerr << "[Main] Failed to start recording\n";
           }
+        }
+      } break;
+
+      case 12: // Start Replay Pipeline
+      {
+        if (g_pipeline_running.load()) {
+          std::cout << "[Main] Please stop the pipeline first\n";
+        } else {
+          std::string file_path;
+          std::string speed_str;
+          float speed = 1.0f;
+
+          std::cout << "  Enter path to .adasrec file: ";
+          std::cin >> file_path;
+          std::cin.ignore(10000, '\n'); // Clear newline
+
+          std::cout << "  Enter playback speed (e.g., 1.0, 0.5, 2.0) [1.0]: ";
+          std::getline(std::cin, speed_str);
+          if (!speed_str.empty()) {
+            try {
+              speed = std::stof(speed_str);
+              if (speed <= 0.0f) {
+                std::cout << "[Main] Invalid speed. Defaulting to fast-as-possible.\n";
+                // `speed <= 0.0f` is fast mode per ReplayEngine
+              }
+            } catch (...) {
+              std::cout << "[Main] Invalid number, defaulting to 1.0x\n";
+              speed = 1.0f;
+            }
+          }
+
+          if (adas::ConfigLoader::hardwareMapExists(hw_map_path)) {
+            hw_map = adas::ConfigLoader::loadHardwareMap(hw_map_path);
+          }
+          startReplayPipeline(file_path, speed, config, hw_map, calib_dir, model_path);
         }
       } break;
 

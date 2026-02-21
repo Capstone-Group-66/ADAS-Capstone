@@ -169,8 +169,9 @@ void ReplayEngine::replayLoop() {
   if (events_.empty())
     return;
 
-  const uint64_t first_event_ts = events_.front().timestamp_ns;
+  first_event_ts_ = events_.front().timestamp_ns;
   const auto wall_start = std::chrono::steady_clock::now();
+  replay_start_time_ns_ = Clock::now_ns();
   const bool fast_mode = (speed_ <= 0.0f);
 
   for (size_t i = 0;
@@ -180,7 +181,7 @@ void ReplayEngine::replayLoop() {
 
     if (!fast_mode) {
       // Compute wall-clock target for this event
-      uint64_t event_offset_ns = event.timestamp_ns - first_event_ts;
+      uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
       double scaled_offset_ns = event_offset_ns / static_cast<double>(speed_);
 
       auto target_time =
@@ -252,11 +253,15 @@ void ReplayEngine::dispatchCamera(const RecordEvent &event) {
   if (frame.empty())
     return;
 
+  // Calculate synthetic timestamp
+  uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
+  uint64_t synthetic_ts_ns = replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
+
   // Build CameraFrameData
   CameraFrameData frame_data;
   frame_data.h.mount = mount;
-  frame_data.h.t_ingest_ns = event.timestamp_ns;
-  frame_data.h.t_device_ns = event.timestamp_ns;
+  frame_data.h.t_ingest_ns = synthetic_ts_ns;
+  frame_data.h.t_device_ns = synthetic_ts_ns;
   frame_data.frame = frame;
   frame_data.width = width;
   frame_data.height = height;
@@ -307,8 +312,13 @@ void ReplayEngine::dispatchRadar(const RecordEvent &event) {
   default:
     break;
   }
-  targets.h.t_ingest_ns = event.timestamp_ns;
-  targets.h.t_device_ns = event.timestamp_ns;
+  
+  // Calculate synthetic timestamp
+  uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
+  uint64_t synthetic_ts_ns = replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
+
+  targets.h.t_ingest_ns = synthetic_ts_ns;
+  targets.h.t_device_ns = synthetic_ts_ns;
 
   size_t offset = 1;
   for (uint8_t i = 0; i < n && offset + per_target <= event.payload.size();
@@ -350,8 +360,12 @@ void ReplayEngine::dispatchIMU(const RecordEvent &event) {
   if (event.payload.size() < 57 || !imu_queue_) // minimum: 12+12+12+16+4+1 = 57
     return;
 
+  // Calculate synthetic timestamp
+  uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
+  uint64_t synthetic_ts_ns = replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
+
   ImuSample sample;
-  sample.t_capture = event.timestamp_ns;
+  sample.t_capture = synthetic_ts_ns;
 
   size_t off = 0;
   std::memcpy(sample.accel.data(), &event.payload[off], 12);
@@ -374,11 +388,16 @@ void ReplayEngine::dispatchGPS(const RecordEvent &event) {
     return;
 
   float speed_mps;
-  uint64_t ts_ms;
+  uint64_t orig_ts_ms;
   std::memcpy(&speed_mps, &event.payload[0], 4);
-  std::memcpy(&ts_ms, &event.payload[4], 8);
+  std::memcpy(&orig_ts_ms, &event.payload[4], 8);
 
-  gps_callback_(speed_mps, ts_ms);
+  // Calculate synthetic timestamp (event_offset -> synthetic_ns -> synthetic_ms)
+  uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
+  uint64_t synthetic_ts_ns = replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
+  uint64_t synthetic_ts_ms = synthetic_ts_ns / 1000000;
+
+  gps_callback_(speed_mps, synthetic_ts_ms);
 }
 
 } // namespace adas

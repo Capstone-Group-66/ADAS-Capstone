@@ -87,6 +87,8 @@ class ReplayEngine {
     // Loaded events (sorted by timestamp)
     std::vector<RecordEvent> events_;
     AdasRecFileHeader file_header_;
+    uint64_t replay_start_time_ns_ = 0;
+    uint64_t first_event_ts_ = 0;
 
     // Queue pointers
     SPSCQueue<CameraFrameData, 8> *cam_front_queue_ = nullptr;
