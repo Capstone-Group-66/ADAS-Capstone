@@ -219,6 +219,7 @@ if(ZMQ_FOUND)
     # Network receiver integrated with pipeline
     add_library(network_receiver STATIC
         src/stage_a/NetworkReceiver.cpp
+        ${RECORDING_SOURCES}
     )
     target_include_directories(network_receiver PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -226,6 +227,7 @@ if(ZMQ_FOUND)
     )
     target_link_libraries(network_receiver
         ${ZMQ_LIBRARIES}
+        ${OpenCV_LIBS}
         Threads::Threads
     )
     target_compile_definitions(network_receiver PUBLIC HAS_ZMQ)
