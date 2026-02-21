@@ -255,7 +255,8 @@ void ReplayEngine::dispatchCamera(const RecordEvent &event) {
 
   // Calculate synthetic timestamp
   uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
-  uint64_t synthetic_ts_ns = replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
+  uint64_t synthetic_ts_ns =
+      replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
 
   // Build CameraFrameData
   CameraFrameData frame_data;
@@ -312,10 +313,11 @@ void ReplayEngine::dispatchRadar(const RecordEvent &event) {
   default:
     break;
   }
-  
+
   // Calculate synthetic timestamp
   uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
-  uint64_t synthetic_ts_ns = replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
+  uint64_t synthetic_ts_ns =
+      replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
 
   targets.h.t_ingest_ns = synthetic_ts_ns;
   targets.h.t_device_ns = synthetic_ts_ns;
@@ -362,7 +364,8 @@ void ReplayEngine::dispatchIMU(const RecordEvent &event) {
 
   // Calculate synthetic timestamp
   uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
-  uint64_t synthetic_ts_ns = replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
+  uint64_t synthetic_ts_ns =
+      replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
 
   ImuSample sample;
   sample.t_capture = synthetic_ts_ns;
@@ -392,9 +395,11 @@ void ReplayEngine::dispatchGPS(const RecordEvent &event) {
   std::memcpy(&speed_mps, &event.payload[0], 4);
   std::memcpy(&orig_ts_ms, &event.payload[4], 8);
 
-  // Calculate synthetic timestamp (event_offset -> synthetic_ns -> synthetic_ms)
+  // Calculate synthetic timestamp (event_offset -> synthetic_ns ->
+  // synthetic_ms)
   uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
-  uint64_t synthetic_ts_ns = replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
+  uint64_t synthetic_ts_ns =
+      replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
   uint64_t synthetic_ts_ms = synthetic_ts_ns / 1000000;
 
   gps_callback_(speed_mps, synthetic_ts_ms);

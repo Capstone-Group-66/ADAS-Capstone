@@ -271,16 +271,17 @@ void NetworkReceiver::radarLThread() {
     last_radar_l_seq_ = header.sequence;
 
     // Parse radar payload
-    // Using simple format: [presence | range_cm (2 bytes)] from RadarPayloadHeader + raw bytes
+    // Using simple format: [presence | range_cm (2 bytes)] from
+    // RadarPayloadHeader + raw bytes
     size_t payload_size = header.payload_size;
     if (payload_size >= sizeof(RadarPayloadHeader) + 3) {
       RadarPayloadHeader rad_header;
       std::memcpy(&rad_header, buffer.data() + sizeof(PiMessageHeader),
                   sizeof(rad_header));
 
-      const uint8_t *raw_data = buffer.data() + sizeof(PiMessageHeader) +
-                                sizeof(RadarPayloadHeader);
-      
+      const uint8_t *raw_data =
+          buffer.data() + sizeof(PiMessageHeader) + sizeof(RadarPayloadHeader);
+
       uint8_t presence = raw_data[0];
       uint16_t range_cm = raw_data[1] | (raw_data[2] << 8);
 
@@ -290,7 +291,8 @@ void NetworkReceiver::radarLThread() {
         targets.h.seq = header.sequence;
         targets.h.t_device_ns = header.timestamp_ns;
         targets.h.t_ingest_ns =
-            Clock::now_ns() - one_way_latency_ns_.load(std::memory_order_relaxed);
+            Clock::now_ns() -
+            one_way_latency_ns_.load(std::memory_order_relaxed);
         targets.h.healthy = true;
 
         RadarTarget target;
@@ -351,9 +353,9 @@ void NetworkReceiver::radarRThread() {
       std::memcpy(&rad_header, buffer.data() + sizeof(PiMessageHeader),
                   sizeof(rad_header));
 
-      const uint8_t *raw_data = buffer.data() + sizeof(PiMessageHeader) +
-                                sizeof(RadarPayloadHeader);
-      
+      const uint8_t *raw_data =
+          buffer.data() + sizeof(PiMessageHeader) + sizeof(RadarPayloadHeader);
+
       uint8_t presence = raw_data[0];
       uint16_t range_cm = raw_data[1] | (raw_data[2] << 8);
 
@@ -363,7 +365,8 @@ void NetworkReceiver::radarRThread() {
         targets.h.seq = header.sequence;
         targets.h.t_device_ns = header.timestamp_ns;
         targets.h.t_ingest_ns =
-            Clock::now_ns() - one_way_latency_ns_.load(std::memory_order_relaxed);
+            Clock::now_ns() -
+            one_way_latency_ns_.load(std::memory_order_relaxed);
         targets.h.healthy = true;
 
         RadarTarget target;
@@ -452,7 +455,8 @@ void NetworkReceiver::imuThread() {
     // Create ImuSample and push to queue
     if (imu_queue_) {
       ImuSample sample;
-      sample.t_capture = header.timestamp_ns - one_way_latency_ns_.load(std::memory_order_relaxed);
+      sample.t_capture = header.timestamp_ns -
+                         one_way_latency_ns_.load(std::memory_order_relaxed);
       sample.accel = {imu_payload.accel_x, imu_payload.accel_y,
                       imu_payload.accel_z};
       sample.gyro = {imu_payload.gyro_x, imu_payload.gyro_y,

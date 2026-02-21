@@ -675,9 +675,11 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   std::cout << "[Main] Press '3' to view status, '2' to stop\n\n";
 }
 
-void startReplayPipeline(const std::string& replay_file, float speed, 
-                         const adas::Config &config, const adas::HardwareMap &hw_map,
-                         const std::string &calib_dir, const std::string &model_path) {
+void startReplayPipeline(const std::string &replay_file, float speed,
+                         const adas::Config &config,
+                         const adas::HardwareMap &hw_map,
+                         const std::string &calib_dir,
+                         const std::string &model_path) {
   if (g_pipeline_running.load()) {
     std::cout << "[Main] Pipeline is already running\n";
     return;
@@ -722,7 +724,8 @@ void startReplayPipeline(const std::string& replay_file, float speed,
 
   std::cout << "[Main] Stage E fusion initialized (Replay Mode)\n";
 
-  // Initialize BLE Server (No real GPS connection needed for playback scaling, but kept for UI output)
+  // Initialize BLE Server (No real GPS connection needed for playback scaling,
+  // but kept for UI output)
   g_ble_server = std::make_unique<adas::SimpleBleServer>();
   if (g_ble_server->initialize()) {
     g_ble_server->startAdvertising();
@@ -738,7 +741,8 @@ void startReplayPipeline(const std::string& replay_file, float speed,
   g_visualizer_thread = std::thread(visualizationThread);
 
   std::cout << "\n[Main] Replay Pipeline started successfully!\n";
-  std::cout << "[Main] Replaying: " << replay_file << " at " << speed << "x speed\n";
+  std::cout << "[Main] Replaying: " << replay_file << " at " << speed
+            << "x speed\n";
   std::cout << "[Main] Press '3' to view status, '2' to stop\n\n";
 }
 
@@ -1092,7 +1096,8 @@ int main(int argc, char **argv) {
             try {
               speed = std::stof(speed_str);
               if (speed <= 0.0f) {
-                std::cout << "[Main] Invalid speed. Defaulting to fast-as-possible.\n";
+                std::cout << "[Main] Invalid speed. Defaulting to "
+                             "fast-as-possible.\n";
                 // `speed <= 0.0f` is fast mode per ReplayEngine
               }
             } catch (...) {
@@ -1104,7 +1109,8 @@ int main(int argc, char **argv) {
           if (adas::ConfigLoader::hardwareMapExists(hw_map_path)) {
             hw_map = adas::ConfigLoader::loadHardwareMap(hw_map_path);
           }
-          startReplayPipeline(file_path, speed, config, hw_map, calib_dir, model_path);
+          startReplayPipeline(file_path, speed, config, hw_map, calib_dir,
+                              model_path);
         }
       } break;
 

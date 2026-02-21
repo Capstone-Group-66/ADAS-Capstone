@@ -14,15 +14,16 @@ IngestManager::IngestManager(const Config &config, const HardwareMap &hw_map)
 
 IngestManager::~IngestManager() { stop(); }
 
-bool IngestManager::initReplay(const std::string& file_path, float speed) {
+bool IngestManager::initReplay(const std::string &file_path, float speed) {
   if (running_.load(std::memory_order_relaxed)) {
     std::cerr << "[IngestManager] Cannot init replay while running\n";
     return false;
   }
 
-  std::cout << "[IngestManager] Initializing Replay Mode with file: " << file_path << "\n";
+  std::cout << "[IngestManager] Initializing Replay Mode with file: "
+            << file_path << "\n";
   replay_engine_ = std::make_unique<ReplayEngine>();
-  
+
   if (!replay_engine_->load(file_path)) {
     std::cerr << "[IngestManager] Failed to load replay file\n";
     replay_engine_.reset();
@@ -187,9 +188,10 @@ void IngestManager::launchNetworkIngest() {
   zmq_receiver_ = std::make_unique<NetworkReceiver>(pi_ip);
 
   // Start with queue pointers
-  if (zmq_receiver_->start(&cam_rear_queue_, &imu_queue_,
-                           &radar_rear_l_queue_, &radar_rear_r_queue_)) {
-    std::cout << "[IngestManager] ZMQ receiver started for RearCam, Rear Radar L/R, + IMU\n";
+  if (zmq_receiver_->start(&cam_rear_queue_, &imu_queue_, &radar_rear_l_queue_,
+                           &radar_rear_r_queue_)) {
+    std::cout << "[IngestManager] ZMQ receiver started for RearCam, Rear Radar "
+                 "L/R, + IMU\n";
   } else {
     std::cerr << "[IngestManager] Failed to start ZMQ receiver\n";
     zmq_receiver_.reset();
@@ -247,15 +249,15 @@ IngestManager::HealthStatus IngestManager::getHealth() const {
   HealthStatus status;
   // Read from Replay Engine if active
   if (is_replay_mode_ && replay_engine_) {
-    status.all_healthy = true; 
+    status.all_healthy = true;
     status.total_drops = 0;
-    
+
     // Build summary for Replay Mode
     std::ostringstream ss;
     if (replay_engine_->isFinished()) {
       ss << "REPLAY FINISHED (100%)";
     } else {
-      ss << "REPLAY RUNNING (" << std::fixed << std::setprecision(1) 
+      ss << "REPLAY RUNNING (" << std::fixed << std::setprecision(1)
          << (replay_engine_->getProgress() * 100.0f) << "%" << ")";
     }
     status.summary = ss.str();
