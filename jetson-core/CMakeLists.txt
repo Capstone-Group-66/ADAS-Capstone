@@ -55,7 +55,6 @@ set(STAGE_A_SOURCES
     src/stage_a/DeviceWizard.cpp
     src/stage_a/NetworkIngest.cpp
     src/stage_a/RadarIngest.cpp
-    src/stage_a/IMUIngest.cpp
     src/stage_a/IngestManager.cpp
 )
 
