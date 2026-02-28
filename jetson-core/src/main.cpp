@@ -565,6 +565,7 @@ void printMenu() {
             << (g_recorder && g_recorder->isRecording() ? "REC" : "OFF")
             << "]\n";
   std::cout << " 12) Start Pipeline (Replay Mode)\n";
+  std::cout << " 13) Edit Camera Config (opens editor, hot-reload)\n";
   std::cout << "  0) Exit\n";
   std::cout
       << "==============================================================\n";
@@ -1074,6 +1075,57 @@ int main(int argc, char **argv) {
           } else {
             std::cerr << "[Main] Failed to start recording\n";
           }
+        }
+      } break;
+
+      case 13: // Edit Camera Config
+      {
+        std::cout << "\n[Config] Opening componentConfig.yaml in editor...\n";
+        std::cout << "[Config] Save and exit the editor to apply changes.\n\n";
+
+        // Use EDITOR env var, fall back to nano then vi
+        const char *editor_env = std::getenv("EDITOR");
+        std::string editor = editor_env ? editor_env : "nano";
+        std::string cmd = editor + " " + config_path;
+        int ret = std::system(cmd.c_str());
+        if (ret != 0) {
+          // Try vi as last resort
+          cmd = "vi " + config_path;
+          ret = std::system(cmd.c_str());
+        }
+
+        // Reload config from disk
+        try {
+          config = adas::ConfigLoader::loadConfig(config_path);
+          std::cout << "\n[Config] Reloaded from: " << config_path << "\n";
+          std::cout << "[Config] Camera: front=" << config.cameras.width
+                    << "x" << config.cameras.height
+                    << " | side=" << config.cameras.side_width
+                    << "x" << config.cameras.side_height
+                    << " | fps=" << config.cameras.target_fps
+                    << " | mjpeg=" << (config.cameras.use_mjpeg ? "yes" : "NO")
+                    << "\n";
+
+          // Hot-reload: if pipeline is running, restart ingest to apply new
+          // camera settings. Stage B and E keep running — only cameras restart.
+          if (g_pipeline_running.load() && g_ingest_manager) {
+            std::cout << "[Config] Pipeline is running. Restarting camera "
+                         "ingest to apply new settings...\n";
+            g_ingest_manager->stop();
+            g_ingest_manager = std::make_unique<adas::IngestManager>(config, hw_map);
+            if (g_recorder && g_recorder->isRecording()) {
+              // Re-wire recorder after restart
+              g_ingest_manager->setRecorder(g_recorder.get());
+            }
+            g_ingest_manager->start();
+            std::cout << "[Config] Camera ingest restarted with new config.\n";
+          } else {
+            std::cout << "[Config] Changes will take effect on next pipeline "
+                         "start.\n";
+          }
+        } catch (const std::exception &e) {
+          std::cerr << "[Config] Failed to reload config: " << e.what() << "\n";
+          std::cerr << "[Config] Previous config is still active.\n";
         }
       } break;
 

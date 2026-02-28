@@ -96,14 +96,15 @@ bool CameraIngest::configureCamera() {
     return false;
   }
 
-  // THE CRITICAL FIX: Force MJPEG codec
-  // This prevents the camera from defaulting to slow YUYV mode
-  // Based on test_scripts/cameraintake.py
+  // CRITICAL: Force MJPEG codec BEFORE setting resolution.
+  // Without MJPEG, camera defaults to uncompressed YUYV which at 1280x720@20fps
+  // requires ~1.3 GB/s — instantly exhausts USB 2.0 bandwidth (480 Mbit/s).
+  // This causes VIDIOC_STREAMON: No space left on device.
   if (config_.use_mjpeg) {
     cap_->set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
   }
 
-  // Set resolution based on mount
+  // Set resolution based on mount (side cameras use lower res to save USB BW)
   if (mount_ == Mount::SideCamL || mount_ == Mount::SideCamR) {
     cap_->set(cv::CAP_PROP_FRAME_WIDTH, config_.side_width);
     cap_->set(cv::CAP_PROP_FRAME_HEIGHT, config_.side_height);
@@ -113,7 +114,7 @@ bool CameraIngest::configureCamera() {
   }
   cap_->set(cv::CAP_PROP_FPS, config_.target_fps);
 
-  // Verify settings
+  // Verify actual negotiated settings
   double actual_width = cap_->get(cv::CAP_PROP_FRAME_WIDTH);
   double actual_height = cap_->get(cv::CAP_PROP_FRAME_HEIGHT);
   double actual_fps = cap_->get(cv::CAP_PROP_FPS);
@@ -128,10 +129,16 @@ bool CameraIngest::configureCamera() {
             << " config: " << actual_width << "x" << actual_height << " @ "
             << actual_fps << " FPS, codec=" << codec << std::endl;
 
-  // Warn if not MJPEG (bandwidth issues likely)
+  // FATAL diagnostic: if MJPEG was requested but not granted, USB BW will fail.
+  // Root cause: camera does not support MJPEG at this resolution, or V4L2
+  // driver is overriding the format. Fix: lower resolution or use a camera
+  // that supports MJPEG. VIDIOC_STREAMON: No space left on device = THIS.
   if (config_.use_mjpeg && std::string(codec) != "MJPG") {
-    std::cerr << "[CameraIngest] WARNING: " << mountToString(mount_)
-              << " rejected MJPEG, using " << codec << std::endl;
+    std::cerr << "[CameraIngest] *** FATAL WARNING *** " << mountToString(mount_) << "\n"
+              << "  Camera REJECTED MJPEG and is using '" << codec << "' (uncompressed).\n"
+              << "  This WILL cause VIDIOC_STREAMON: No space left on device on USB 2.0.\n"
+              << "  Fix: lower resolution in componentConfig.yaml (try 424x240 for side cams)\n"
+              << "       or verify camera supports MJPEG at " << actual_width << "x" << actual_height << ".\n";
   }
 
   return true;
