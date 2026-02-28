@@ -134,11 +134,16 @@ bool CameraIngest::configureCamera() {
   // driver is overriding the format. Fix: lower resolution or use a camera
   // that supports MJPEG. VIDIOC_STREAMON: No space left on device = THIS.
   if (config_.use_mjpeg && std::string(codec) != "MJPG") {
-    std::cerr << "[CameraIngest] *** FATAL WARNING *** " << mountToString(mount_) << "\n"
-              << "  Camera REJECTED MJPEG and is using '" << codec << "' (uncompressed).\n"
-              << "  This WILL cause VIDIOC_STREAMON: No space left on device on USB 2.0.\n"
-              << "  Fix: lower resolution in componentConfig.yaml (try 424x240 for side cams)\n"
-              << "       or verify camera supports MJPEG at " << actual_width << "x" << actual_height << ".\n";
+    std::cerr << "[CameraIngest] *** FATAL WARNING *** "
+              << mountToString(mount_) << "\n"
+              << "  Camera REJECTED MJPEG and is using '" << codec
+              << "' (uncompressed).\n"
+              << "  This WILL cause VIDIOC_STREAMON: No space left on device "
+                 "on USB 2.0.\n"
+              << "  Fix: lower resolution in componentConfig.yaml (try 424x240 "
+                 "for side cams)\n"
+              << "       or verify camera supports MJPEG at " << actual_width
+              << "x" << actual_height << ".\n";
   }
 
   return true;

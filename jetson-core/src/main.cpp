@@ -1110,10 +1110,10 @@ int main(int argc, char **argv) {
         try {
           config = adas::ConfigLoader::loadConfig(config_path);
           std::cout << "\n[Config] Reloaded from: " << config_path << "\n";
-          std::cout << "[Config] Camera: front=" << config.cameras.width
-                    << "x" << config.cameras.height
-                    << " | side=" << config.cameras.side_width
-                    << "x" << config.cameras.side_height
+          std::cout << "[Config] Camera: front=" << config.cameras.width << "x"
+                    << config.cameras.height
+                    << " | side=" << config.cameras.side_width << "x"
+                    << config.cameras.side_height
                     << " | fps=" << config.cameras.target_fps
                     << " | mjpeg=" << (config.cameras.use_mjpeg ? "yes" : "NO")
                     << "\n";
@@ -1124,7 +1124,8 @@ int main(int argc, char **argv) {
             std::cout << "[Config] Pipeline is running. Restarting camera "
                          "ingest to apply new settings...\n";
             g_ingest_manager->stop();
-            g_ingest_manager = std::make_unique<adas::IngestManager>(config, hw_map);
+            g_ingest_manager =
+                std::make_unique<adas::IngestManager>(config, hw_map);
             if (g_recorder && g_recorder->isRecording()) {
               // Re-wire recorder after restart
               g_ingest_manager->setRecorder(g_recorder.get());
