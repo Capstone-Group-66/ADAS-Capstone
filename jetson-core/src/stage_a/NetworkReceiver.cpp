@@ -227,11 +227,11 @@ void NetworkReceiver::cameraThread() {
       frame_data.frame = frame.clone();
 
       // Record pre-decode JPEG (avoids re-encoding)
-      if (recorder_) {
-        recorder_->recordCameraJpeg(jpeg_data.data(), jpeg_data.size(),
-                                    frame_data.h.t_ingest_ns, Mount::RearCam,
-                                    static_cast<uint16_t>(frame.cols),
-                                    static_cast<uint16_t>(frame.rows));
+      if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+        rec->recordCameraJpeg(jpeg_data.data(), jpeg_data.size(),
+                              frame_data.h.t_ingest_ns, Mount::RearCam,
+                              static_cast<uint16_t>(frame.cols),
+                              static_cast<uint16_t>(frame.rows));
       }
 
       cam_queue_->try_push(std::move(frame_data));
@@ -306,8 +306,8 @@ void NetworkReceiver::radarLThread() {
 
         targets.targets.push_back(target);
 
-        if (recorder_) {
-          recorder_->recordRadar(targets);
+        if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+          rec->recordRadar(targets);
         }
 
         radar_l_queue_->try_push(std::move(targets));
@@ -380,8 +380,8 @@ void NetworkReceiver::radarRThread() {
 
         targets.targets.push_back(target);
 
-        if (recorder_) {
-          recorder_->recordRadar(targets);
+        if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+          rec->recordRadar(targets);
         }
 
         radar_r_queue_->try_push(std::move(targets));
@@ -468,8 +468,8 @@ void NetworkReceiver::imuThread() {
       sample.calibration_status = imu_payload.calibration_status;
 
       // Record before pushing to queue
-      if (recorder_) {
-        recorder_->recordIMU(sample);
+      if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+        rec->recordIMU(sample);
       }
 
       imu_queue_->try_push(std::move(sample));

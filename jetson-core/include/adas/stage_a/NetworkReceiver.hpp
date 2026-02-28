@@ -80,7 +80,10 @@ class NetworkReceiver {
     Stats getStats() const { return stats_; }
 
     /// Set recorder for data capture (optional, nullptr = no recording)
-    void setRecorder(Recorder *rec) { recorder_ = rec; }
+    /// Thread-safe: may be called from main thread while receive threads run.
+    void setRecorder(Recorder *rec) {
+      recorder_.store(rec, std::memory_order_release);
+    }
 
     /// Static: Discover devices on Pi without starting full receiver
     /// @param pi_ip IP address of Pi4
@@ -149,7 +152,9 @@ class NetworkReceiver {
     std::atomic<uint64_t> one_way_latency_ns_{0};
 
     // Optional recorder for data capture
-    Recorder *recorder_ = nullptr;
+    // Atomic so it is safely visible across the camera/radar/IMU threads
+    // without a mutex. Use memory_order_acquire to read.
+    std::atomic<Recorder *> recorder_{nullptr};
 };
 
 } // namespace adas
