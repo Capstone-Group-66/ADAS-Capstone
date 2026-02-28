@@ -216,20 +216,26 @@ void NetworkReceiver::cameraThread() {
       continue;
     }
 
+    // Timestamp this frame with the Jetson clock at the moment of arrival.
+    // Do NOT use the Pi's header.timestamp_ns here — the Pi runs its own
+    // (potentially unsynchronised) clock. All recording timestamps must use
+    // the Jetson's CLOCK_MONOTONIC_RAW so they are aligned with USB-camera
+    // and radar events recorded on the same timeline.
+    const uint64_t jetson_arrival_ns = Clock::now_ns();
+
     // Create CameraFrameData and push to queue
     if (cam_queue_) {
       CameraFrameData frame_data;
       frame_data.h.mount = Mount::RearCam;
       frame_data.h.seq = header.sequence;
-      frame_data.h.t_device_ns = header.timestamp_ns; // Pi's original timestamp
-      frame_data.h.t_ingest_ns =
-          Clock::now_ns() - one_way_latency_ns_.load(std::memory_order_relaxed);
+      frame_data.h.t_device_ns = header.timestamp_ns; // Pi's original timestamp (for reference only)
+      frame_data.h.t_ingest_ns = jetson_arrival_ns;   // Jetson authoritative time
       frame_data.frame = frame.clone();
 
-      // Record pre-decode JPEG (avoids re-encoding)
+      // Record pre-decode JPEG with Jetson arrival time
       if (auto *rec = recorder_.load(std::memory_order_acquire)) {
         rec->recordCameraJpeg(jpeg_data.data(), jpeg_data.size(),
-                              frame_data.h.t_ingest_ns, Mount::RearCam,
+                              jetson_arrival_ns, Mount::RearCam,
                               static_cast<uint16_t>(frame.cols),
                               static_cast<uint16_t>(frame.rows));
       }
@@ -286,13 +292,12 @@ void NetworkReceiver::radarLThread() {
       uint16_t range_cm = raw_data[1] | (raw_data[2] << 8);
 
       if (presence > 0 && range_cm > 0 && radar_l_queue_) {
+        const uint64_t jetson_arrival_ns = Clock::now_ns();
         RadarTargets targets;
         targets.h.mount = Mount::RearCornerRadarL;
         targets.h.seq = header.sequence;
         targets.h.t_device_ns = header.timestamp_ns;
-        targets.h.t_ingest_ns =
-            Clock::now_ns() -
-            one_way_latency_ns_.load(std::memory_order_relaxed);
+        targets.h.t_ingest_ns = jetson_arrival_ns;
         targets.h.healthy = true;
 
         RadarTarget target;
@@ -360,13 +365,12 @@ void NetworkReceiver::radarRThread() {
       uint16_t range_cm = raw_data[1] | (raw_data[2] << 8);
 
       if (presence > 0 && range_cm > 0 && radar_r_queue_) {
+        const uint64_t jetson_arrival_ns = Clock::now_ns();
         RadarTargets targets;
         targets.h.mount = Mount::RearCornerRadarR;
         targets.h.seq = header.sequence;
         targets.h.t_device_ns = header.timestamp_ns;
-        targets.h.t_ingest_ns =
-            Clock::now_ns() -
-            one_way_latency_ns_.load(std::memory_order_relaxed);
+        targets.h.t_ingest_ns = jetson_arrival_ns;
         targets.h.healthy = true;
 
         RadarTarget target;
@@ -454,9 +458,14 @@ void NetworkReceiver::imuThread() {
 
     // Create ImuSample and push to queue
     if (imu_queue_) {
+      // Use Jetson's clock at arrival time as the authoritative timestamp.
+      // sample.t_capture (Pi clock corrected for latency) is kept for data
+      // integrity but MUST NOT be used for recording — the Pi's wall clock
+      // may be unsynchronised from the Jetson's CLOCK_MONOTONIC_RAW.
+      const uint64_t jetson_arrival_ns = Clock::now_ns();
+
       ImuSample sample;
-      sample.t_capture = header.timestamp_ns -
-                         one_way_latency_ns_.load(std::memory_order_relaxed);
+      sample.t_capture = jetson_arrival_ns;
       sample.accel = {imu_payload.accel_x, imu_payload.accel_y,
                       imu_payload.accel_z};
       sample.gyro = {imu_payload.gyro_x, imu_payload.gyro_y,
@@ -467,7 +476,7 @@ void NetworkReceiver::imuThread() {
       sample.temperature = imu_payload.temperature;
       sample.calibration_status = imu_payload.calibration_status;
 
-      // Record before pushing to queue
+      // Record with Jetson arrival time
       if (auto *rec = recorder_.load(std::memory_order_acquire)) {
         rec->recordIMU(sample);
       }
