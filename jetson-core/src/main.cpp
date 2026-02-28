@@ -1062,12 +1062,16 @@ int main(int argc, char **argv) {
           g_recorder->stop();
           g_ingest_manager->setRecorder(nullptr);
           std::cout << "\n";
-          std::cout << "==============================================================\n";
-          std::cout << "  ⏹  RECORDING STOPPED                                        \n";
-          std::cout << "==============================================================\n";
+          std::cout << "======================================================="
+                       "=======\n";
+          std::cout << "  ⏹  RECORDING STOPPED                                 "
+                       "       \n";
+          std::cout << "======================================================="
+                       "=======\n";
           std::cout << "  File: " << g_recorder->getFilePath() << "\n";
           std::cout << "  Events: " << g_recorder->getEventCount() << "\n";
-          std::cout << "==============================================================\n\n";
+          std::cout << "======================================================="
+                       "=======\n\n";
         } else {
           // Start recording
           if (!g_recorder) {
@@ -1076,19 +1080,22 @@ int main(int argc, char **argv) {
           if (g_recorder->start(g_record_dir)) {
             g_ingest_manager->setRecorder(g_recorder.get());
             std::cout << "\n";
-            std::cout << "==============================================================\n";
-            std::cout << "  🔴 RECORDING STARTED — ALL SENSORS ACTIVE                   \n";
-            std::cout << "==============================================================\n";
+            std::cout << "====================================================="
+                         "=========\n";
+            std::cout << "  🔴 RECORDING STARTED — ALL SENSORS ACTIVE          "
+                         "         \n";
+            std::cout << "====================================================="
+                         "=========\n";
             std::cout << "  File: " << g_recorder->getFilePath() << "\n";
             std::cout << "  Dir:  " << g_record_dir << "\n";
             std::cout << "  Press 11 again to STOP recording.\n";
-            std::cout << "==============================================================\n\n";
+            std::cout << "====================================================="
+                         "=========\n\n";
           } else {
             std::cerr << "[Main] Failed to start recording\n";
           }
         }
       } break;
-
 
       case 13: // Edit Camera Config
       {
