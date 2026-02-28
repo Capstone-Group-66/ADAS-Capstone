@@ -228,8 +228,9 @@ void NetworkReceiver::cameraThread() {
       CameraFrameData frame_data;
       frame_data.h.mount = Mount::RearCam;
       frame_data.h.seq = header.sequence;
-      frame_data.h.t_device_ns = header.timestamp_ns; // Pi's original timestamp (for reference only)
-      frame_data.h.t_ingest_ns = jetson_arrival_ns;   // Jetson authoritative time
+      frame_data.h.t_device_ns =
+          header.timestamp_ns; // Pi's original timestamp (for reference only)
+      frame_data.h.t_ingest_ns = jetson_arrival_ns; // Jetson authoritative time
       frame_data.frame = frame.clone();
 
       // Record pre-decode JPEG with Jetson arrival time
