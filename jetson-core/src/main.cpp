@@ -441,7 +441,7 @@ void visualizationThread() {
         cv::putText(vis, info, cv::Point(10, 25), cv::FONT_HERSHEY_SIMPLEX, 0.6,
                     cv::Scalar(0, 255, 0), 2);
 
-        // Rate-limit display to 5 FPS to reduce stuttering
+        // Rate-limit display to 20 FPS to reduce stuttering
         auto now_display = std::chrono::steady_clock::now();
         if (now_display - last_display_time >= display_interval) {
           cv::imshow("Stage B: FrontCam", vis);
