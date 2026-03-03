@@ -19,6 +19,8 @@
 #include "adas/main_brain/BleFragmenter.hpp"
 #include "adas/main_brain/FCWAlertAdapter.hpp"
 #include "adas/main_brain/SimpleBleServer.hpp"
+#include "adas/recording/Recorder.hpp"
+#include "adas/recording/ReplayEngine.hpp"
 #include "adas/stage_a/DeviceWizard.hpp"
 #include "adas/stage_a/IngestManager.hpp"
 #include "adas/stage_b/CameraPipeline.hpp"
@@ -66,6 +68,14 @@ std::unique_ptr<adas::SimpleBleServer> g_ble_server;
 
 // Metrics logger for validation
 std::unique_ptr<adas::MetricsLogger> g_metrics_logger;
+
+// Recording and replay
+std::unique_ptr<adas::Recorder> g_recorder;
+std::unique_ptr<adas::ReplayEngine> g_replay_engine;
+std::string g_record_dir = "./recordings";
+std::string g_replay_file;
+float g_replay_speed = 1.0f;
+bool g_replay_fast = false;
 
 std::string formatUptime(std::chrono::seconds uptime) {
   int hours = uptime.count() / 3600;
@@ -221,13 +231,17 @@ void visualizationThread() {
 
         if (is_alerting || time_since.count() > 1000) {
           std::vector<adas::Alert> alerts_to_send;
+
+          // Use GPS-corrected ego speed for the phone dashboard
           int speed_kmh = 0;
+          if (g_ego_frame) {
+            speed_kmh = static_cast<int>(g_ego_frame->getSpeed_mps() * 3.6f);
+          }
 
           if (fcw_alert.has_value()) {
             auto alert = adas::FCWAlertAdapter::convert(*fcw_alert,
                                                         adas::Clock::now_ns());
             alerts_to_send.push_back(alert);
-            speed_kmh = static_cast<int>(fcw_alert->velocity_mps * 3.6f);
           } else if (proximity_alert) {
             // Synthetic Alert from Proximity Logic
             adas::Alert alert;
@@ -237,14 +251,8 @@ void visualizationThread() {
             alert.severity = adas::Severity::Critical;
             alert.rationale = "Proximity Warning (< 1.5m)";
             alerts_to_send.push_back(alert);
-
-            if (prox_obj) {
-              speed_kmh = static_cast<int>(prox_obj->radial_vel_mps * 3.6f);
-            }
           } else {
-            // Heartbeat: No alerts, speed 0 (or from telemetry if
-            // available)
-            speed_kmh = 0;
+            // Heartbeat: No alerts
           }
 
           uint16_t tickId =
@@ -433,7 +441,7 @@ void visualizationThread() {
         cv::putText(vis, info, cv::Point(10, 25), cv::FONT_HERSHEY_SIMPLEX, 0.6,
                     cv::Scalar(0, 255, 0), 2);
 
-        // Rate-limit display to 5 FPS to reduce stuttering
+        // Rate-limit display to 20 FPS to reduce stuttering
         auto now_display = std::chrono::steady_clock::now();
         if (now_display - last_display_time >= display_interval) {
           cv::imshow("Stage B: FrontCam", vis);
@@ -553,6 +561,11 @@ void printMenu() {
             << (g_metrics_logger && g_metrics_logger->isEnabled() ? "ON"
                                                                   : "OFF")
             << "]\n";
+  std::cout << " 11) Toggle Recording ["
+            << (g_recorder && g_recorder->isRecording() ? "REC" : "OFF")
+            << "]\n";
+  std::cout << " 12) Start Pipeline (Replay Mode)\n";
+  std::cout << " 13) Edit Camera Config (opens editor, hot-reload)\n";
   std::cout << "  0) Exit\n";
   std::cout
       << "==============================================================\n";
@@ -633,6 +646,16 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   // Initialize BLE Server
   g_ble_server = std::make_unique<adas::SimpleBleServer>();
   if (g_ble_server->initialize()) {
+    // Wire GPS callback: phone GPS -> EgoFrame drift correction
+    g_ble_server->setOnGpsData([](float speed_mps, uint64_t ts_ms) {
+      if (g_ego_frame) {
+        g_ego_frame->correctWithGpsSpeed(speed_mps);
+      }
+      // Record GPS data if recording
+      if (g_recorder && g_recorder->isRecording()) {
+        g_recorder->recordGPS(speed_mps, ts_ms);
+      }
+    });
     g_ble_server->startAdvertising();
   } else {
     std::cerr << "[Main] WARNING: BLE server failed to initialize\n";
@@ -650,6 +673,77 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   g_visualizer_thread = std::thread(visualizationThread);
 
   std::cout << "\n[Main] Pipeline started successfully!\n";
+  std::cout << "[Main] Press '3' to view status, '2' to stop\n\n";
+}
+
+void startReplayPipeline(const std::string &replay_file, float speed,
+                         const adas::Config &config,
+                         const adas::HardwareMap &hw_map,
+                         const std::string &calib_dir,
+                         const std::string &model_path) {
+  if (g_pipeline_running.load()) {
+    std::cout << "[Main] Pipeline is already running\n";
+    return;
+  }
+
+  std::cout << "\n[Main] Starting pipeline in REPLAY MODE...\n";
+
+  // Stage A: Ingest (Replay Engine)
+  g_ingest_manager = std::make_unique<adas::IngestManager>(config, hw_map);
+  if (!g_ingest_manager->initReplay(replay_file, speed)) {
+    std::cerr << "[Main] Failed to initialize Replay Mode. Aborting.\n";
+    g_ingest_manager.reset();
+    return;
+  }
+  g_ingest_manager->start();
+
+  // Stage B: Camera Preprocessing + Inference
+  g_stage_b_manager =
+      std::make_unique<adas::StageBManager>(calib_dir, model_path);
+
+  // Wire FrontCam queue for inference visualizer
+  if (hw_map.mappings.find(adas::Mount::FrontCam) != hw_map.mappings.end()) {
+    g_stage_b_manager->addCamera(
+        adas::Mount::FrontCam,
+        g_ingest_manager->getCameraQueue(adas::Mount::FrontCam),
+        g_det_front_queue);
+  }
+  g_stage_b_manager->start();
+
+  // Stage E: Fusion + FCW + EgoFrame
+  g_sensor_fusion = std::make_unique<adas::SensorFusion>();
+
+  adas::FCWMonitor::Config fcw_config;
+  fcw_config.ttc_threshold_s = 3.0f;
+  fcw_config.use_physics_fcw = true;
+  fcw_config.friction_coefficient = 0.7f;
+  fcw_config.reaction_time_s = 2.5f;
+  g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
+
+  g_ego_frame = std::make_unique<adas::EgoFrame>();
+  g_ego_frame->init();
+
+  std::cout << "[Main] Stage E fusion initialized (Replay Mode)\n";
+
+  // Initialize BLE Server (No real GPS connection needed for playback scaling,
+  // but kept for UI output)
+  g_ble_server = std::make_unique<adas::SimpleBleServer>();
+  if (g_ble_server->initialize()) {
+    g_ble_server->startAdvertising();
+  }
+
+  g_pipeline_running.store(true);
+  g_pipeline_start_time = std::chrono::steady_clock::now();
+
+  g_status_running.store(true);
+  g_status_thread = std::thread(statusBarThread);
+
+  g_visualizer_running.store(true);
+  g_visualizer_thread = std::thread(visualizationThread);
+
+  std::cout << "\n[Main] Replay Pipeline started successfully!\n";
+  std::cout << "[Main] Replaying: " << replay_file << " at " << speed
+            << "x speed\n";
   std::cout << "[Main] Press '3' to view status, '2' to stop\n\n";
 }
 
@@ -684,6 +778,12 @@ void stopPipeline() {
     } else {
       std::cerr << "[Main] Failed to save metrics\n";
     }
+  }
+
+  // Stop recording if active
+  if (g_recorder && g_recorder->isRecording()) {
+    g_recorder->stop();
+    g_ingest_manager->setRecorder(nullptr);
   }
 
   // Stop BLE
@@ -767,15 +867,28 @@ int main(int argc, char **argv) {
     } else if (arg == "--auto-start") {
       auto_start = true;
     } else if (arg == "--help") {
-      std::cout << "Usage: " << argv[0] << " [options]\n"
-                << "Options:\n"
-                << "  --config <path>        Path to componentConfig.yaml\n"
-                << "  --hardware-map <path>  Path to hardware_map.json\n"
-                << "  --calib-dir <path>     Path to calibration directory\n"
-                << "  --model <path>         Path to YOLOv8 ONNX model\n"
-                << "  --auto-start           Start pipeline automatically\n"
-                << "  --help                 Show this help\n";
+      std::cout
+          << "Usage: " << argv[0] << " [options]\n"
+          << "Options:\n"
+          << "  --config <path>        Path to componentConfig.yaml\n"
+          << "  --hardware-map <path>  Path to hardware_map.json\n"
+          << "  --calib-dir <path>     Path to calibration directory\n"
+          << "  --model <path>         Path to YOLOv8 ONNX model\n"
+          << "  --auto-start           Start pipeline automatically\n"
+          << "  --record <dir>         Record sensor data to directory\n"
+          << "  --replay <file>        Replay from .adasrec file\n"
+          << "  --replay-speed <float> Replay speed multiplier (default: 1.0)\n"
+          << "  --replay-fast          Replay as fast as possible\n"
+          << "  --help                 Show this help\n";
       return 0;
+    } else if (arg == "--record" && i + 1 < argc) {
+      g_record_dir = argv[++i];
+    } else if (arg == "--replay" && i + 1 < argc) {
+      g_replay_file = argv[++i];
+    } else if (arg == "--replay-speed" && i + 1 < argc) {
+      g_replay_speed = std::stof(argv[++i]);
+    } else if (arg == "--replay-fast") {
+      g_replay_fast = true;
     }
   }
 
@@ -937,6 +1050,139 @@ int main(int argc, char **argv) {
                        "will be saved "
                        "to Desktop on "
                        "pipeline stop.\n";
+        }
+      } break;
+
+      case 11: // Toggle Recording
+      {
+        if (!g_pipeline_running.load()) {
+          std::cout << "[Main] Start the pipeline first\n";
+        } else if (g_recorder && g_recorder->isRecording()) {
+          // Stop recording
+          g_recorder->stop();
+          g_ingest_manager->setRecorder(nullptr);
+          std::cout << "\n";
+          std::cout << "======================================================="
+                       "=======\n";
+          std::cout << "  ⏹  RECORDING STOPPED                                 "
+                       "       \n";
+          std::cout << "======================================================="
+                       "=======\n";
+          std::cout << "  File: " << g_recorder->getFilePath() << "\n";
+          std::cout << "  Events: " << g_recorder->getEventCount() << "\n";
+          std::cout << "======================================================="
+                       "=======\n\n";
+        } else {
+          // Start recording
+          if (!g_recorder) {
+            g_recorder = std::make_unique<adas::Recorder>();
+          }
+          if (g_recorder->start(g_record_dir)) {
+            g_ingest_manager->setRecorder(g_recorder.get());
+            std::cout << "\n";
+            std::cout << "====================================================="
+                         "=========\n";
+            std::cout << "  🔴 RECORDING STARTED — ALL SENSORS ACTIVE          "
+                         "         \n";
+            std::cout << "====================================================="
+                         "=========\n";
+            std::cout << "  File: " << g_recorder->getFilePath() << "\n";
+            std::cout << "  Dir:  " << g_record_dir << "\n";
+            std::cout << "  Press 11 again to STOP recording.\n";
+            std::cout << "====================================================="
+                         "=========\n\n";
+          } else {
+            std::cerr << "[Main] Failed to start recording\n";
+          }
+        }
+      } break;
+
+      case 13: // Edit Camera Config
+      {
+        std::cout << "\n[Config] Opening componentConfig.yaml in editor...\n";
+        std::cout << "[Config] Save and exit the editor to apply changes.\n\n";
+
+        // Use EDITOR env var, fall back to nano then vi
+        const char *editor_env = std::getenv("EDITOR");
+        std::string editor = editor_env ? editor_env : "nano";
+        std::string cmd = editor + " " + config_path;
+        int ret = std::system(cmd.c_str());
+        if (ret != 0) {
+          // Try vi as last resort
+          cmd = "vi " + config_path;
+          ret = std::system(cmd.c_str());
+        }
+
+        // Reload config from disk
+        try {
+          config = adas::ConfigLoader::loadConfig(config_path);
+          std::cout << "\n[Config] Reloaded from: " << config_path << "\n";
+          std::cout << "[Config] Camera: front=" << config.cameras.width << "x"
+                    << config.cameras.height
+                    << " | side=" << config.cameras.side_width << "x"
+                    << config.cameras.side_height
+                    << " | fps=" << config.cameras.target_fps
+                    << " | mjpeg=" << (config.cameras.use_mjpeg ? "yes" : "NO")
+                    << "\n";
+
+          // Hot-reload: if pipeline is running, restart ingest to apply new
+          // camera settings. Stage B and E keep running — only cameras restart.
+          if (g_pipeline_running.load() && g_ingest_manager) {
+            std::cout << "[Config] Pipeline is running. Restarting camera "
+                         "ingest to apply new settings...\n";
+            g_ingest_manager->stop();
+            g_ingest_manager =
+                std::make_unique<adas::IngestManager>(config, hw_map);
+            if (g_recorder && g_recorder->isRecording()) {
+              // Re-wire recorder after restart
+              g_ingest_manager->setRecorder(g_recorder.get());
+            }
+            g_ingest_manager->start();
+            std::cout << "[Config] Camera ingest restarted with new config.\n";
+          } else {
+            std::cout << "[Config] Changes will take effect on next pipeline "
+                         "start.\n";
+          }
+        } catch (const std::exception &e) {
+          std::cerr << "[Config] Failed to reload config: " << e.what() << "\n";
+          std::cerr << "[Config] Previous config is still active.\n";
+        }
+      } break;
+
+      case 12: // Start Replay Pipeline
+      {
+        if (g_pipeline_running.load()) {
+          std::cout << "[Main] Please stop the pipeline first\n";
+        } else {
+          std::string file_path;
+          std::string speed_str;
+          float speed = 1.0f;
+
+          std::cout << "  Enter path to .adasrec file: ";
+          std::cin >> file_path;
+          std::cin.ignore(10000, '\n'); // Clear newline
+
+          std::cout << "  Enter playback speed (e.g., 1.0, 0.5, 2.0) [1.0]: ";
+          std::getline(std::cin, speed_str);
+          if (!speed_str.empty()) {
+            try {
+              speed = std::stof(speed_str);
+              if (speed <= 0.0f) {
+                std::cout << "[Main] Invalid speed. Defaulting to "
+                             "fast-as-possible.\n";
+                // `speed <= 0.0f` is fast mode per ReplayEngine
+              }
+            } catch (...) {
+              std::cout << "[Main] Invalid number, defaulting to 1.0x\n";
+              speed = 1.0f;
+            }
+          }
+
+          if (adas::ConfigLoader::hardwareMapExists(hw_map_path)) {
+            hw_map = adas::ConfigLoader::loadHardwareMap(hw_map_path);
+          }
+          startReplayPipeline(file_path, speed, config, hw_map, calib_dir,
+                              model_path);
         }
       } break;
 

@@ -55,7 +55,6 @@ set(STAGE_A_SOURCES
     src/stage_a/DeviceWizard.cpp
     src/stage_a/NetworkIngest.cpp
     src/stage_a/RadarIngest.cpp
-    src/stage_a/IMUIngest.cpp
     src/stage_a/IngestManager.cpp
 )
 
@@ -80,6 +79,11 @@ set(MAIN_BRAIN_SOURCES
     src/main_brain/BleFragmenter.cpp
 )
 
+set(RECORDING_SOURCES
+    src/recording/Recorder.cpp
+    src/recording/ReplayEngine.cpp
+)
+
 add_executable(jetson_core
     src/main.cpp
     ${COMMON_SOURCES}
@@ -87,6 +91,7 @@ add_executable(jetson_core
     ${STAGE_B_SOURCES}
     ${STAGE_E_SOURCES}
     ${MAIN_BRAIN_SOURCES}
+    ${RECORDING_SOURCES}
 )
 
 # Include vendor directory for nlohmann/json (CBOR encoding)
@@ -133,6 +138,7 @@ add_executable(device_wizard
     src/common/Globals.cpp
     src/stage_a/DeviceWizard.cpp
     src/stage_a/CameraCalibrator.cpp
+    ${RECORDING_SOURCES}
 )
 
 target_link_libraries(device_wizard
@@ -212,6 +218,7 @@ if(ZMQ_FOUND)
     # Network receiver integrated with pipeline
     add_library(network_receiver STATIC
         src/stage_a/NetworkReceiver.cpp
+        ${RECORDING_SOURCES}
     )
     target_include_directories(network_receiver PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -219,6 +226,7 @@ if(ZMQ_FOUND)
     )
     target_link_libraries(network_receiver
         ${ZMQ_LIBRARIES}
+        ${OpenCV_LIBS}
         Threads::Threads
     )
     target_compile_definitions(network_receiver PUBLIC HAS_ZMQ)

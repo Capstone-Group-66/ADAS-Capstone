@@ -10,9 +10,42 @@
 namespace adas {
 
 IngestManager::IngestManager(const Config &config, const HardwareMap &hw_map)
-    : config_(config), hw_map_(hw_map) {}
+    : config_(config), hw_map_(hw_map), is_replay_mode_(false) {}
 
 IngestManager::~IngestManager() { stop(); }
+
+bool IngestManager::initReplay(const std::string &file_path, float speed) {
+  if (running_.load(std::memory_order_relaxed)) {
+    std::cerr << "[IngestManager] Cannot init replay while running\n";
+    return false;
+  }
+
+  std::cout << "[IngestManager] Initializing Replay Mode with file: "
+            << file_path << "\n";
+  replay_engine_ = std::make_unique<ReplayEngine>();
+
+  if (!replay_engine_->load(file_path)) {
+    std::cerr << "[IngestManager] Failed to load replay file\n";
+    replay_engine_.reset();
+    return false;
+  }
+
+  // Set speed
+  replay_engine_->setSpeed(speed);
+
+  // Wire queues
+  replay_engine_->setCameraQueue(Mount::FrontCam, &cam_front_queue_);
+  replay_engine_->setCameraQueue(Mount::SideCamL, &cam_side_l_queue_);
+  replay_engine_->setCameraQueue(Mount::SideCamR, &cam_side_r_queue_);
+  replay_engine_->setCameraQueue(Mount::RearCam, &cam_rear_queue_);
+  replay_engine_->setRadarQueue(Mount::FrontRadar, &radar_front_queue_);
+  replay_engine_->setRadarQueue(Mount::RearCornerRadarL, &radar_rear_l_queue_);
+  replay_engine_->setRadarQueue(Mount::RearCornerRadarR, &radar_rear_r_queue_);
+  replay_engine_->setIMUQueue(&imu_queue_);
+
+  is_replay_mode_ = true;
+  return true;
+}
 
 void IngestManager::start() {
   if (running_.load(std::memory_order_relaxed)) {
@@ -34,10 +67,15 @@ void IngestManager::start() {
 
   running_.store(true, std::memory_order_relaxed);
 
-  // Launch in order of priority
-  launchDirectCameras();
-  launchFrontRadar();
-  launchNetworkIngest();
+  if (is_replay_mode_ && replay_engine_) {
+    std::cout << "[IngestManager] Replay Engine taking over Ingest Layer\n";
+    replay_engine_->start();
+  } else {
+    // Launch in order of priority (LIVE MODE)
+    launchDirectCameras();
+    launchFrontRadar();
+    launchNetworkIngest();
+  }
 
   std::cout << "\n[IngestManager] All ingest threads started\n";
 }
@@ -70,6 +108,10 @@ void IngestManager::stop() {
   }
   if (cam_front_) {
     cam_front_->stop();
+  }
+
+  if (replay_engine_) {
+    replay_engine_->stop();
   }
 
   std::cout << "[IngestManager] All threads stopped (FR93 graceful shutdown)\n";
@@ -146,8 +188,10 @@ void IngestManager::launchNetworkIngest() {
   zmq_receiver_ = std::make_unique<NetworkReceiver>(pi_ip);
 
   // Start with queue pointers
-  if (zmq_receiver_->start(&cam_rear_queue_, &imu_queue_)) {
-    std::cout << "[IngestManager] ZMQ receiver started for RearCam + IMU\n";
+  if (zmq_receiver_->start(&cam_rear_queue_, &imu_queue_, &radar_rear_l_queue_,
+                           &radar_rear_r_queue_)) {
+    std::cout << "[IngestManager] ZMQ receiver started for RearCam, Rear Radar "
+                 "L/R, + IMU\n";
   } else {
     std::cerr << "[IngestManager] Failed to start ZMQ receiver\n";
     zmq_receiver_.reset();
@@ -203,8 +247,22 @@ SPSCQueue<RadarTargets, 8> &IngestManager::getRadarQueue(Mount mount) {
 
 IngestManager::HealthStatus IngestManager::getHealth() const {
   HealthStatus status;
-  status.all_healthy = true;
-  status.total_drops = 0;
+  // Read from Replay Engine if active
+  if (is_replay_mode_ && replay_engine_) {
+    status.all_healthy = true;
+    status.total_drops = 0;
+
+    // Build summary for Replay Mode
+    std::ostringstream ss;
+    if (replay_engine_->isFinished()) {
+      ss << "REPLAY FINISHED (100%)";
+    } else {
+      ss << "REPLAY RUNNING (" << std::fixed << std::setprecision(1)
+         << (replay_engine_->getProgress() * 100.0f) << "%" << ")";
+    }
+    status.summary = ss.str();
+    return status;
+  }
 
   // Check cameras
   if (cam_front_) {
@@ -308,6 +366,23 @@ void IngestManager::printStatus() const {
   std::cout << "  " << std::left << std::setw(45) << status.summary << "\n";
   std::cout
       << "----------------------------------------------------------------\n";
+}
+
+void IngestManager::setRecorder(Recorder *recorder) {
+  // Propagate to all active ingest instances
+  if (cam_front_)
+    cam_front_->setRecorder(recorder);
+  if (cam_side_l_)
+    cam_side_l_->setRecorder(recorder);
+  if (cam_side_r_)
+    cam_side_r_->setRecorder(recorder);
+  if (radar_front_)
+    radar_front_->setRecorder(recorder);
+#ifdef HAS_ZMQ
+  if (zmq_receiver_)
+    zmq_receiver_->setRecorder(recorder);
+#endif
+  // NetworkIngest (TCP) not instrumented — deprecated path
 }
 
 } // namespace adas

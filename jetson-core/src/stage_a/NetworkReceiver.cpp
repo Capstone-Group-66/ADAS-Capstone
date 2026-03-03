@@ -1,7 +1,9 @@
 // File: src/stage_a/NetworkReceiver.cpp
 // ZMQ-based receiver for Pi4 sensor data
 #include "adas/stage_a/NetworkReceiver.hpp"
+#include "adas/common/Clock.hpp"
 #include "adas/common/Globals.hpp"
+#include "adas/recording/Recorder.hpp"
 
 #include <opencv2/imgcodecs.hpp>
 
@@ -35,13 +37,17 @@ std::string NetworkReceiver::buildAddr(int port) const {
 }
 
 bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
-                            SPSCQueue<ImuSample, 32> *imu_queue) {
+                            SPSCQueue<ImuSample, 32> *imu_queue,
+                            SPSCQueue<RadarTargets, 8> *radar_l_queue,
+                            SPSCQueue<RadarTargets, 8> *radar_r_queue) {
   if (running_.load()) {
     return true; // Already running
   }
 
   cam_queue_ = cam_queue;
   imu_queue_ = imu_queue;
+  radar_l_queue_ = radar_l_queue;
+  radar_r_queue_ = radar_r_queue;
 
   // Create sockets
   cam_socket_ = zmq_socket(context_, ZMQ_PULL);
@@ -91,6 +97,19 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
   }
 
   std::cout << "[NetworkReceiver] Connected to all Pi streams\n";
+
+  // Measure initial RTT for latency correction on ZMQ-received timestamps
+  double rtt_ms = measureRTT(pi_ip_);
+  if (rtt_ms > 0) {
+    uint64_t one_way_ns = static_cast<uint64_t>(rtt_ms * 0.5 * 1e6);
+    one_way_latency_ns_.store(one_way_ns, std::memory_order_relaxed);
+    std::cout << "[NetworkReceiver] RTT=" << rtt_ms
+              << "ms, one-way latency=" << (rtt_ms / 2.0) << "ms ("
+              << one_way_ns << "ns)\n";
+  } else {
+    std::cout << "[NetworkReceiver] WARNING: Could not measure RTT, "
+              << "timestamps will not be latency-corrected\n";
+  }
 
   running_.store(true);
 
@@ -197,15 +216,30 @@ void NetworkReceiver::cameraThread() {
       continue;
     }
 
+    // Timestamp this frame with the Jetson clock at the moment of arrival.
+    // Do NOT use the Pi's header.timestamp_ns here — the Pi runs its own
+    // (potentially unsynchronised) clock. All recording timestamps must use
+    // the Jetson's CLOCK_MONOTONIC_RAW so they are aligned with USB-camera
+    // and radar events recorded on the same timeline.
+    const uint64_t jetson_arrival_ns = Clock::now_ns();
+
     // Create CameraFrameData and push to queue
     if (cam_queue_) {
       CameraFrameData frame_data;
       frame_data.h.mount = Mount::RearCam;
       frame_data.h.seq = header.sequence;
-      frame_data.h.t_device_ns = header.timestamp_ns; // Use Pi's timestamp!
-      frame_data.h.t_ingest_ns =
-          header.timestamp_ns; // Same - already timestamped
+      frame_data.h.t_device_ns =
+          header.timestamp_ns; // Pi's original timestamp (for reference only)
+      frame_data.h.t_ingest_ns = jetson_arrival_ns; // Jetson authoritative time
       frame_data.frame = frame.clone();
+
+      // Record pre-decode JPEG with Jetson arrival time
+      if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+        rec->recordCameraJpeg(jpeg_data.data(), jpeg_data.size(),
+                              jetson_arrival_ns, Mount::RearCam,
+                              static_cast<uint16_t>(frame.cols),
+                              static_cast<uint16_t>(frame.rows));
+      }
 
       cam_queue_->try_push(std::move(frame_data));
     }
@@ -243,8 +277,49 @@ void NetworkReceiver::radarLThread() {
     }
     last_radar_l_seq_ = header.sequence;
 
-    // TODO: Push to radar queue for Stage C processing
-    // For now, just count
+    // Parse radar payload
+    // Using simple format: [presence | range_cm (2 bytes)] from
+    // RadarPayloadHeader + raw bytes
+    size_t payload_size = header.payload_size;
+    if (payload_size >= sizeof(RadarPayloadHeader) + 3) {
+      RadarPayloadHeader rad_header;
+      std::memcpy(&rad_header, buffer.data() + sizeof(PiMessageHeader),
+                  sizeof(rad_header));
+
+      const uint8_t *raw_data =
+          buffer.data() + sizeof(PiMessageHeader) + sizeof(RadarPayloadHeader);
+
+      uint8_t presence = raw_data[0];
+      uint16_t range_cm = raw_data[1] | (raw_data[2] << 8);
+
+      if (presence > 0 && range_cm > 0 && radar_l_queue_) {
+        const uint64_t jetson_arrival_ns = Clock::now_ns();
+        RadarTargets targets;
+        targets.h.mount = Mount::RearCornerRadarL;
+        targets.h.seq = header.sequence;
+        targets.h.t_device_ns = header.timestamp_ns;
+        targets.h.t_ingest_ns = jetson_arrival_ns;
+        targets.h.healthy = true;
+
+        RadarTarget target;
+        target.range_m = static_cast<float>(range_cm) / 100.0f;
+        target.azimuth_rad = 0.0f;
+        target.radial_vel_mps = 0.0f;
+        target.rcs_db = 0.0f;
+        target.sigma_r = 0.1f;
+        target.sigma_az = 0.5f;
+        target.sigma_v = 1.0f;
+
+        targets.targets.push_back(target);
+
+        if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+          rec->recordRadar(targets);
+        }
+
+        radar_l_queue_->try_push(std::move(targets));
+      }
+    }
+
     stats_.radar_l_packets++;
   }
 }
@@ -276,6 +351,47 @@ void NetworkReceiver::radarRThread() {
       stats_.drops += header.sequence - last_radar_r_seq_ - 1;
     }
     last_radar_r_seq_ = header.sequence;
+
+    // Parse radar payload
+    size_t payload_size = header.payload_size;
+    if (payload_size >= sizeof(RadarPayloadHeader) + 3) {
+      RadarPayloadHeader rad_header;
+      std::memcpy(&rad_header, buffer.data() + sizeof(PiMessageHeader),
+                  sizeof(rad_header));
+
+      const uint8_t *raw_data =
+          buffer.data() + sizeof(PiMessageHeader) + sizeof(RadarPayloadHeader);
+
+      uint8_t presence = raw_data[0];
+      uint16_t range_cm = raw_data[1] | (raw_data[2] << 8);
+
+      if (presence > 0 && range_cm > 0 && radar_r_queue_) {
+        const uint64_t jetson_arrival_ns = Clock::now_ns();
+        RadarTargets targets;
+        targets.h.mount = Mount::RearCornerRadarR;
+        targets.h.seq = header.sequence;
+        targets.h.t_device_ns = header.timestamp_ns;
+        targets.h.t_ingest_ns = jetson_arrival_ns;
+        targets.h.healthy = true;
+
+        RadarTarget target;
+        target.range_m = static_cast<float>(range_cm) / 100.0f;
+        target.azimuth_rad = 0.0f;
+        target.radial_vel_mps = 0.0f;
+        target.rcs_db = 0.0f;
+        target.sigma_r = 0.1f;
+        target.sigma_az = 0.5f;
+        target.sigma_v = 1.0f;
+
+        targets.targets.push_back(target);
+
+        if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+          rec->recordRadar(targets);
+        }
+
+        radar_r_queue_->try_push(std::move(targets));
+      }
+    }
 
     stats_.radar_r_packets++;
   }
@@ -343,8 +459,14 @@ void NetworkReceiver::imuThread() {
 
     // Create ImuSample and push to queue
     if (imu_queue_) {
+      // Use Jetson's clock at arrival time as the authoritative timestamp.
+      // sample.t_capture (Pi clock corrected for latency) is kept for data
+      // integrity but MUST NOT be used for recording — the Pi's wall clock
+      // may be unsynchronised from the Jetson's CLOCK_MONOTONIC_RAW.
+      const uint64_t jetson_arrival_ns = Clock::now_ns();
+
       ImuSample sample;
-      sample.t_capture = header.timestamp_ns;
+      sample.t_capture = jetson_arrival_ns;
       sample.accel = {imu_payload.accel_x, imu_payload.accel_y,
                       imu_payload.accel_z};
       sample.gyro = {imu_payload.gyro_x, imu_payload.gyro_y,
@@ -354,6 +476,11 @@ void NetworkReceiver::imuThread() {
                      imu_payload.quat_z};
       sample.temperature = imu_payload.temperature;
       sample.calibration_status = imu_payload.calibration_status;
+
+      // Record with Jetson arrival time
+      if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+        rec->recordIMU(sample);
+      }
 
       imu_queue_->try_push(std::move(sample));
       last_accel_z = imu_payload.accel_z;

@@ -99,7 +99,7 @@ static_assert(sizeof(CameraPayloadHeader) == 8, "CameraPayloadHeader must be 8 b
 #pragma pack(push, 1)
 struct RadarPayloadHeader {
     uint16_t data_length; // Length of raw serial data
-    uint8_t radar_type;   // 0=OPS243, 1=other
+    uint8_t radar_type;   // 0=C4001 (DFRobot mmWave)
     uint8_t reserved;     // Padding
     // Followed by: uint8_t raw_data[data_length]
 };

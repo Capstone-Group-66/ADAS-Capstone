@@ -23,9 +23,11 @@ network:
 #                         CAMERA SETTINGS (Direct USB)
 # ══════════════════════════════════════════════════════════════════════════════
 cameras:
-  width: 1280
-  height: 720
-  target_fps: 30
+  width: 960
+  height: 540
+  side_width: 640
+  side_height: 480
+  target_fps: 20
   use_mjpeg: true
 
 # ══════════════════════════════════════════════════════════════════════════════

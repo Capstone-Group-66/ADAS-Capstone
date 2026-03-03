@@ -20,6 +20,8 @@ typedef void *zmq_context_t;
 
 namespace adas {
 
+class Recorder; // Forward declaration for recording support
+
 /// NetworkReceiver: Receives sensor data from Pi4 via ZMQ
 /// Integrates directly with Stage A queues
 class NetworkReceiver {
@@ -59,8 +61,11 @@ class NetworkReceiver {
     /// Connect and start receiving data
     /// @param cam_queue Queue for RearCam frames
     /// @param imu_queue Queue for IMU samples
+    /// @param radar_l_queue Queue for Rear L Radar targets
+    /// @param radar_r_queue Queue for Rear R Radar targets
     /// @return true if connected successfully
-    bool start(SPSCQueue<CameraFrameData, 8> *cam_queue, SPSCQueue<ImuSample, 32> *imu_queue);
+    bool start(SPSCQueue<CameraFrameData, 8> *cam_queue, SPSCQueue<ImuSample, 32> *imu_queue,
+               SPSCQueue<RadarTargets, 8> *radar_l_queue, SPSCQueue<RadarTargets, 8> *radar_r_queue);
 
     /// Stop receiving and disconnect
     void stop();
@@ -73,6 +78,12 @@ class NetworkReceiver {
 
     /// Get statistics
     Stats getStats() const { return stats_; }
+
+    /// Set recorder for data capture (optional, nullptr = no recording)
+    /// Thread-safe: may be called from main thread while receive threads run.
+    void setRecorder(Recorder *rec) {
+      recorder_.store(rec, std::memory_order_release);
+    }
 
     /// Static: Discover devices on Pi without starting full receiver
     /// @param pi_ip IP address of Pi4
@@ -114,6 +125,8 @@ class NetworkReceiver {
     // Output queues (not owned)
     SPSCQueue<CameraFrameData, 8> *cam_queue_ = nullptr;
     SPSCQueue<ImuSample, 32> *imu_queue_ = nullptr;
+    SPSCQueue<RadarTargets, 8> *radar_l_queue_ = nullptr;
+    SPSCQueue<RadarTargets, 8> *radar_r_queue_ = nullptr;
 
     // Threads
     std::thread cam_thread_;
@@ -133,6 +146,15 @@ class NetworkReceiver {
     uint32_t last_radar_l_seq_ = 0;
     uint32_t last_radar_r_seq_ = 0;
     uint32_t last_imu_seq_ = 0;
+
+    // One-way network latency (RTT/2) in nanoseconds, measured at startup
+    // and used to correct t_ingest_ns on ZMQ-received data
+    std::atomic<uint64_t> one_way_latency_ns_{0};
+
+    // Optional recorder for data capture
+    // Atomic so it is safely visible across the camera/radar/IMU threads
+    // without a mutex. Use memory_order_acquire to read.
+    std::atomic<Recorder *> recorder_{nullptr};
 };
 
 } // namespace adas

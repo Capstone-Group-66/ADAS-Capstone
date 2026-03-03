@@ -1,6 +1,7 @@
 // File: src/stage_a/RadarIngest.cpp
 // Serial radar reader implementation based on radar_freq_test.cpp
 #include "adas/stage_a/RadarIngest.hpp"
+#include "adas/recording/Recorder.hpp"
 
 #include <cstring>
 #include <iostream>
@@ -76,6 +77,12 @@ void RadarIngest::run() {
     // Parse and push to queue
     if (!buffer.empty()) {
       RadarTargets targets = parseFrame(buffer.data(), buffer.size(), t_ingest);
+
+      // Record before pushing to queue (if recording active)
+      if (recorder_) {
+        recorder_->recordRadar(targets);
+      }
+
       queue_.try_push(std::move(targets));
 
       frames_received_.fetch_add(1, std::memory_order_relaxed);

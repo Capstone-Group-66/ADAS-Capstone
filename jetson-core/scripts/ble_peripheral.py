@@ -53,6 +53,15 @@ LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
 
 ADAS_SERVICE_UUID = '0000ada5-0000-1000-8000-00805f9b34fb'
 ADAS_ALERT_STREAM_UUID = '0000a1e7-0000-1000-8000-00805f9b34fb'
+ADAS_COMMAND_UUID = '0000c0ad-0000-1000-8000-00805f9b34fb'
+
+# Try to import CBOR decoder for GPS data
+try:
+    import cbor2
+    HAS_CBOR = True
+except ImportError:
+    logger.warning("cbor2 not available: pip3 install cbor2")
+    HAS_CBOR = False
 
 
 class Advertisement(dbus.service.Object):
@@ -191,6 +200,54 @@ class Characteristic(dbus.service.Object):
         return True
 
 
+class CommandCharacteristic(Characteristic):
+    """Writable characteristic for phone -> Jetson data (GPS, commands).
+    
+    Wire format: [type_byte][payload...]
+    Type 0x01 = GPS data (CBOR-encoded GpsData from Android)
+    
+    Decoded GPS is printed to stdout as JSON for C++ to read.
+    """
+
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(
+            self, bus, index, ADAS_COMMAND_UUID,
+            ['write-without-response'], service)
+
+    @dbus.service.method(GATT_CHRC_IFACE, in_signature='aya{sv}')
+    def WriteValue(self, value, options):
+        data = bytes(value)
+        if len(data) < 2:
+            logger.warning("Command write too short: %d bytes", len(data))
+            return
+
+        msg_type = data[0]
+        payload = data[1:]
+
+        if msg_type == 0x01:  # GPS
+            self._handle_gps(payload)
+        else:
+            logger.warning("Unknown command type: 0x%02x", msg_type)
+
+    def _handle_gps(self, payload):
+        """Decode CBOR GPS data and emit JSON to stdout."""
+        if not HAS_CBOR:
+            logger.error("GPS received but cbor2 not installed")
+            return
+        try:
+            gps = cbor2.loads(payload)
+            out = json.dumps({
+                "event": "gps",
+                "speed_mps": gps.get("speedMps", 0.0),
+                "ts_ms": gps.get("tsMs", 0)
+            })
+            sys.stdout.write(out + "\n")
+            sys.stdout.flush()
+            logger.debug("GPS: speed=%.1f m/s", gps.get("speedMps", 0.0))
+        except Exception as e:
+            logger.error("GPS CBOR decode error: %s", e)
+
+
 class Application(dbus.service.Object):
     def __init__(self, bus):
         self.path = '/org/bluez/adas'
@@ -220,6 +277,7 @@ class BlePeripheral:
             self.bus = dbus.SystemBus()
             self.mainloop = GLib.MainLoop()
         self.alert_chrc = None
+        self.cmd_chrc = None
         self.running = True
         
     def find_adapter(self):
@@ -251,6 +309,11 @@ class BlePeripheral:
             ['notify'], service
         )
         service.add_characteristic(self.alert_chrc)
+        
+        # Command characteristic: phone -> Jetson (GPS data, future commands)
+        self.cmd_chrc = CommandCharacteristic(self.bus, 1, service)
+        service.add_characteristic(self.cmd_chrc)
+        
         self.app.add_service(service)
         
         self.adv = Advertisement(self.bus, 0)
