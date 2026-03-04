@@ -142,6 +142,29 @@ struct ImuPayload {
 
 static_assert(sizeof(ImuPayload) == 60, "ImuPayload must be 60 bytes");
 
+// ─────────────────────────────────────────────────────────────────────────────
+// LIGHTWEIGHT PITCH-ONLY IMU MESSAGE
+// Sent by the Pi on port 5558, msg_type = IMU_SAMPLE (0x0004).
+// Payload is a SINGLE 32-bit float (little-endian) = smoothed pitch in radians.
+// Distinguished from the full ImuPayload at runtime by:
+//   header.payload_size == sizeof(ImuPitchPayload)  (i.e. == 4)
+//
+// Validation blueprint (from user spec):
+//   if (header.payload_size == sizeof(ImuPitchPayload) &&
+//       zmq_msg_len >= sizeof(PiMessageHeader) + sizeof(ImuPitchPayload)) {
+//       ImuPitchPayload* p = reinterpret_cast<ImuPitchPayload*>(
+//           static_cast<uint8_t*>(data) + sizeof(PiMessageHeader));
+//       float theta = p->theta_radians;  // ready for fusion
+//   }
+// ─────────────────────────────────────────────────────────────────────────────
+#pragma pack(push, 1)
+struct ImuPitchPayload {
+    float theta_radians; ///< Smoothed camera pitch angle (radians). Positive = nose-up.
+                         ///< Little-endian IEEE 754 single precision.
+};
+#pragma pack(pop)
+static_assert(sizeof(ImuPitchPayload) == 4, "ImuPitchPayload must be 4 bytes");
+
 // Heartbeat payload
 #pragma pack(push, 1)
 struct HeartbeatPayload {

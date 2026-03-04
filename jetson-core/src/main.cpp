@@ -175,6 +175,12 @@ void visualizationThread() {
       // Run Stage E fusion
       std::vector<adas::FusedObject> fused;
       if (g_sensor_fusion) {
+        // Update fusion with the latest IMU pitch angle from the Pi.
+        // The ZMQ imuThread writes this atomically; we read it here once per
+        // frame so all distance estimates in this batch share the same θ.
+        if (g_ingest_manager) {
+          g_sensor_fusion->setPitch(g_ingest_manager->getLatestPitch());
+        }
         fused = g_sensor_fusion->fuse(batch, radar);
       }
 

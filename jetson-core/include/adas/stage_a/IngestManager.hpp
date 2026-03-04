@@ -89,6 +89,17 @@ class IngestManager {
     /// Get IMU queue
     SPSCQueue<ImuSample, 32> &getIMUQueue() { return imu_queue_; }
 
+    /// Get the most recent camera pitch angle received via ZMQ from the Pi.
+    /// Returns 0.0f in replay mode or when no ZMQ receiver is active.
+    float getLatestPitch() const {
+#ifdef HAS_ZMQ
+        if (zmq_receiver_) {
+            return zmq_receiver_->getLatestPitch();
+        }
+#endif
+        return 0.0f;
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     //                             HEALTH MONITORING
     // ═══════════════════════════════════════════════════════════════════════════

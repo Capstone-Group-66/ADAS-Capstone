@@ -398,6 +398,8 @@ void NetworkReceiver::radarRThread() {
 }
 
 void NetworkReceiver::imuThread() {
+  // Buffer must accommodate: PiMessageHeader (32 bytes) + ImuPayload (60 bytes)
+  // The new ImuPitchPayload (4 bytes) fits within that easily.
   std::vector<uint8_t> buffer(256);
 
   // Debug: track samples received in last 5 seconds
@@ -409,19 +411,17 @@ void NetworkReceiver::imuThread() {
   while (running_.load()) {
     int len = zmq_recv(imu_socket_, buffer.data(), buffer.size(), 0);
     if (len < 0) {
-      // Check debug timer even on timeout (only if verbose mode enabled)
+      // Timeout or error — just check debug timer
       if (g_verbose_mode.load()) {
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                           now - last_debug_time)
-                           .count();
+                           now - last_debug_time).count();
         if (elapsed >= 5) {
           std::cout << "\n[IMU DEBUG] Last 5s: received=" << samples_in_window
                     << ", errors=" << errors_in_window
                     << ", total_samples=" << stats_.imu_samples
                     << ", total_errors=" << stats_.errors
-                    << ", last_accel_z=" << last_accel_z << "\n"
-                    << std::flush;
+                    << ", last_accel_z=" << last_accel_z << "\n" << std::flush;
           samples_in_window = 0;
           errors_in_window = 0;
           last_debug_time = now;
@@ -430,8 +430,8 @@ void NetworkReceiver::imuThread() {
       continue;
     }
 
-    if (static_cast<size_t>(len) <
-        sizeof(PiMessageHeader) + sizeof(ImuPayload)) {
+    // ── Minimum size check: must contain at least the 32-byte header ──
+    if (static_cast<size_t>(len) < sizeof(PiMessageHeader)) {
       stats_.errors++;
       errors_in_window++;
       continue;
@@ -447,61 +447,113 @@ void NetworkReceiver::imuThread() {
       continue;
     }
 
-    if (stats_.imu_samples > 0 && header.sequence != last_imu_seq_ + 1) {
-      stats_.drops += header.sequence - last_imu_seq_ - 1;
-    }
-    last_imu_seq_ = header.sequence;
+    // ── Dispatch by payload_size ──────────────────────────────────────────
+    //
+    //  payload_size == 4  → ImuPitchPayload  (new lightweight pitch message)
+    //  payload_size == 60 → ImuPayload        (existing full BNO085 sample)
+    //  anything else      → drop with error
 
-    // Parse IMU payload
-    ImuPayload imu_payload;
-    std::memcpy(&imu_payload, buffer.data() + sizeof(PiMessageHeader),
-                sizeof(imu_payload));
-
-    // Create ImuSample and push to queue
-    if (imu_queue_) {
-      // Use Jetson's clock at arrival time as the authoritative timestamp.
-      // sample.t_capture (Pi clock corrected for latency) is kept for data
-      // integrity but MUST NOT be used for recording — the Pi's wall clock
-      // may be unsynchronised from the Jetson's CLOCK_MONOTONIC_RAW.
-      const uint64_t jetson_arrival_ns = Clock::now_ns();
-
-      ImuSample sample;
-      sample.t_capture = jetson_arrival_ns;
-      sample.accel = {imu_payload.accel_x, imu_payload.accel_y,
-                      imu_payload.accel_z};
-      sample.gyro = {imu_payload.gyro_x, imu_payload.gyro_y,
-                     imu_payload.gyro_z};
-      sample.mag = {imu_payload.mag_x, imu_payload.mag_y, imu_payload.mag_z};
-      sample.quat = {imu_payload.quat_w, imu_payload.quat_x, imu_payload.quat_y,
-                     imu_payload.quat_z};
-      sample.temperature = imu_payload.temperature;
-      sample.calibration_status = imu_payload.calibration_status;
-
-      // Record with Jetson arrival time
-      if (auto *rec = recorder_.load(std::memory_order_acquire)) {
-        rec->recordIMU(sample);
+    if (header.payload_size == sizeof(ImuPitchPayload)) {
+      // ── NEW: Lightweight IMU Pitch message (user spec, Part 3) ────────
+      // THE CRITICAL CHECK (per user blueprint): both the declared payload
+      // size AND the received frame length must be sufficient.
+      if (static_cast<size_t>(len) < sizeof(PiMessageHeader) + sizeof(ImuPitchPayload)) {
+        std::cerr << "[IMU] Dropped pitch packet: frame too short ("
+                  << len << " bytes, expected "
+                  << sizeof(PiMessageHeader) + sizeof(ImuPitchPayload) << ")\n";
+        stats_.errors++;
+        errors_in_window++;
+        continue;
       }
 
-      imu_queue_->try_push(std::move(sample));
-      last_accel_z = imu_payload.accel_z;
+      // Safely map payload — no UB thanks to memcpy below
+      ImuPitchPayload pitch_payload;
+      std::memcpy(&pitch_payload,
+                  buffer.data() + sizeof(PiMessageHeader),
+                  sizeof(ImuPitchPayload));
+
+      // Basic sanity: pitch should be within ±π/2 (±90°)
+      if (!std::isfinite(pitch_payload.theta_radians) ||
+          std::abs(pitch_payload.theta_radians) > (float)M_PI_2) {
+        std::cerr << "[IMU] Dropped pitch packet: theta out of range ("
+                  << pitch_payload.theta_radians << " rad)\n";
+        stats_.errors++;
+        errors_in_window++;
+        continue;
+      }
+
+      // Atomically publish pitch for consumption by SensorFusion::fuse()
+      latest_pitch_rad_.store(pitch_payload.theta_radians,
+                               std::memory_order_relaxed);
+
+      if (g_verbose_mode.load()) {
+        std::cout << "[IMU] pitch update: θ=" << pitch_payload.theta_radians
+                  << " rad (" << pitch_payload.theta_radians * 180.f / (float)M_PI
+                  << "°)\n";
+      }
+
+    } else if (header.payload_size == sizeof(ImuPayload)) {
+      // ── EXISTING: Full 60-byte BNO085 IMU sample (unchanged path) ────
+      if (static_cast<size_t>(len) < sizeof(PiMessageHeader) + sizeof(ImuPayload)) {
+        stats_.errors++;
+        errors_in_window++;
+        continue;
+      }
+
+      if (stats_.imu_samples > 0 && header.sequence != last_imu_seq_ + 1) {
+        stats_.drops += header.sequence - last_imu_seq_ - 1;
+      }
+      last_imu_seq_ = header.sequence;
+
+      ImuPayload imu_payload;
+      std::memcpy(&imu_payload, buffer.data() + sizeof(PiMessageHeader),
+                  sizeof(imu_payload));
+
+      if (imu_queue_) {
+        const uint64_t jetson_arrival_ns = Clock::now_ns();
+
+        ImuSample sample;
+        sample.t_capture = jetson_arrival_ns;
+        sample.accel = {imu_payload.accel_x, imu_payload.accel_y,
+                        imu_payload.accel_z};
+        sample.gyro = {imu_payload.gyro_x, imu_payload.gyro_y,
+                       imu_payload.gyro_z};
+        sample.mag  = {imu_payload.mag_x, imu_payload.mag_y, imu_payload.mag_z};
+        sample.quat = {imu_payload.quat_w, imu_payload.quat_x,
+                       imu_payload.quat_y, imu_payload.quat_z};
+        sample.temperature        = imu_payload.temperature;
+        sample.calibration_status = imu_payload.calibration_status;
+
+        if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+          rec->recordIMU(sample);
+        }
+
+        imu_queue_->try_push(std::move(sample));
+        last_accel_z = imu_payload.accel_z;
+      }
+
+      stats_.imu_samples++;
+      samples_in_window++;
+
+    } else {
+      // Unknown payload size — drop and warn
+      std::cerr << "[IMU] Dropped packet: unexpected payload_size="
+                << header.payload_size << " (expected 4 or 60)\n";
+      stats_.errors++;
+      errors_in_window++;
     }
 
-    stats_.imu_samples++;
-    samples_in_window++;
-
-    // Debug output every 5 seconds (only if verbose mode enabled)
+    // Debug output every 5 seconds
     if (g_verbose_mode.load()) {
       auto now = std::chrono::steady_clock::now();
       auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                         now - last_debug_time)
-                         .count();
+                         now - last_debug_time).count();
       if (elapsed >= 5) {
         std::cout << "\n[IMU DEBUG] Last 5s: received=" << samples_in_window
                   << ", errors=" << errors_in_window
                   << ", total_samples=" << stats_.imu_samples
                   << ", total_errors=" << stats_.errors
-                  << ", last_accel_z=" << last_accel_z << "\n"
-                  << std::flush;
+                  << ", last_accel_z=" << last_accel_z << "\n" << std::flush;
         samples_in_window = 0;
         errors_in_window = 0;
         last_debug_time = now;

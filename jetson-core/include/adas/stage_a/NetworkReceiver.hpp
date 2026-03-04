@@ -85,6 +85,13 @@ class NetworkReceiver {
       recorder_.store(rec, std::memory_order_release);
     }
 
+    /// Get the most recent smoothed pitch angle received from Pi on port 5558.
+    /// Written by imuThread when a 4-byte ImuPitchPayload is received.
+    /// Returns 0.0f if no pitch message has arrived yet.
+    float getLatestPitch() const {
+        return latest_pitch_rad_.load(std::memory_order_relaxed);
+    }
+
     /// Static: Discover devices on Pi without starting full receiver
     /// @param pi_ip IP address of Pi4
     /// @param timeout_ms Timeout in milliseconds
@@ -150,6 +157,10 @@ class NetworkReceiver {
     // One-way network latency (RTT/2) in nanoseconds, measured at startup
     // and used to correct t_ingest_ns on ZMQ-received data
     std::atomic<uint64_t> one_way_latency_ns_{0};
+
+    // Smoothed pitch angle from Pi's ImuPitchPayload (4-byte message, port 5558).
+    // Written by imuThread; read by the fusion layer via getLatestPitch().
+    std::atomic<float> latest_pitch_rad_{0.0f};
 
     // Optional recorder for data capture
     // Atomic so it is safely visible across the camera/radar/IMU threads
