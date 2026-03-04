@@ -24,6 +24,7 @@
 #include "adas/stage_a/DeviceWizard.hpp"
 #include "adas/stage_a/IngestManager.hpp"
 #include "adas/stage_b/CameraPipeline.hpp"
+#include "adas/stage_b/FrontCamDeepStream.hpp" // DeepStream — FrontCam only
 #include "adas/stage_b/ObjectDetector.hpp" // For class name lookup
 #include "adas/stage_e/EgoFrame.hpp"
 #include "adas/stage_e/FCWMonitor.hpp"
@@ -47,7 +48,11 @@ std::thread g_visualizer_thread;
 std::atomic<bool> g_visualizer_running{false};
 
 // Detection output queues (Stage B -> Stage E)
-adas::SPSCQueue<adas::DetBatch, 8> g_det_front_queue;
+// NOTE: g_det_front_queue is now fed directly by the FrontCamDeepStream pad
+// probe (via IngestManager::getFrontCamDetQueue() backed by the same object).
+// The visualisation thread reads from this queue exactly as before — no
+// changes needed in Stage E. Side queues remain available for future BSD/LCW.
+adas::SPSCQueue<adas::DetBatch, 8> g_det_front_queue; // Fed by DeepStream probe
 adas::SPSCQueue<adas::DetBatch, 8> g_det_side_l_queue;
 adas::SPSCQueue<adas::DetBatch, 8> g_det_side_r_queue;
 adas::SPSCQueue<adas::DetBatch, 8> g_det_rear_queue;
@@ -591,36 +596,20 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
       std::make_unique<adas::StageBManager>(calib_dir, model_path);
 
   // Add camera pipelines for each mapped camera
-  auto &mappings = hw_map.mappings;
+  // FCW Vertical Slice: FrontCam detections now come from DeepStream.
+  // The FrontCamDeepStream pad probe (inside IngestManager) pushes DetBatch
+  // objects directly into g_ingest_manager->getFrontCamDetQueue(), which is
+  // the same queue as g_det_front_queue — the Stage E visualisation thread
+  // reads from g_det_front_queue as before.
+  //
+  // StageBManager is kept alive for future side-camera YOLO/TRT inference
+  // (BSD, LCW). It is intentionally left empty here.
+  // NOTE: No addCamera(FrontCam, ...) call — DeepStream owns that path.
 
-  // FCW Vertical Slice: Only FrontCam is needed for Forward Collision
-  // Warning. The FrontCam detections (DetBatch) will be fused with FrontRadar
-  // in Stage E.
-  if (mappings.find(adas::Mount::FrontCam) != mappings.end()) {
-    g_stage_b_manager->addCamera(
-        adas::Mount::FrontCam,
-        g_ingest_manager->getCameraQueue(adas::Mount::FrontCam),
-        g_det_front_queue);
-  }
-
-  // TODO: Wire remaining cameras when implementing other alerts:
-  // - SideCamL/R: Needed for Blind Spot Detection (BSD) and Lane Change
-  // Warning (LCW)
-  // - RearCam: Needed for Rear Cross Traffic Alert (RCTA) - comes via
-  // NetworkIngest These cameras do not contribute to FCW, so they're excluded
-  // from the vertical slice.
-  /*
-  if (mappings.find(adas::Mount::SideCamL) != mappings.end()) {
-      g_stage_b_manager->addCamera(adas::Mount::SideCamL,
-                                   g_ingest_manager->getCameraQueue(adas::Mount::SideCamL),
-                                   g_det_side_l_queue);
-  }
-  if (mappings.find(adas::Mount::SideCamR) != mappings.end()) {
-      g_stage_b_manager->addCamera(adas::Mount::SideCamR,
-                                   g_ingest_manager->getCameraQueue(adas::Mount::SideCamR),
-                                   g_det_side_r_queue);
-  }
-  */
+  // Side cameras can be added here in future (BSD/LCW):
+  // if (mappings.find(adas::Mount::SideCamL) != mappings.end()) {
+  //     g_stage_b_manager->addCamera(adas::Mount::SideCamL, ...);
+  // }
 
   g_stage_b_manager->start();
 

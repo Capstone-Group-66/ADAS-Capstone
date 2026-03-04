@@ -106,8 +106,9 @@ void IngestManager::stop() {
   if (cam_side_l_) {
     cam_side_l_->stop();
   }
-  if (cam_front_) {
-    cam_front_->stop();
+  // Front Camera DeepStream pipeline (owns GLib main loop + GStreamer state)
+  if (cam_front_ds_) {
+    cam_front_ds_->stop();
   }
 
   if (replay_engine_) {
@@ -118,16 +119,28 @@ void IngestManager::stop() {
 }
 
 void IngestManager::launchDirectCameras() {
-  std::cout << "[IngestManager] Launching direct USB cameras...\n";
+  std::cout << "[IngestManager] Launching cameras...\n";
 
-  // FrontCam
-  auto it = hw_map_.mappings.find(Mount::FrontCam);
-  if (it != hw_map_.mappings.end()) {
-    cam_front_ = std::make_unique<CameraIngest>(
-        Mount::FrontCam, it->second, cam_front_queue_, config_.cameras);
-    cam_front_->start();
+  // ── Front Camera: DeepStream pipeline ────────────────────────────────────
+  // The old CameraIngest (OpenCV V4L2) + TensorRT YOLO path has been removed.
+  // FrontCamDeepStream owns the full GStreamer pipeline:
+  //   v4l2src (YUYV 1280x720 @ 10 FPS) -> nvv4l2decoder -> nvstreammux
+  //   -> nvinfer (DashCamNet FP16) -> nvtracker -> nvdsosd [pad probe]
+  // The pad probe directly populates det_front_ds_queue_ with DetBatch objects.
+  auto front_it = hw_map_.mappings.find(Mount::FrontCam);
+  if (front_it != hw_map_.mappings.end()) {
+    DeepStreamConfig ds_cfg;
+    ds_cfg.device_path = front_it->second; // e.g. "/dev/video2"
+    cam_front_ds_ = std::make_unique<FrontCamDeepStream>(ds_cfg,
+                                                         det_front_ds_queue_);
+    if (!cam_front_ds_->start()) {
+      std::cerr << "[IngestManager] WARNING: FrontCam DeepStream pipeline "
+                   "failed to start (check GStreamer / DeepStream install)\n";
+      cam_front_ds_.reset();
+    }
   } else {
-    std::cerr << "[IngestManager] WARNING: FrontCam not in hardware_map\n";
+    std::cerr << "[IngestManager] WARNING: FrontCam not in hardware_map — "
+                 "DeepStream pipeline not started\n";
   }
 
   // SideCamL
@@ -219,14 +232,18 @@ void IngestManager::launchFrontRadar() {
 
 SPSCQueue<CameraFrameData, 8> &IngestManager::getCameraQueue(Mount mount) {
   switch (mount) {
-  case Mount::FrontCam:
-    return cam_front_queue_;
   case Mount::SideCamL:
     return cam_side_l_queue_;
   case Mount::SideCamR:
     return cam_side_r_queue_;
   case Mount::RearCam:
     return cam_rear_queue_;
+  case Mount::FrontCam:
+    // FrontCam no longer produces CameraFrameData — it outputs DetBatch via
+    // DeepStream. Callers should use getFrontCamDetQueue() instead.
+    throw std::logic_error(
+        "FrontCam no longer uses the CameraFrameData path. "
+        "Use IngestManager::getFrontCamDetQueue() for DeepStream DetBatch output.");
   default:
     throw std::out_of_range("Invalid camera mount");
   }
@@ -264,11 +281,11 @@ IngestManager::HealthStatus IngestManager::getHealth() const {
     return status;
   }
 
-  // Check cameras
-  if (cam_front_) {
-    bool h = cam_front_->isHealthy();
+  // Check front cam DeepStream pipeline
+  if (cam_front_ds_) {
+    bool h = cam_front_ds_->isHealthy();
     status.sensor_health[Mount::FrontCam] = h;
-    status.total_drops += cam_front_queue_.drops();
+    status.total_drops += det_front_ds_queue_.drops();
     if (!h) {
       status.all_healthy = false;
     }
@@ -369,9 +386,9 @@ void IngestManager::printStatus() const {
 }
 
 void IngestManager::setRecorder(Recorder *recorder) {
-  // Propagate to all active ingest instances
-  if (cam_front_)
-    cam_front_->setRecorder(recorder);
+  // Propagate to side cameras.
+  // Note: FrontCam (DeepStream) does not have a Recorder hook yet —
+  // the pad probe can be extended to call recorder->recordCamera() if needed.
   if (cam_side_l_)
     cam_side_l_->setRecorder(recorder);
   if (cam_side_r_)

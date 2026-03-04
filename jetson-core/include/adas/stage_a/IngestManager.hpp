@@ -5,10 +5,12 @@
 #include "adas/common/Config.hpp"
 #include "adas/common/Types.hpp"
 #include "adas/queues/SPSCQueue.hpp"
-#include "adas/stage_a/CameraIngest.hpp"
+#include "adas/stage_a/CameraIngest.hpp"         // Side cameras (OpenCV)
 #include "adas/stage_a/NetworkIngest.hpp"
 #include "adas/stage_a/RadarIngest.hpp"
 #include "adas/recording/ReplayEngine.hpp"
+// Front Camera: DeepStream replaces the old CameraIngest + TRT ObjectDetector
+#include "adas/stage_b/FrontCamDeepStream.hpp"
 
 #ifdef HAS_ZMQ
 #include "adas/stage_a/NetworkReceiver.hpp"
@@ -71,9 +73,14 @@ class IngestManager {
     //                        QUEUE ACCESS FOR DOWNSTREAM
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /// Get camera queue by mount
-    /// @throws std::out_of_range if mount is not a camera
+    /// Get camera queue by mount (Side cameras only — FrontCam uses DeepStream)
+    /// @throws std::out_of_range if mount is not a valid side/rear camera
     SPSCQueue<CameraFrameData, 8> &getCameraQueue(Mount mount);
+
+    /// Get the DeepStream DetBatch output queue for the Front Camera.
+    /// This is what Stage E should consume instead of the old ObjectDetector
+    /// output.  The queue is populated directly by the GStreamer pad probe.
+    SPSCQueue<DetBatch, 8> &getFrontCamDetQueue() { return det_front_ds_queue_; }
 
     /// Get radar queue by mount
     /// @throws std::out_of_range if mount is not a radar
@@ -112,8 +119,16 @@ class IngestManager {
     //                    QUEUES (Preallocated, owned by manager)
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // Camera queues (capacity 8 each per spec)
+    // Front Camera: DeepStream outputs DetBatch directly (no CameraFrameData hop)
+    // The queue is passed by reference into FrontCamDeepStream at construction.
+    SPSCQueue<DetBatch, 8>        det_front_ds_queue_;
+
+    // REPLAY ONLY: ReplayEngine re-injects recorded CameraFrameData for FrontCam
+    // from .adasrec files. In live mode this queue is never written to.
+    // Kept here so the Recorder/ReplayEngine interface doesn't need changes.
     SPSCQueue<CameraFrameData, 8> cam_front_queue_;
+
+    // Side / rear camera queues (OpenCV CameraIngest path — unchanged)
     SPSCQueue<CameraFrameData, 8> cam_side_l_queue_;
     SPSCQueue<CameraFrameData, 8> cam_side_r_queue_;
     SPSCQueue<CameraFrameData, 8> cam_rear_queue_;
@@ -130,8 +145,10 @@ class IngestManager {
     //                           INGEST INSTANCES
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // Direct USB cameras
-    std::unique_ptr<CameraIngest> cam_front_;
+    // Front Camera: DeepStream pipeline (owns GStreamer mainloop + pad probe)
+    std::unique_ptr<FrontCamDeepStream> cam_front_ds_;
+
+    // Side cameras: unchanged OpenCV CameraIngest
     std::unique_ptr<CameraIngest> cam_side_l_;
     std::unique_ptr<CameraIngest> cam_side_r_;
 
