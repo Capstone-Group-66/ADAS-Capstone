@@ -140,7 +140,8 @@ class FrontCamDeepStream {
 
 #ifdef __aarch64__
     GstElement*  pipeline_   = nullptr;
-    GstElement*  osd_        = nullptr;   ///< nvdsosd element (probe attachment point)
+    GstElement*  osd_        = nullptr;   ///< nvdsosd — pad probe attachment point
+    GstElement*  tracker_    = nullptr;   ///< nvtracker — IOU tracker element
     GMainLoop*   main_loop_  = nullptr;
 #endif
 };

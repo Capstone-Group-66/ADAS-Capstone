@@ -4,12 +4,12 @@
 // Pipeline topology (aarch64 / Jetson only):
 //
 //   v4l2src  →  capsfilter (YUYV 1280×720 @ 10 FPS)
-//            →  nvv4l2decoder          (NVDEC YUYV → NV12 in GPU memory)
-//            →  nvstreammux            (batch_size=1, required by nvinfer)
-//            →  nvinfer                (DashCamNet, FP16, interval=0)
-//            →  nvtracker              (IOU tracker — keeps obj_id stable)
-//            →  nvdsosd                (draws metadata; OSD sink ← pad probe)
-//            →  fakesink               (no display; pipeline is headless)
+//            →  nvv4l2decoder             (NVDEC YUYV → NV12 in GPU memory)
+//            →  nvstreammux               (batch_size=1, required by nvinfer)
+//            →  nvinfer  [g_object_set]   (DashCamNet FP16, interval=0)
+//            →  nvtracker [g_object_set]  (IOU tracker — persistent object IDs)
+//            →  nvdsosd                   (pad probe extracts NvDsObjectMeta)
+//            →  nvoverlaysink sync=false  (Jetson HDMI output / display)
 //
 // The pad probe on the nvdsosd sink pad:
 //   1. Iterates all NvDsBatchMeta → NvDsFrameMeta → NvDsObjectMeta entries.
@@ -90,101 +90,176 @@ void FrontCamDeepStream::stop() {
 }
 
 // ── Pipeline Construction ────────────────────────────────────────────────────
+// Elements are created individually so we can use g_object_set() to configure
+// nvinfer and nvtracker precisely — avoids escaping issues in parse_launch
+// string and makes each property explicit and auditable.
 
 bool FrontCamDeepStream::buildPipeline() {
-    GError* err = nullptr;
 
-    // ── Capsfilter string for YUYV 1280×720 @ 10 FPS ─────────────────────
-    // GStreamer uses "YUY2" as the FOURCC for YUYV / YUV 4:2:2 packed.
-    std::string caps_str =
-        "video/x-raw,format=" + config_.pixel_format +
-        ",width="  + std::to_string(config_.width) +
-        ",height=" + std::to_string(config_.height) +
-        ",framerate=" + std::to_string(config_.fps_num) +
-        "/"         + std::to_string(config_.fps_den);
+    // ── 1. Create all elements ────────────────────────────────────────────
+    pipeline_   = gst_pipeline_new("adas-front-cam");
+    GstElement* src        = gst_element_factory_make("v4l2src",        "src");
+    GstElement* caps_filt  = gst_element_factory_make("capsfilter",     "caps_filt");
+    GstElement* decoder    = gst_element_factory_make("nvv4l2decoder",  "decoder");
+    GstElement* mux        = gst_element_factory_make("nvstreammux",    "mux");
+    GstElement* infer      = gst_element_factory_make("nvinfer",        "infer");
+    tracker_               = gst_element_factory_make("nvtracker",      "tracker");
+    osd_                   = gst_element_factory_make("nvdsosd",        "osd");
+    GstElement* sink       = gst_element_factory_make("nvoverlaysink",  "sink");
 
-    // ── Build the pipeline using gst_parse_launch for clarity ────────────
-    // nvv4l2decoder: hardware-accelerated YUYV→NV12 conversion on NVDEC.
-    // nvstreammux : mandatory before nvinfer; batch_size=1, live-source=1.
-    // nvinfer     : reads model config from config_.config_file.
-    //               The config file encodes: model-uri, precision=FP16,
-    //               interval=0, cluster-mode=1 (hardware NMS).
-    // nvtracker   : IOU tracker; keeps object IDs stable across frames.
-    // nvdsosd     : renders OSD metadata; we attach our pad probe here.
-    // fakesink    : we don't need display; all data exits via probe.
-    std::string pipeline_desc =
-        "v4l2src device=" + config_.device_path + " ! "
-        "capsfilter caps=\"" + caps_str + "\" ! "
-        "nvv4l2decoder ! "
-        "nvstreammux name=mux batch-size=1 width=" + std::to_string(config_.width) +
-            " height=" + std::to_string(config_.height) +
-            " batched-push-timeout=4000000 live-source=1 ! "
-        "nvinfer config-file-path=" + config_.config_file + " ! "
-        "nvtracker tracker-width=640 tracker-height=384 "
-            "ll-lib-file=/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so ! "
-        "nvdsosd name=osd ! "
-        "fakesink sync=false";
-
-    pipeline_ = gst_parse_launch(pipeline_desc.c_str(), &err);
-    if (!pipeline_ || err) {
-        std::cerr << "[FrontCamDS] gst_parse_launch error: "
-                  << (err ? err->message : "unknown") << "\n";
-        if (err) g_error_free(err);
+    if (!pipeline_ || !src || !caps_filt || !decoder || !mux ||
+        !infer || !tracker_ || !osd_ || !sink) {
+        std::cerr << "[FrontCamDS] Failed to create one or more GStreamer elements.\n"
+                  << "  Ensure DeepStream 6.0 plugins are installed:\n"
+                  << "    sudo apt install deepstream-6.0\n";
+        // Clean up whatever was allocated
+        if (pipeline_)  gst_object_unref(pipeline_);
+        if (src)        gst_object_unref(src);
+        if (caps_filt)  gst_object_unref(caps_filt);
+        if (decoder)    gst_object_unref(decoder);
+        if (mux)        gst_object_unref(mux);
+        if (infer)      gst_object_unref(infer);
+        if (tracker_)   gst_object_unref(tracker_);
+        if (osd_)       gst_object_unref(osd_);
+        if (sink)       gst_object_unref(sink);
+        pipeline_ = nullptr; tracker_ = nullptr; osd_ = nullptr;
         return false;
     }
 
-    // ── Attach pad probe to nvdsosd sink pad ─────────────────────────────
-    osd_ = gst_bin_get_by_name(GST_BIN(pipeline_), "osd");
-    if (!osd_) {
-        std::cerr << "[FrontCamDS] Could not find 'osd' element in pipeline\n";
+    // ── 2. Configure v4l2src ──────────────────────────────────────────────
+    g_object_set(src, "device", config_.device_path.c_str(), nullptr);
+
+    // ── 3. Configure capsfilter (YUYV 1280×720 @ 10 FPS) ─────────────────
+    // GStreamer uses "YUY2" as the FOURCC for YUYV/YUV 4:2:2 packed.
+    GstCaps* caps = gst_caps_new_simple(
+        "video/x-raw",
+        "format",    G_TYPE_STRING,  config_.pixel_format.c_str(),
+        "width",     G_TYPE_INT,     config_.width,
+        "height",    G_TYPE_INT,     config_.height,
+        "framerate", GST_TYPE_FRACTION, config_.fps_num, config_.fps_den,
+        nullptr);
+    g_object_set(caps_filt, "caps", caps, nullptr);
+    gst_caps_unref(caps);
+
+    // ── 4. Configure nvstreammux ─────────────────────────────────────────
+    g_object_set(mux,
+        "batch-size",            1,
+        "width",                 config_.width,
+        "height",                config_.height,
+        "batched-push-timeout",  4000000,   // 4 ms timeout
+        "live-source",           TRUE,
+        nullptr);
+
+    // ── 5. Configure nvinfer (DashCamNet) via g_object_set ───────────────
+    // The config file supplies: model engine, FP16 precision (network-mode=2),
+    // interval=0 (every frame), cluster-mode=1 (hardware NMS), label file.
+    // We do NOT inline ONNX paths here — the text file is the single source
+    // of truth for the model.  You manage that file on the Jetson.
+    g_object_set(infer,
+        "config-file-path", config_.config_file.c_str(),
+        nullptr);
+
+    // ── 6. Configure nvtracker (low-overhead IOU tracker) ────────────────
+    // Using the NvMultiObjectTracker shared library in IOU mode.
+    // ll-config-file: user-supplied tracker config (created by user on Jetson).
+    // tracker-width/height: internal tracking resolution — 640×384 is a
+    // good balance for a Nano; lower = faster, but coarser ID matching.
+    g_object_set(tracker_,
+        "tracker-width",   640,
+        "tracker-height",  384,
+        "ll-lib-file",
+            "/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so",
+        "ll-config-file",
+            "/home/capstone-66/dashcamnet/tracker_config.txt",
+        nullptr);
+
+    // ── 7. Configure nvoverlaysink (Jetson HDMI display, non-blocking) ──
+    g_object_set(sink, "sync", FALSE, nullptr);
+
+    // ── 8. Add all elements to the pipeline ──────────────────────────────
+    gst_bin_add_many(GST_BIN(pipeline_),
+        src, caps_filt, decoder, mux, infer, tracker_, osd_, sink, nullptr);
+
+    // ── 9. Link elements in order ────────────────────────────────────────
+    // nvstreammux requires linking via a request sink pad.
+    if (!gst_element_link_many(src, caps_filt, decoder, nullptr) ||
+        !gst_element_link_many(infer, tracker_, osd_, sink, nullptr)) {
+        std::cerr << "[FrontCamDS] Element linking failed\n";
         gst_object_unref(pipeline_);
-        pipeline_ = nullptr;
+        pipeline_ = nullptr; tracker_ = nullptr; osd_ = nullptr;
         return false;
     }
 
+    // Link decoder → mux via request sink pad
+    GstPad* decoder_src_pad = gst_element_get_static_pad(decoder, "src");
+    GstPad* mux_sink_pad    = gst_element_get_request_pad(mux, "sink_0");
+    if (!decoder_src_pad || !mux_sink_pad ||
+        gst_pad_link(decoder_src_pad, mux_sink_pad) != GST_PAD_LINK_OK) {
+        std::cerr << "[FrontCamDS] Failed to link decoder → nvstreammux\n";
+        if (decoder_src_pad) gst_object_unref(decoder_src_pad);
+        if (mux_sink_pad)    gst_object_unref(mux_sink_pad);
+        gst_object_unref(pipeline_);
+        pipeline_ = nullptr; tracker_ = nullptr; osd_ = nullptr;
+        return false;
+    }
+    gst_object_unref(decoder_src_pad);
+    gst_object_unref(mux_sink_pad);
+
+    // Link mux → infer
+    if (!gst_element_link(mux, infer)) {
+        std::cerr << "[FrontCamDS] Failed to link nvstreammux → nvinfer\n";
+        gst_object_unref(pipeline_);
+        pipeline_ = nullptr; tracker_ = nullptr; osd_ = nullptr;
+        return false;
+    }
+
+    // ── 10. Attach pad probe to nvdsosd sink pad ──────────────────────────
+    // The probe fires on every buffer after nvtracker has stamped object_id,
+    // giving us stable IDs for the radar–camera fusion in Stage E.
     GstPad* osd_sink_pad = gst_element_get_static_pad(osd_, "sink");
     if (!osd_sink_pad) {
         std::cerr << "[FrontCamDS] Could not get osd sink pad\n";
-        gst_object_unref(osd_);
         gst_object_unref(pipeline_);
-        pipeline_ = nullptr;
-        osd_ = nullptr;
+        pipeline_ = nullptr; tracker_ = nullptr; osd_ = nullptr;
         return false;
     }
-
-    // Install BUFFER probe: fires on every buffer (every frame) reaching OSD.
     gst_pad_add_probe(osd_sink_pad,
                       GST_PAD_PROBE_TYPE_BUFFER,
                       &FrontCamDeepStream::osdSinkPadProbe,
-                      this,           // user_data → `this`
-                      nullptr);       // GDestroyNotify
+                      this,     // user_data → `this`
+                      nullptr); // GDestroyNotify
     gst_object_unref(osd_sink_pad);
 
-    // ── Create GLib main loop ─────────────────────────────────────────────
+    // ── 11. Create GLib main loop and set pipeline to PLAYING ────────────
     main_loop_ = g_main_loop_new(nullptr, FALSE);
 
-    // ── Set pipeline to PLAYING ───────────────────────────────────────────
     GstStateChangeReturn ret = gst_element_set_state(pipeline_, GST_STATE_PLAYING);
     if (ret == GST_STATE_CHANGE_FAILURE) {
         std::cerr << "[FrontCamDS] Failed to set pipeline to PLAYING\n";
         g_main_loop_unref(main_loop_);
         main_loop_ = nullptr;
-        gst_object_unref(osd_);
         gst_object_unref(pipeline_);
-        osd_ = nullptr;
-        pipeline_ = nullptr;
+        pipeline_ = nullptr; tracker_ = nullptr; osd_ = nullptr;
         return false;
     }
 
+    std::cout << "[FrontCamDS] Pipeline built:\n"
+              << "  src    : " << config_.device_path << "  (" << config_.pixel_format
+              << " " << config_.width << "x" << config_.height
+              << " @ " << config_.fps_num << " FPS)\n"
+              << "  model  : " << config_.config_file << "  (DashCamNet FP16)\n"
+              << "  tracker: IOU — /home/capstone-66/dashcamnet/tracker_config.txt\n"
+              << "  sink   : nvoverlaysink (sync=false)\n";
     return true;
 }
 
 void FrontCamDeepStream::teardownPipeline() {
     if (pipeline_) {
         gst_element_set_state(pipeline_, GST_STATE_NULL);
-        gst_object_unref(osd_);
+        // osd_ and tracker_ are owned by the pipeline bin; unref our handles.
+        if (osd_)     { gst_object_unref(osd_);     osd_     = nullptr; }
+        if (tracker_) { gst_object_unref(tracker_); tracker_ = nullptr; }
         gst_object_unref(pipeline_);
-        osd_     = nullptr;
         pipeline_ = nullptr;
     }
     if (main_loop_) {
@@ -311,11 +386,14 @@ FrontCamDeepStream::osdSinkPadProbe(GstPad*         /*pad*/,
             }
 
             // ── F) Convert to adas::Det and accumulate ────────────────
-            // Det constructor: (box_px, class_id, confidence_score)
+            // Det constructor: (box_px, class_id, confidence, object_id)
+            // object_id is the persistent tracker ID assigned by nvtracker.
+            // It is stable across frames so Stage E radar–camera fusion can
+            // match the same physical object without re-running Hungarian.
+            // Cast: NvDsObjectMeta::object_id is guint64 (== uint64_t).
             cv::Rect2f box(bb.left, bb.top, bb.width, bb.height);
-            batch.dets.emplace_back(box,
-                                    cls,
-                                    obj->confidence);
+            const uint64_t track_id = static_cast<uint64_t>(obj->object_id);
+            batch.dets.emplace_back(box, cls, obj->confidence, track_id);
         }
 
         // Publish DetBatch (drop if queue full — freshness over completeness)

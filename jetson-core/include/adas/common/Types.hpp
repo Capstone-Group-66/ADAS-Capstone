@@ -205,16 +205,28 @@ inline ObjectClass cocoToObjectClass(int coco_id) {
 /// Single detection from camera (Stage B output)
 /// Per Section 4.2.2 of proposal
 struct Det {
-    cv::Rect2f box_px;    // [x, y, w, h] in pixels (after preproc)
-    cv::Point2f centroid; // Center point in pixels (for fusion)
-    int cls;              // Class ID (ObjectClass enum value)
-    float score;          // Confidence score [0, 1]
+    cv::Rect2f  box_px;     // [x, y, w, h] in pixels (after preproc)
+    cv::Point2f centroid;   // Center point in pixels (for fusion)
+    int         cls;        // Class ID (ObjectClass enum value)
+    float       score;      // Confidence score [0, 1]
+    uint64_t    object_id;  // Persistent tracker ID from nvtracker (DeepStream).
+                            // UINT64_MAX = untracked (YOLO/non-DS path).
+                            // Used by Stage E radar–camera fusion to match
+                            // the same physical object across frames.
 
-    Det() : box_px(), centroid(), cls(static_cast<int>(ObjectClass::Unknown)), score(0.0f) {}
+    Det()
+        : box_px(), centroid(),
+          cls(static_cast<int>(ObjectClass::Unknown)),
+          score(0.0f),
+          object_id(UINT64_MAX) {}
 
-    Det(const cv::Rect2f &box, int class_id, float confidence)
-        : box_px(box), centroid(box.x + box.width / 2.0f, box.y + box.height / 2.0f), cls(class_id),
-          score(confidence) {}
+    Det(const cv::Rect2f& box, int class_id, float confidence,
+        uint64_t track_id = UINT64_MAX)
+        : box_px(box),
+          centroid(box.x + box.width / 2.0f, box.y + box.height / 2.0f),
+          cls(class_id),
+          score(confidence),
+          object_id(track_id) {}
 };
 
 /// Batch of detections from a single frame
