@@ -131,8 +131,8 @@ void IngestManager::launchDirectCameras() {
   if (front_it != hw_map_.mappings.end()) {
     DeepStreamConfig ds_cfg;
     ds_cfg.device_path = front_it->second; // e.g. "/dev/video2"
-    cam_front_ds_ = std::make_unique<FrontCamDeepStream>(ds_cfg,
-                                                         det_front_ds_queue_);
+    cam_front_ds_ =
+        std::make_unique<FrontCamDeepStream>(ds_cfg, det_front_ds_queue_);
     if (!cam_front_ds_->start()) {
       std::cerr << "[IngestManager] WARNING: FrontCam DeepStream pipeline "
                    "failed to start (check GStreamer / DeepStream install)\n";
@@ -241,9 +241,9 @@ SPSCQueue<CameraFrameData, 8> &IngestManager::getCameraQueue(Mount mount) {
   case Mount::FrontCam:
     // FrontCam no longer produces CameraFrameData — it outputs DetBatch via
     // DeepStream. Callers should use getFrontCamDetQueue() instead.
-    throw std::logic_error(
-        "FrontCam no longer uses the CameraFrameData path. "
-        "Use IngestManager::getFrontCamDetQueue() for DeepStream DetBatch output.");
+    throw std::logic_error("FrontCam no longer uses the CameraFrameData path. "
+                           "Use IngestManager::getFrontCamDetQueue() for "
+                           "DeepStream DetBatch output.");
   default:
     throw std::out_of_range("Invalid camera mount");
   }

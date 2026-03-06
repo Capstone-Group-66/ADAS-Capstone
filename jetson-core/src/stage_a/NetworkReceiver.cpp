@@ -304,10 +304,10 @@ void NetworkReceiver::radarLThread() {
       if (presence > 0) {
         // Pi confirmed presence — push a dummy 1m target to signal BSD active
         RadarTarget target;
-        target.range_m     = 1.0f; // Pi radar is a presence sensor; no real range
+        target.range_m = 1.0f; // Pi radar is a presence sensor; no real range
         target.azimuth_rad = 0.0f;
         target.radial_vel_mps = 0.0f;
-        target.rcs_db  = 0.0f;
+        target.rcs_db = 0.0f;
         target.sigma_r = 0.1f;
         target.sigma_az = 0.5f;
         target.sigma_v = 1.0f;
@@ -377,10 +377,10 @@ void NetworkReceiver::radarRThread() {
 
       if (presence > 0) {
         RadarTarget target;
-        target.range_m     = 1.0f;
+        target.range_m = 1.0f;
         target.azimuth_rad = 0.0f;
         target.radial_vel_mps = 0.0f;
-        target.rcs_db  = 0.0f;
+        target.rcs_db = 0.0f;
         target.sigma_r = 0.1f;
         target.sigma_az = 0.5f;
         target.sigma_v = 1.0f;
@@ -415,13 +415,15 @@ void NetworkReceiver::imuThread() {
       if (g_verbose_mode.load()) {
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                           now - last_debug_time).count();
+                           now - last_debug_time)
+                           .count();
         if (elapsed >= 5) {
           std::cout << "\n[IMU DEBUG] Last 5s: received=" << samples_in_window
                     << ", errors=" << errors_in_window
                     << ", total_samples=" << stats_.imu_samples
                     << ", total_errors=" << stats_.errors
-                    << ", last_accel_z=" << last_accel_z << "\n" << std::flush;
+                    << ", last_accel_z=" << last_accel_z << "\n"
+                    << std::flush;
           samples_in_window = 0;
           errors_in_window = 0;
           last_debug_time = now;
@@ -457,9 +459,10 @@ void NetworkReceiver::imuThread() {
       // ── NEW: Lightweight IMU Pitch message (user spec, Part 3) ────────
       // THE CRITICAL CHECK (per user blueprint): both the declared payload
       // size AND the received frame length must be sufficient.
-      if (static_cast<size_t>(len) < sizeof(PiMessageHeader) + sizeof(ImuPitchPayload)) {
-        std::cerr << "[IMU] Dropped pitch packet: frame too short ("
-                  << len << " bytes, expected "
+      if (static_cast<size_t>(len) <
+          sizeof(PiMessageHeader) + sizeof(ImuPitchPayload)) {
+        std::cerr << "[IMU] Dropped pitch packet: frame too short (" << len
+                  << " bytes, expected "
                   << sizeof(PiMessageHeader) + sizeof(ImuPitchPayload) << ")\n";
         stats_.errors++;
         errors_in_window++;
@@ -468,8 +471,7 @@ void NetworkReceiver::imuThread() {
 
       // Safely map payload — no UB thanks to memcpy below
       ImuPitchPayload pitch_payload;
-      std::memcpy(&pitch_payload,
-                  buffer.data() + sizeof(PiMessageHeader),
+      std::memcpy(&pitch_payload, buffer.data() + sizeof(PiMessageHeader),
                   sizeof(ImuPitchPayload));
 
       // Basic sanity: pitch should be within ±π/2 (±90°)
@@ -484,17 +486,19 @@ void NetworkReceiver::imuThread() {
 
       // Atomically publish pitch for consumption by SensorFusion::fuse()
       latest_pitch_rad_.store(pitch_payload.theta_radians,
-                               std::memory_order_relaxed);
+                              std::memory_order_relaxed);
 
       if (g_verbose_mode.load()) {
         std::cout << "[IMU] pitch update: θ=" << pitch_payload.theta_radians
-                  << " rad (" << pitch_payload.theta_radians * 180.f / (float)M_PI
+                  << " rad ("
+                  << pitch_payload.theta_radians * 180.f / (float)M_PI
                   << "°)\n";
       }
 
     } else if (header.payload_size == sizeof(ImuPayload)) {
       // ── EXISTING: Full 60-byte BNO085 IMU sample (unchanged path) ────
-      if (static_cast<size_t>(len) < sizeof(PiMessageHeader) + sizeof(ImuPayload)) {
+      if (static_cast<size_t>(len) <
+          sizeof(PiMessageHeader) + sizeof(ImuPayload)) {
         stats_.errors++;
         errors_in_window++;
         continue;
@@ -518,10 +522,10 @@ void NetworkReceiver::imuThread() {
                         imu_payload.accel_z};
         sample.gyro = {imu_payload.gyro_x, imu_payload.gyro_y,
                        imu_payload.gyro_z};
-        sample.mag  = {imu_payload.mag_x, imu_payload.mag_y, imu_payload.mag_z};
+        sample.mag = {imu_payload.mag_x, imu_payload.mag_y, imu_payload.mag_z};
         sample.quat = {imu_payload.quat_w, imu_payload.quat_x,
                        imu_payload.quat_y, imu_payload.quat_z};
-        sample.temperature        = imu_payload.temperature;
+        sample.temperature = imu_payload.temperature;
         sample.calibration_status = imu_payload.calibration_status;
 
         if (auto *rec = recorder_.load(std::memory_order_acquire)) {
@@ -547,13 +551,15 @@ void NetworkReceiver::imuThread() {
     if (g_verbose_mode.load()) {
       auto now = std::chrono::steady_clock::now();
       auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                         now - last_debug_time).count();
+                         now - last_debug_time)
+                         .count();
       if (elapsed >= 5) {
         std::cout << "\n[IMU DEBUG] Last 5s: received=" << samples_in_window
                   << ", errors=" << errors_in_window
                   << ", total_samples=" << stats_.imu_samples
                   << ", total_errors=" << stats_.errors
-                  << ", last_accel_z=" << last_accel_z << "\n" << std::flush;
+                  << ", last_accel_z=" << last_accel_z << "\n"
+                  << std::flush;
         samples_in_window = 0;
         errors_in_window = 0;
         last_debug_time = now;
