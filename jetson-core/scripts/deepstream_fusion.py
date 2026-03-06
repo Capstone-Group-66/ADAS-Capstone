@@ -2,19 +2,28 @@
 """
 deepstream_fusion.py — ADAS Jetson Fusion Engine
 =================================================
-Standalone pipeline for the Jetson Nano that:
-  1. Runs a GStreamer/DeepStream pipeline (DashCamNet + nvtracker) via pyds
-  2. Subscribes to Pi ZMQ PUSH sockets for IMU, BSD-L, BSD-R sensor data
-  3. Reads the front OPS243-C radar over serial for Z_rad / V_rad
-  4. Performs 1D-2D ground-plane sensor fusion (FCW gating logic)
-  5. Displays a live OpenCV UI with bounding boxes, fusion state, BSD indicators,
-     and pitch/roll readout
+Architecture (strictly pyds / GStreamer — no custom TRT inference loop):
+
+  v4l2src → nvv4l2decoder → nvstreammux
+    → nvinfer (config-file-path = config_infer.txt)
+    → nvtracker
+    → nvdsosd   ◄──── buffer probe attached here (osd_sink_pad_buffer_probe)
+    → nveglglessink (DeepStream owns all rendering)
+
+The probe extracts NvDsObjectMeta bounding boxes, runs 1D-2D sensor fusion,
+and injects display-meta lines back into the OSD so DeepStream renders the
+fusion annotations (V_rad, TTC, BSD circles, pitch/roll) natively.
+
+External inputs via ZMQ (Pi) and serial (OPS243-C front radar).
 
 Usage:
-  python3 deepstream_fusion.py --pi-ip 192.168.1.100 --device /dev/video0 \
+  python3 deepstream_fusion.py \
+      --pi-ip 192.168.55.2 \
+      --device /dev/video0 \
       --config ~/dashcamnet/config_infer.txt \
       --tracker ~/dashcamnet/tracker_config.txt \
-      --radar-port /dev/ttyACM0
+      [--radar-port /dev/ttyACM0] \
+      [--no-display]   # fakesink instead of egl
 """
 
 import argparse
@@ -26,358 +35,269 @@ import struct
 import sys
 import threading
 import time
-from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
-import cv2
-import numpy as np
+import gi
+gi.require_version("Gst", "1.0")
+from gi.repository import Gst, GLib
+import pyds
+
 import zmq
 
-# ── GStreamer / pyds (aarch64 Jetson only) ────────────────────────────────────
-try:
-    import gi
-    gi.require_version("Gst", "1.0")
-    from gi.repository import Gst, GLib
-    import pyds
-    HAS_DEEPSTREAM = True
-except ImportError:
-    HAS_DEEPSTREAM = False
-    print("[WARN] pyds / GStreamer not available — camera inference stubbed")
-
 # ─────────────────────────────────────────────────────────────────────────────
-#  Pi Protocol  (matches PiProtocol.hpp)
+#  Pi Protocol  (matches PiProtocol.hpp exactly)
 # ─────────────────────────────────────────────────────────────────────────────
-PI_MAGIC = 0x50493034
-PI_VERSION = 0x0100
-
-# Header: magic(4) version(2) msg_type(2) payload_size(4) pad(4) ts_ns(8) seq(4) res(4) = 32B
-HEADER_FMT  = "<IHHIIQII"
+PI_MAGIC    = 0x50493034
+PI_VERSION  = 0x0100
+HEADER_FMT  = "<IHHIIQII"   # 32 bytes: magic ver type size pad ts_ns seq res
 HEADER_SIZE = struct.calcsize(HEADER_FMT)
-assert HEADER_SIZE == 32, f"Header must be 32 bytes, got {HEADER_SIZE}"
+assert HEADER_SIZE == 32
 
 MSG_REAR_RADAR_L = 0x0002
 MSG_REAR_RADAR_R = 0x0003
 MSG_IMU          = 0x0004
 
-IMU_PAYLOAD  = struct.Struct("<ff")   # pitch_rad, roll_rad
-BSD_PAYLOAD  = struct.Struct("<B")    # presence (0/1)
+BSD_PAYLOAD = struct.Struct("<B")    # presence (0/1)
+IMU_PAYLOAD = struct.Struct("<ff")   # pitch_rad, roll_rad
 
-def parse_header(data: bytes):
-    """Returns (magic, version, msg_type, payload_size, ts_ns, seq) or None."""
+def _parse_header(data: bytes):
+    """Returns (msg_type, payload_size) or None on invalid magic/version."""
     if len(data) < HEADER_SIZE:
         return None
-    magic, ver, msg_type, payload_size, _pad, ts_ns, seq, _res = \
-        struct.unpack_from(HEADER_FMT, data, 0)
+    magic, ver, msg_type, payload_size, _pad, _ts, _seq, _res = \
+        struct.unpack_from(HEADER_FMT, data)
     if magic != PI_MAGIC or ver != PI_VERSION:
         return None
-    return msg_type, payload_size, ts_ns, seq
+    return msg_type, payload_size
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Camera & Fusion constants  (calibrate per physical setup)
+#  Camera calibration & fusion constants
 # ─────────────────────────────────────────────────────────────────────────────
-FRAME_W     = 1280
-FRAME_H     = 720
-F_Y         = 829.0    # Vertical focal length  [px]  (from calibration)
-C_X         = 640.0    # Principal point x      [px]
-C_Y         = 360.0    # Principal point y      [px]
-H_CAM_M     = 0.90     # Camera height above ground [m]
+FRAME_W   = 1280
+FRAME_H   = 720
+F_Y       = 829.0   # vertical focal length [px]  — adjust to your calibration
+C_Y       = 360.0   # principal point y    [px]
+H_CAM_M   = 0.90    # camera height above road surface [m]
 
-# Fusion gating thresholds
-DIST_GATE_M  = 5.0     # |Z_cam - Z_rad| tolerance  [m]
-VEL_GATE_MPS = 3.0     # |V_cam - V_rad| tolerance  [m/s]
-Z_MIN_M      = 1.0     # minimum believable camera range
-Z_MAX_M      = 50.0    # maximum believable camera range
+# Gating thresholds
+DIST_GATE_M  = 5.0   # |Z_cam - Z_rad| [m]
+VEL_GATE_MPS = 3.0   # |V_cam - V_rad| [m/s]
+Z_MIN_M      = 1.5
+Z_MAX_M      = 60.0
 
-# Radar FOV → pixel ROI (30° FOV at 1280×720)
+# Radar FOV → pixel ROI  (30° FOV, 1280×720)
 ROI_X_MIN, ROI_X_MAX = 384, 895
 ROI_Y_MIN, ROI_Y_MAX = 216, 503
 
-# DashCamNet class map
-CLASS_NAMES  = {0: "Car", 1: "Bicycle", 2: "Person", 3: "RoadSign"}
-CLASS_COLORS = {0: (0,255,0), 1: (255,165,0), 2: (0,200,255), 3: (128,0,128)}
+# DashCamNet class IDs
+CLASS_NAMES = {0: "Car", 1: "Bicycle", 2: "Person", 3: "RoadSign"}
+# Class 3 (RoadSign) is dropped in the probe
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Shared state (written by background threads, read by probe + UI thread)
+#  Thread-safe shared state
 # ─────────────────────────────────────────────────────────────────────────────
-@dataclass
-class Detection:
-    box:   Tuple[float,float,float,float]  # x,y,w,h [px]
-    cls:   int
-    conf:  float
-    obj_id: int
-
-@dataclass
-class FusedObject:
-    det:     Detection
-    z_cam:   Optional[float]
-    v_cam:   Optional[float]
-    in_roi:  bool
-    fused:   bool
-    z_rad:   Optional[float] = None
-    v_rad:   Optional[float] = None
-    ttc_s:   Optional[float] = None
-
 class AdasState:
-    """Thread-safe container for all sensor values and latest frame."""
     def __init__(self):
-        self._lock   = threading.Lock()
-        self.pitch   = 0.0
-        self.roll    = 0.0
-        self.bsd_l   = False
-        self.bsd_r   = False
-        self.radar_z: Optional[float] = None
-        self.radar_v: Optional[float] = None
-        # Set by probe; consumed by UI
-        self._frame:    Optional[np.ndarray] = None
-        self._dets:     List[Detection]      = []
-        self._fused:    List[FusedObject]    = []
-        self._frame_id: int = 0
+        self._lock  = threading.Lock()
+        self.pitch  = 0.0   # radians, from Pi ZMQ
+        self.roll   = 0.0   # radians, from Pi ZMQ
+        self.bsd_l  = False
+        self.bsd_r  = False
+        self.radar_z: Optional[float] = None  # range [m]
+        self.radar_v: Optional[float] = None  # speed [m/s], positive=approaching
 
-    # ── Writers ──────────────────────────────────────────────────────────────
-    def set_imu(self, pitch: float, roll: float):
-        with self._lock:
-            self.pitch = pitch
-            self.roll  = roll
+    def set_imu(self, pitch, roll):
+        with self._lock: self.pitch = pitch; self.roll = roll
 
-    def set_bsd(self, side: str, presence: int):
+    def set_bsd(self, side, presence):
         with self._lock:
-            if side == "L":
-                self.bsd_l = bool(presence)
-            else:
-                self.bsd_r = bool(presence)
+            if side == "L": self.bsd_l = bool(presence)
+            else:            self.bsd_r = bool(presence)
 
-    def set_radar(self, z: Optional[float], v: Optional[float]):
-        with self._lock:
-            self.radar_z = z
-            self.radar_v = v
+    def set_radar(self, z, v):
+        with self._lock: self.radar_z = z; self.radar_v = v
 
-    def put_results(self, frame: Optional[np.ndarray],
-                    dets: List[Detection], fused: List[FusedObject]):
+    def snapshot(self):
+        """Return a consistent copy of all sensor values."""
         with self._lock:
-            self._frame   = frame
-            self._dets    = dets
-            self._fused   = fused
-            self._frame_id += 1
-
-    # ── Readers ──────────────────────────────────────────────────────────────
-    def get_imu(self) -> Tuple[float, float]:
-        with self._lock:
-            return self.pitch, self.roll
-
-    def get_radar(self) -> Tuple[Optional[float], Optional[float]]:
-        with self._lock:
-            return self.radar_z, self.radar_v
-
-    def get_bsd(self) -> Tuple[bool, bool]:
-        with self._lock:
-            return self.bsd_l, self.bsd_r
-
-    def get_results(self) -> Tuple[Optional[np.ndarray], List[Detection],
-                                   List[FusedObject], int]:
-        with self._lock:
-            return self._frame, self._dets, self._fused, self._frame_id
+            return (self.pitch, self.roll, self.bsd_l, self.bsd_r,
+                    self.radar_z, self.radar_v)
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  1D-2D Sensor Fusion
+#  1D-2D sensor fusion (ground-plane model)
 # ─────────────────────────────────────────────────────────────────────────────
 class GroundPlaneFusion:
-    """Ground-plane 1D-2D fusion matching camera tracks to OPS243-C radar."""
-
     def __init__(self):
-        # object_id → deque of (z_cam_m, t_ns)
-        self._history: Dict[int, collections.deque] = {}
+        self._hist: Dict[int, collections.deque] = {}
 
-    def _estimate_z(self, v_px: float, pitch_rad: float) -> Optional[float]:
-        """Bottom-centre pixel row → longitudinal range [m]."""
-        alpha = math.atan2(v_px - C_Y, F_Y)
+    def estimate_z(self, v_bottom_px: float, pitch_rad: float) -> Optional[float]:
+        """Convert bottom-edge pixel row to longitudinal range [m]."""
+        alpha = math.atan2(v_bottom_px - C_Y, F_Y)
         angle = pitch_rad + alpha
         if angle <= 1e-4:
             return None
         z = H_CAM_M / math.tan(angle)
         return z if Z_MIN_M <= z <= Z_MAX_M else None
 
-    def _estimate_v(self, obj_id: int, z_now: float, t_ns: int) -> Optional[float]:
-        """Temporal velocity estimate [m/s]; negative = approaching."""
-        hist = self._history.setdefault(obj_id, collections.deque(maxlen=8))
-        hist.append((z_now, t_ns))
-        if len(hist) < 2:
+    def estimate_v(self, obj_id: int, z: float, t_ns: int) -> Optional[float]:
+        """Temporal velocity [m/s]; negative = approaching."""
+        buf = self._hist.setdefault(obj_id, collections.deque(maxlen=8))
+        buf.append((z, t_ns))
+        if len(buf) < 2:
             return None
-        dz = hist[-1][0] - hist[0][0]
-        dt = (hist[-1][1] - hist[0][1]) * 1e-9
-        return (dz / dt) if dt > 0.001 else None
+        dz = buf[-1][0] - buf[0][0]
+        dt = (buf[-1][1] - buf[0][1]) * 1e-9
+        return dz / dt if dt > 0.001 else None
 
     def prune(self, active_ids):
-        for k in list(self._history):
+        for k in list(self._hist):
             if k not in active_ids:
-                del self._history[k]
+                del self._hist[k]
 
-    def fuse(self, dets: List[Detection],
-             radar_z: Optional[float], radar_v: Optional[float],
-             pitch_rad: float) -> List[FusedObject]:
-        results: List[FusedObject] = []
-        active_ids = {d.obj_id for d in dets}
+    def fuse(self, dets, radar_z, radar_v, pitch_rad):
+        """
+        dets: list of dicts with keys box(x,y,w,h), cls, conf, obj_id
+        Returns list of result dicts with fusion fields added.
+        """
+        results = []
+        active_ids = set()
         t_ns = time.time_ns()
 
-        for det in dets:
-            x, y, w, h = det.box
-            u = x + w * 0.5    # horizontal centre
-            v = y + h          # bottom edge → road contact point
+        for d in dets:
+            x, y, w, h = d["box"]
+            u = x + w * 0.5   # horizontal centre
+            v = y + h         # bottom edge — road contact point
+            oid = d["obj_id"]
+            active_ids.add(oid)
 
-            # Phase 2: camera distance
-            z_cam = self._estimate_z(v, pitch_rad)
+            z_cam = self.estimate_z(v, pitch_rad)
+            v_cam = self.estimate_v(oid, z_cam if z_cam else 0.0, t_ns)
 
-            # Phase 3: camera velocity
-            v_cam: Optional[float] = None
-            if z_cam is not None:
-                v_cam = self._estimate_v(det.obj_id, z_cam, t_ns)
-            else:
-                self._estimate_v(det.obj_id, 0.0, t_ns)  # keep history ticking
+            in_roi = ROI_X_MIN <= u <= ROI_X_MAX and ROI_Y_MIN <= v <= ROI_Y_MAX
 
-            # Gate 1: spatial ROI
-            in_roi = (ROI_X_MIN <= u <= ROI_X_MAX and
-                      ROI_Y_MIN <= v <= ROI_Y_MAX)
+            r = dict(d)
+            r.update(z_cam=z_cam, v_cam=v_cam, in_roi=in_roi,
+                     fused=False, z_rad=None, v_rad=None, ttc=None)
 
-            obj = FusedObject(det=det, z_cam=z_cam, v_cam=v_cam,
-                              in_roi=in_roi, fused=False)
-
-            # Phases 4+5: radar association
             if (radar_z is not None and radar_v is not None
                     and in_roi and z_cam is not None):
-                # Gate 2: distance
                 if abs(z_cam - radar_z) <= DIST_GATE_M:
-                    # Gate 3: velocity (skip if v_cam not yet stable)
-                    v_rad_norm = -radar_v  # OPS243-C: positive=approaching
+                    # OPS243-C: positive velocity = approaching
                     vel_ok = (v_cam is None or
-                              abs(v_cam - v_rad_norm) <= VEL_GATE_MPS)
+                              abs(v_cam - (-radar_v)) <= VEL_GATE_MPS)
                     if vel_ok:
-                        ttc = (radar_z / radar_v
-                               if radar_v > 0.1 else float("inf"))
-                        obj.fused   = True
-                        obj.z_rad   = radar_z
-                        obj.v_rad   = radar_v
-                        obj.ttc_s   = ttc
+                        ttc = (radar_z / radar_v) if radar_v > 0.1 else float("inf")
+                        r.update(fused=True, z_rad=radar_z,
+                                 v_rad=radar_v, ttc=ttc)
 
-            results.append(obj)
+            results.append(r)
 
         self.prune(active_ids)
         return results
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  ZMQ subscriber threads
+#  ZMQ subscriber threads  (connect to Pi's PUSH sockets)
 # ─────────────────────────────────────────────────────────────────────────────
-def zmq_imu_thread(state: AdasState, pi_ip: str, stop: threading.Event):
-    ctx = zmq.Context.instance()
+def _zmq_imu_thread(state: AdasState, pi_ip: str, stop: threading.Event):
+    ctx  = zmq.Context.instance()
     sock = ctx.socket(zmq.PULL)
     sock.setsockopt(zmq.RCVTIMEO, 500)
     sock.connect(f"tcp://{pi_ip}:5558")
-    print(f"[IMU] Connected to tcp://{pi_ip}:5558")
+    print(f"[IMU ] Connected tcp://{pi_ip}:5558")
     while not stop.is_set():
         try:
             data = sock.recv()
         except zmq.Again:
             continue
-        hdr = parse_header(data)
-        if hdr is None or hdr[0] != MSG_IMU:
-            continue
-        payload = data[HEADER_SIZE:]
-        if len(payload) >= IMU_PAYLOAD.size:
-            pitch, roll = IMU_PAYLOAD.unpack_from(payload)
-            state.set_imu(pitch, roll)
+        hdr = _parse_header(data)
+        if hdr and hdr[0] == MSG_IMU:
+            payload = data[HEADER_SIZE:]
+            if len(payload) >= IMU_PAYLOAD.size:
+                pitch, roll = IMU_PAYLOAD.unpack_from(payload)
+                state.set_imu(pitch, roll)
     sock.close()
 
-def zmq_bsd_thread(state: AdasState, pi_ip: str, port: int,
-                   side: str, msg_type: int, stop: threading.Event):
-    ctx = zmq.Context.instance()
+
+def _zmq_bsd_thread(state, pi_ip, port, side, msg_type, stop):
+    ctx  = zmq.Context.instance()
     sock = ctx.socket(zmq.PULL)
     sock.setsockopt(zmq.RCVTIMEO, 500)
     sock.connect(f"tcp://{pi_ip}:{port}")
-    print(f"[BSD-{side}] Connected to tcp://{pi_ip}:{port}")
+    print(f"[BSD-{side}] Connected tcp://{pi_ip}:{port}")
     while not stop.is_set():
         try:
             data = sock.recv()
         except zmq.Again:
             continue
-        hdr = parse_header(data)
-        if hdr is None or hdr[0] != msg_type:
-            continue
-        payload = data[HEADER_SIZE:]
-        if len(payload) >= BSD_PAYLOAD.size:
-            (presence,) = BSD_PAYLOAD.unpack_from(payload)
-            state.set_bsd(side, presence)
+        hdr = _parse_header(data)
+        if hdr and hdr[0] == msg_type:
+            payload = data[HEADER_SIZE:]
+            if len(payload) >= BSD_PAYLOAD.size:
+                (presence,) = BSD_PAYLOAD.unpack_from(payload)
+                state.set_bsd(side, presence)
     sock.close()
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  Front radar serial thread  (OPS243-C)
+#  Front radar serial thread  (OPS243-C on Jetson)
 # ─────────────────────────────────────────────────────────────────────────────
-def radar_serial_thread(state: AdasState, port: str, baud: int,
-                        stop: threading.Event):
-    """
-    Reads OPS243-C serial output.
-    Typical lines: '{Sv: -3.45}' (speed m/s) and '{Rn: 4.56}' (range m).
-    Positive Sv = approaching per OPS243-C convention.
-    """
+def _radar_serial_thread(state: AdasState, port: str, baud: int,
+                         stop: threading.Event):
     try:
         import serial
     except ImportError:
-        print("[Radar] pyserial not installed — front radar disabled")
+        print("[Radar] pyserial missing — front radar disabled")
         return
-
     try:
         ser = serial.Serial(port, baud, timeout=0.1)
     except Exception as e:
-        print(f"[Radar] Failed to open {port}: {e}")
+        print(f"[Radar] Cannot open {port}: {e}")
         return
-
     print(f"[Radar] OPS243-C on {port} @ {baud} baud")
-    z_buf: Optional[float] = None
-    v_buf: Optional[float] = None
-
+    z_buf = v_buf = None
     while not stop.is_set():
-        raw = ser.readline().decode("ascii", errors="ignore").strip()
-        if not raw:
+        line = ser.readline().decode("ascii", errors="ignore").strip()
+        if not line:
             continue
-        # Parse range: e.g. "{Rn: 4.56}" or "Rn: 4.56"
-        if "Rn" in raw or "R:" in raw:
-            try:
-                z_buf = float(raw.split(":")[-1].strip().strip("}"))
-            except ValueError:
-                pass
-        # Parse velocity: e.g. "{Sv: -3.45}" or "Sv: -3.45"
-        if "Sv" in raw or "V:" in raw:
-            try:
-                v_buf = float(raw.split(":")[-1].strip().strip("}"))
-            except ValueError:
-                pass
-        # Publish when we have both
+        try:
+            if "Rn" in line or "R:" in line:
+                z_buf = float(line.split(":")[-1].strip().strip("}"))
+            if "Sv" in line or "V:" in line:
+                v_buf = float(line.split(":")[-1].strip().strip("}"))
+        except ValueError:
+            pass
         if z_buf is not None and v_buf is not None:
             state.set_radar(z_buf, v_buf)
-            z_buf = None
-            v_buf = None
-
+            z_buf = v_buf = None
     ser.close()
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  DeepStream pipeline
+#  The Buffer Probe  —  THE heart of the integration
 # ─────────────────────────────────────────────────────────────────────────────
-_fusion_engine = GroundPlaneFusion()
-_global_state: Optional[AdasState] = None
+_fusion = GroundPlaneFusion()
 
 def osd_sink_pad_buffer_probe(pad, info, u_data):
     """
-    GStreamer pad probe on nvdsosd sink pad.
-    Extracts NvDsObjectMeta bounding boxes, runs fusion, stores results.
+    Attached to the SINK pad of nvdsosd.
+    Runs every frame BEFORE OSD renders — we can both read object meta AND
+    inject display meta (text/lines) that OSD will then draw on screen.
+
+    u_data is the AdasState instance.
     """
     state: AdasState = u_data
-    gst_buf = info.get_buffer()
-    if not gst_buf:
+    gst_buffer = info.get_buffer()
+    if not gst_buffer:
         return Gst.PadProbeReturn.OK
 
-    batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buf))
+    # ── Step 1: get the DeepStream batch metadata from the GstBuffer ──────────
+    batch_meta = pyds.gst_buffer_get_nvds_batch_meta(hash(gst_buffer))
     if not batch_meta:
         return Gst.PadProbeReturn.OK
 
-    dets: List[Detection] = []
+    # ── Step 2: read latest sensor snapshot (lock-free round-trip) ───────────
+    pitch, roll, bsd_l, bsd_r, radar_z, radar_v = state.snapshot()
 
+    # ── Step 3: iterate frame → object meta, collect detections ──────────────
+    dets = []
     l_frame = batch_meta.frame_meta_list
     while l_frame is not None:
         try:
@@ -388,349 +308,343 @@ def osd_sink_pad_buffer_probe(pad, info, u_data):
         l_obj = frame_meta.obj_meta_list
         while l_obj is not None:
             try:
-                obj = pyds.NvDsObjectMeta.cast(l_obj.data)
+                obj_meta = pyds.NvDsObjectMeta.cast(l_obj.data)
             except StopIteration:
                 break
 
-            cls = int(obj.class_id)
-            if 0 <= cls <= 2:  # Car, Bicycle, Person — skip RoadSign (3)
-                r = obj.rect_params
-                dets.append(Detection(
-                    box=(r.left, r.top, r.width, r.height),
-                    cls=cls,
-                    conf=float(obj.confidence),
-                    obj_id=int(obj.object_id),
-                ))
+            cls = int(obj_meta.class_id)
+            if 0 <= cls <= 2:          # Car / Bicycle / Person  (drop RoadSign)
+                r = obj_meta.rect_params   # NvOSD_RectParams
+                dets.append({
+                    "box":    (r.left, r.top, r.width, r.height),
+                    "cls":    cls,
+                    "conf":   float(obj_meta.confidence),
+                    "obj_id": int(obj_meta.object_id),
+                    # keep a reference so we can update text label in-place
+                    "_obj_meta": obj_meta,
+                })
 
             try:
                 l_obj = l_obj.next
             except StopIteration:
                 break
 
+        # ── Step 4: run 1D-2D fusion ──────────────────────────────────────────
+        fused_results = _fusion.fuse(dets, radar_z, radar_v, pitch)
+
+        # ── Step 5: annotate object labels in-place (nvdsosd will render them)─
+        for res in fused_results:
+            obj_meta = res["_obj_meta"]
+            name = CLASS_NAMES.get(res["cls"], "?")
+
+            if res["fused"]:
+                v_str  = f"{res['v_rad']:+.1f}m/s" if res["v_rad"] is not None else ""
+                ttc_str = (f"TTC:{res['ttc']:.1f}s"
+                           if res["ttc"] is not None and res["ttc"] < 99
+                           else "")
+                z_str  = f"Z:{res['z_rad']:.1f}m" if res["z_rad"] is not None else ""
+                label  = f"[FCW] {name} {v_str} {z_str} {ttc_str}".strip()
+                # Highlight fused boxes in red by overriding border colour
+                obj_meta.rect_params.border_color.set(1.0, 0.0, 0.0, 1.0)
+                obj_meta.rect_params.border_width = 4
+            else:
+                z_str  = f"{res['z_cam']:.1f}m" if res["z_cam"] else ""
+                label  = f"{name} {res['conf']:.0%} {z_str}".strip()
+
+            # Overwrite the tracker label that OSD will render above the box
+            obj_meta.text_params.display_text = label
+            obj_meta.text_params.font_params.font_size = 14
+
+        # ── Step 6: inject HUD display meta (pitch/roll + BSD circles) ────────
+        display_meta = pyds.nvds_acquire_display_meta_from_pool(batch_meta)
+        display_meta.num_lines = 0
+        display_meta.num_circles = 0
+
+        # Pitch / roll text line
+        txt = display_meta.text_params[0]
+        txt.display_text = (
+            f"Pitch:{math.degrees(pitch):+.1f}°  "
+            f"Roll:{math.degrees(roll):+.1f}°  "
+            f"Radar: {'%.1fm' % radar_z if radar_z else '--'}"
+        )
+        txt.x_offset = 10
+        txt.y_offset = 30
+        txt.font_params.font_name = "Serif"
+        txt.font_params.font_size = 16
+        txt.font_params.font_color.set(1.0, 1.0, 1.0, 1.0)
+        txt.set_bg_clr = 1
+        txt.text_bg_clr.set(0.0, 0.0, 0.0, 0.6)
+        display_meta.num_labels = 1
+
+        # BSD circles — bottom-left (L) and bottom-right (R)
+        BSD_R_PX  = 30
+        BSD_Y     = FRAME_H - 55
+        colors_lr = [
+            (bsd_l, 80),                 # Left  circle x
+            (bsd_r, FRAME_W - 80),       # Right circle x
+        ]
+        for i, (active, cx) in enumerate(colors_lr):
+            c = display_meta.circle_params[i]
+            c.xc = cx
+            c.yc = BSD_Y
+            c.radius = BSD_R_PX
+            if active:
+                c.circle_color.set(0.0, 1.0, 1.0, 1.0)   # cyan = ALERT
+            else:
+                c.circle_color.set(0.25, 0.25, 0.25, 0.8) # dark grey = clear
+            c.has_bg_color = 1
+            c.bg_color.set(0.0, 0.0, 0.0, 0.0)
+        display_meta.num_circles = 2
+
+        # BSD labels
+        for i, (label_txt, cx) in enumerate([("BSD-L", 57), ("BSD-R", FRAME_W-103)]):
+            lt = display_meta.text_params[i + 1]
+            lt.display_text = label_txt
+            lt.x_offset = cx
+            lt.y_offset = BSD_Y + BSD_R_PX + 5
+            lt.font_params.font_name  = "Serif"
+            lt.font_params.font_size  = 13
+            lt.font_params.font_color.set(0.85, 0.85, 0.85, 1.0)
+            lt.set_bg_clr = 0
+        display_meta.num_labels = 3  # pitch line + 2 BSD labels
+
+        pyds.nvds_add_display_meta_to_frame(frame_meta, display_meta)
+
         try:
             l_frame = l_frame.next
         except StopIteration:
             break
 
-    # Run fusion
-    pitch, _ = state.get_imu()
-    radar_z, radar_v = state.get_radar()
-    fused = _fusion_engine.fuse(dets, radar_z, radar_v, pitch)
-
-    # Frame will arrive via appsink; put None here — visualizer merges them
-    state.put_results(None, dets, fused)
     return Gst.PadProbeReturn.OK
 
-
-def appsink_on_new_sample(appsink, state: AdasState):
-    """appsink new-sample signal handler — maps buffer to numpy BGR frame."""
-    sample = appsink.emit("pull-sample")
-    if sample is None:
-        return Gst.FlowReturn.OK
-
-    buf  = sample.get_buffer()
-    caps = sample.get_caps()
-    structure = caps.get_structure(0)
-    w = structure.get_value("width")
-    h = structure.get_value("height")
-
-    success, map_info = buf.map(Gst.MapFlags.READ)
-    if not success:
-        return Gst.FlowReturn.OK
-
-    frame = np.frombuffer(map_info.data, dtype=np.uint8).reshape(h, w, 3).copy()
-    buf.unmap(map_info)
-
-    # Merge latest frame into state
-    _, dets, fused, _ = state.get_results()
-    state.put_results(frame, dets, fused)
-    return Gst.FlowReturn.OK
-
-
-def build_deepstream_pipeline(args, state: AdasState):
+# ─────────────────────────────────────────────────────────────────────────────
+#  GStreamer pipeline construction
+# ─────────────────────────────────────────────────────────────────────────────
+def build_pipeline(args):
     """
-    Constructs the GStreamer pipeline programmatically.
-    Topology:
-      v4l2src → capsfilter → nvv4l2decoder → nvstreammux
-        → nvinfer → nvtracker → nvdsosd → nvvidconv
-        → capsfilter(BGR) → videoconvert → capsfilter(BGR) → appsink
-    Returns (pipeline, main_loop).
-    """
-    if not HAS_DEEPSTREAM:
-        return None, None
+    Pipeline topology (as mandated by DeepStream pyds architecture):
 
+      v4l2src → capsfilter → nvv4l2decoder
+        → nvstreammux
+        → nvinfer (config-file-path = args.config)
+        → nvtracker
+        → nvdsosd   ◄──── osd_sink_pad_buffer_probe attached here
+        → (nveglglessink  OR  fakesink if --no-display)
+    """
     Gst.init(None)
-    pipeline = Gst.Pipeline.new("adas-pipeline")
 
     def make(plugin, name):
         el = Gst.ElementFactory.make(plugin, name)
         if not el:
-            raise RuntimeError(f"Cannot create GStreamer element: {plugin}")
+            raise RuntimeError(f"Could not create GStreamer element: {plugin!r}. "
+                               f"Is DeepStream / GStreamer installed?")
         return el
 
-    src       = make("v4l2src",          "src")
-    cf_src    = make("capsfilter",        "cf_src")
-    decoder   = make("nvv4l2decoder",     "decoder")
-    mux       = make("nvstreammux",       "mux")
-    pgie      = make("nvinfer",           "infer")
-    tracker   = make("nvtracker",         "tracker")
-    osd       = make("nvdsosd",           "osd")
-    nvvidconv = make("nvvidconv",         "nvvidconv")
-    cf_bgr    = make("capsfilter",        "cf_bgr")
-    vidconv   = make("videoconvert",      "vidconv")
-    cf_bgr2   = make("capsfilter",        "cf_bgr2")
-    appsink   = make("appsink",           "appsink")
+    pipeline   = Gst.Pipeline.new("adas-pipeline")
+    source     = make("v4l2src",        "src")
+    caps_src   = make("capsfilter",     "caps_src")
+    decoder    = make("nvv4l2decoder",  "decoder")
+    streammux  = make("nvstreammux",    "mux")
+    nvinfer    = make("nvinfer",        "infer")
+    nvtracker  = make("nvtracker",      "tracker")
+    nvosd      = make("nvdsosd",        "osd")
+    sink       = make("fakesink" if args.no_display else "nveglglessink", "sink")
 
-    # Configure
-    src.set_property("device", args.device)
-    cf_src.set_property("caps", Gst.Caps.from_string(
-        f"video/x-raw,format=YUY2,width={FRAME_W},height={FRAME_H},"
-        f"framerate={args.fps}/1"))
-    mux.set_property("batch-size", 1)
-    mux.set_property("width", FRAME_W)
-    mux.set_property("height", FRAME_H)
-    mux.set_property("batched-push-timeout", 4_000_000)
-    mux.set_property("live-source", 1)
-    pgie.set_property("config-file-path", args.config)
-    tracker.set_property("tracker-width",  640)
-    tracker.set_property("tracker-height", 384)
-    tracker.set_property("ll-lib-file",
+    # ── Configure elements ────────────────────────────────────────────────────
+    source.set_property("device", args.device)
+
+    caps_src.set_property("caps", Gst.Caps.from_string(
+        f"video/x-raw,format=YUY2,width={FRAME_W},"
+        f"height={FRAME_H},framerate={args.fps}/1"))
+
+    # nvstreammux — batch single stream
+    streammux.set_property("batch-size",            1)
+    streammux.set_property("width",                 FRAME_W)
+    streammux.set_property("height",                FRAME_H)
+    streammux.set_property("batched-push-timeout",  4_000_000)
+    streammux.set_property("live-source",           1)
+
+    # nvinfer — DeepStream loads the engine internally from config_infer.txt
+    nvinfer.set_property("config-file-path", args.config)
+
+    # nvtracker
+    nvtracker.set_property("tracker-width",  640)
+    nvtracker.set_property("tracker-height", 384)
+    nvtracker.set_property("ll-lib-file",
         "/opt/nvidia/deepstream/deepstream/lib/libnvds_nvmultiobjecttracker.so")
-    tracker.set_property("ll-config-file", args.tracker)
-    cf_bgr.set_property("caps", Gst.Caps.from_string(
-        "video/x-raw(memory:NVMM),format=I420"))
-    cf_bgr2.set_property("caps", Gst.Caps.from_string(
-        "video/x-raw,format=BGR"))
-    appsink.set_property("emit-signals", True)
-    appsink.set_property("max-buffers",  1)
-    appsink.set_property("drop",         True)
-    appsink.set_property("sync",         False)
+    nvtracker.set_property("ll-config-file", args.tracker)
+    nvtracker.set_property("enable-past-frame", 1)
 
-    # Add to pipeline
-    for el in [src, cf_src, decoder, mux, pgie, tracker,
-               osd, nvvidconv, cf_bgr, vidconv, cf_bgr2, appsink]:
+    if not args.no_display:
+        sink.set_property("sync", False)
+
+    # ── Add all elements to pipeline ──────────────────────────────────────────
+    for el in (source, caps_src, decoder, streammux,
+               nvinfer, nvtracker, nvosd, sink):
         pipeline.add(el)
 
-    # Link: src → cf_src → decoder (mux has request sink pad)
-    src.link(cf_src)
-    cf_src.link(decoder)
+    # ── Link: src → caps → decoder → (mux via request pad) ───────────────────
+    if not source.link(caps_src):
+        raise RuntimeError("Failed to link v4l2src → capsfilter")
+    if not caps_src.link(decoder):
+        raise RuntimeError("Failed to link capsfilter → nvv4l2decoder")
 
-    dec_src  = decoder.get_static_pad("src")
-    mux_sink = mux.get_request_pad("sink_0")
-    if not dec_src or not mux_sink:
-        raise RuntimeError("Could not get decoder src / mux sink_0 pad")
-    dec_src.link(mux_sink)
+    # decoder src pad → nvstreammux sink_0 (request pad)
+    dec_src_pad = decoder.get_static_pad("src")
+    mux_sink_pad = streammux.get_request_pad("sink_0")
+    if not dec_src_pad or not mux_sink_pad:
+        raise RuntimeError("Could not get decoder src pad or mux sink_0 pad")
+    if dec_src_pad.link(mux_sink_pad) != Gst.PadLinkReturn.OK:
+        raise RuntimeError("Failed to link decoder → nvstreammux")
 
-    # mux → infer → tracker → osd → vidconv chain → appsink
-    for a, b in [(mux, pgie), (pgie, tracker), (tracker, osd),
-                 (osd, nvvidconv), (nvvidconv, cf_bgr),
-                 (cf_bgr, vidconv), (vidconv, cf_bgr2), (cf_bgr2, appsink)]:
+    # ── Link: mux → infer → tracker → osd → sink ─────────────────────────────
+    for a, b in [(streammux, nvinfer), (nvinfer, nvtracker),
+                 (nvtracker, nvosd),   (nvosd, sink)]:
         if not a.link(b):
-            raise RuntimeError(f"Failed to link {a.get_name()} → {b.get_name()}")
+            raise RuntimeError(
+                f"Failed to link {a.get_name()} → {b.get_name()}")
 
-    # Pad probe on nvdsosd sink pad
-    osd_sink = osd.get_static_pad("sink")
-    osd_sink.add_probe(Gst.PadProbeType.BUFFER, osd_sink_pad_buffer_probe, state)
+    # ── Attach the buffer probe to the OSD SINK pad ───────────────────────────
+    # This is the canonical DeepStream Python probe hook:
+    osd_sink_pad = nvosd.get_static_pad("sink")
+    if not osd_sink_pad:
+        raise RuntimeError("Cannot get nvdsosd sink pad")
+    osd_sink_pad.add_probe(
+        Gst.PadProbeType.BUFFER,
+        osd_sink_pad_buffer_probe,
+        _global_state,            # u_data passed to every probe callback
+    )
+    print("[DS] Probe attached to nvdsosd sink pad")
 
-    # appsink new-sample signal
-    appsink.connect("new-sample", appsink_on_new_sample, state)
-
-    main_loop = GLib.MainLoop()
-    return pipeline, main_loop
+    return pipeline
 
 # ─────────────────────────────────────────────────────────────────────────────
-#  OpenCV Visualizer
+#  GLib bus message handler
 # ─────────────────────────────────────────────────────────────────────────────
-_FONT      = cv2.FONT_HERSHEY_SIMPLEX
-_FUSED_CLR = (0, 0, 255)    # red — FCW candidate
-_NORMAL_CLR = (0, 255, 0)   # green — camera-only
-_BSD_ON    = (0, 255, 255)   # yellow
-_BSD_OFF   = (60, 60, 60)    # dark grey
-
-def draw_frame(frame: np.ndarray, dets: List[Detection],
-               fused: List[FusedObject], state: AdasState) -> np.ndarray:
-    """Render all overlays onto frame; returns the annotated image."""
-    canvas = frame.copy()
-    pitch, roll = state.get_imu()
-    bsd_l, bsd_r = state.get_bsd()
-
-    fused_ids = {f.det.obj_id for f in fused if f.fused}
-
-    # ── Bounding boxes ────────────────────────────────────────────────────────
-    for fobj in fused:
-        d   = fobj.det
-        x, y, w, h = [int(v) for v in d.box]
-        color = _FUSED_CLR if fobj.fused else CLASS_COLORS.get(d.cls, _NORMAL_CLR)
-        cv2.rectangle(canvas, (x, y), (x+w, y+h), color, 2)
-
-        label = CLASS_NAMES.get(d.cls, "?")
-        if fobj.fused and fobj.v_rad is not None:
-            label += f"  V={fobj.v_rad:+.1f}m/s"
-        if fobj.fused and fobj.ttc_s is not None:
-            ttc_str = f"{fobj.ttc_s:.1f}s" if fobj.ttc_s < 99 else "inf"
-            label += f"  TTC={ttc_str}"
-        cv2.putText(canvas, label, (x, y-8), _FONT, 0.55, color, 1, cv2.LINE_AA)
-
-        # Z_cam readout
-        if fobj.z_cam is not None:
-            cv2.putText(canvas, f"Z={fobj.z_cam:.1f}m",
-                        (x, y+h+16), _FONT, 0.45, (200,200,200), 1)
-
-    # ── ROI bounding box ──────────────────────────────────────────────────────
-    cv2.rectangle(canvas, (ROI_X_MIN, ROI_Y_MIN),
-                  (ROI_X_MAX, ROI_Y_MAX), (255, 255, 0), 1)
-    cv2.putText(canvas, "Radar FOV", (ROI_X_MIN+4, ROI_Y_MIN-6),
-                _FONT, 0.4, (255,255,0), 1)
-
-    # ── HUD: pitch / roll ─────────────────────────────────────────────────────
-    cv2.putText(canvas,
-                f"Pitch: {math.degrees(pitch):+.2f}  Roll: {math.degrees(roll):+.2f}",
-                (10, 24), _FONT, 0.6, (255,255,255), 1, cv2.LINE_AA)
-
-    # ── BSD indicators (circles, bottom-left / bottom-right) ─────────────────
-    radius = 28
-    margin = 50
-    cy_bsd = FRAME_H - margin
-    # Left
-    cv2.circle(canvas, (margin, cy_bsd), radius,
-               _BSD_ON if bsd_l else _BSD_OFF, -1)
-    cv2.putText(canvas, "BSD-L", (margin-24, cy_bsd+radius+16),
-                _FONT, 0.45, (200,200,200), 1)
-    # Right
-    cv2.circle(canvas, (FRAME_W - margin, cy_bsd), radius,
-               _BSD_ON if bsd_r else _BSD_OFF, -1)
-    cv2.putText(canvas, "BSD-R", (FRAME_W-margin-24, cy_bsd+radius+16),
-                _FONT, 0.45, (200,200,200), 1)
-
-    # ── Detection list (top-right) ────────────────────────────────────────────
-    x_list = FRAME_W - 240
-    y_list = 20
-    cv2.putText(canvas, f"Dets: {len(dets)}  Fused: {len(fused_ids)}",
-                (x_list, y_list), _FONT, 0.5, (200,200,50), 1)
-    for i, fobj in enumerate(fused[:12]):
-        d = fobj.det
-        marker = "[FCW]" if fobj.fused else "     "
-        txt = f"{marker} {CLASS_NAMES.get(d.cls,'?')} {d.conf:.0%}"
-        clr = _FUSED_CLR if fobj.fused else (180,180,180)
-        cv2.putText(canvas, txt, (x_list, y_list + 18*(i+1)),
-                    _FONT, 0.4, clr, 1)
-
-    return canvas
-
-
-def visualizer_loop(state: AdasState, stop: threading.Event):
-    """Main thread — pulls frames from state, draws overlays, shows window."""
-    cv2.namedWindow("ADAS Fusion", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("ADAS Fusion", FRAME_W, FRAME_H)
-
-    last_fid = -1
-    placeholder = np.zeros((FRAME_H, FRAME_W, 3), dtype=np.uint8)
-    cv2.putText(placeholder, "Waiting for DeepStream frames...",
-                (200, FRAME_H//2), _FONT, 0.9, (255,255,255), 2)
-
-    while not stop.is_set():
-        frame, dets, fused, fid = state.get_results()
-
-        if frame is None or fid == last_fid:
-            # No new frame — still draw HUD on placeholder
-            canvas = draw_frame(placeholder.copy(), [], [], state)
-        else:
-            last_fid = fid
-            canvas = draw_frame(frame, dets, fused, state)
-
-        cv2.imshow("ADAS Fusion", canvas)
-        key = cv2.waitKey(1) & 0xFF
-        if key == ord("q"):
-            stop.set()
-            break
-        time.sleep(0.016)  # ~60 Hz poll
-
-    cv2.destroyAllWindows()
+def _bus_call(bus, message, loop):
+    t = message.type
+    if t == Gst.MessageType.EOS:
+        print("[DS] End-of-stream")
+        loop.quit()
+    elif t == Gst.MessageType.WARNING:
+        err, dbg = message.parse_warning()
+        print(f"[DS] WARNING: {err}  ({dbg})")
+    elif t == Gst.MessageType.ERROR:
+        err, dbg = message.parse_error()
+        print(f"[DS] ERROR: {err}  ({dbg})")
+        loop.quit()
+    return True
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Main
 # ─────────────────────────────────────────────────────────────────────────────
+_global_state: Optional[AdasState] = None
+
 def main():
-    parser = argparse.ArgumentParser(description="ADAS Jetson Fusion Engine")
+    global _global_state
+
+    parser = argparse.ArgumentParser(
+        description="ADAS Jetson Fusion Engine (pyds / DeepStream)")
     parser.add_argument("--pi-ip",      required=True,
-                        help="IP of the Raspberry Pi 4 (ZMQ source)")
+                        help="Pi 4 IP address (ZMQ source)")
     parser.add_argument("--device",     default="/dev/video0",
-                        help="V4L2 device for front camera (default: /dev/video0)")
+                        help="V4L2 front-camera device")
     parser.add_argument("--config",
                         default=os.path.expanduser("~/dashcamnet/config_infer.txt"),
-                        help="nvinfer config file (default: ~/dashcamnet/config_infer.txt)")
+                        help="nvinfer config file path  "
+                             "(deepstream_app.txt also supported)")
     parser.add_argument("--tracker",
                         default=os.path.expanduser("~/dashcamnet/tracker_config.txt"),
-                        help="nvtracker config file")
+                        help="nvtracker ll-config-file path")
     parser.add_argument("--fps",        type=int, default=10,
-                        help="Camera FPS (default: 10)")
+                        help="Camera frame rate (default: 10)")
     parser.add_argument("--radar-port", default=None,
-                        help="Serial port for OPS243-C (e.g. /dev/ttyACM0); "
-                             "omit to disable front radar")
-    parser.add_argument("--radar-baud", type=int, default=115200,
-                        help="OPS243-C baud rate (default: 115200)")
-    parser.add_argument("--verbose",    action="store_true")
+                        help="Serial port for OPS243-C  (e.g. /dev/ttyACM0)")
+    parser.add_argument("--radar-baud", type=int, default=115200)
+    parser.add_argument("--no-display", action="store_true",
+                        help="Use fakesink instead of nveglglessink "
+                             "(headless / SSH mode)")
     args = parser.parse_args()
 
+    # ── Shared state ──────────────────────────────────────────────────────────
     state = AdasState()
+    _global_state = state
     stop  = threading.Event()
 
-    # ── Signal handler ─────────────────────────────────────────────────────
-    def _sig(sig, frame):
-        print("\n[Main] Shutting down...")
+    # ── Signal handler ────────────────────────────────────────────────────────
+    def _sig(sig, _frame):
+        print(f"\n[Main] Signal {sig} — shutting down")
         stop.set()
     signal.signal(signal.SIGINT,  _sig)
     signal.signal(signal.SIGTERM, _sig)
 
-    # ── Background threads ─────────────────────────────────────────────────
+    # ── Background sensor threads ─────────────────────────────────────────────
     threads = [
-        threading.Thread(target=zmq_imu_thread,
+        threading.Thread(target=_zmq_imu_thread,
                          args=(state, args.pi_ip, stop), daemon=True),
-        threading.Thread(target=zmq_bsd_thread,
+        threading.Thread(target=_zmq_bsd_thread,
                          args=(state, args.pi_ip, 5556, "L",
                                MSG_REAR_RADAR_L, stop), daemon=True),
-        threading.Thread(target=zmq_bsd_thread,
+        threading.Thread(target=_zmq_bsd_thread,
                          args=(state, args.pi_ip, 5557, "R",
                                MSG_REAR_RADAR_R, stop), daemon=True),
     ]
     if args.radar_port:
         threads.append(threading.Thread(
-            target=radar_serial_thread,
+            target=_radar_serial_thread,
             args=(state, args.radar_port, args.radar_baud, stop),
             daemon=True))
-
     for t in threads:
         t.start()
 
-    # ── DeepStream pipeline ────────────────────────────────────────────────
-    pipeline = main_loop = None
-    gst_thread = None
-    if HAS_DEEPSTREAM:
-        try:
-            pipeline, main_loop = build_deepstream_pipeline(args, state)
-            ret = pipeline.set_state(Gst.State.PLAYING)
-            if ret == Gst.StateChangeReturn.FAILURE:
-                print("[DS] FAILED to set pipeline to PLAYING — check device/config paths")
-                pipeline = None
-            else:
-                print(f"[DS] Pipeline started: {args.device} @ {args.fps} FPS")
-                gst_thread = threading.Thread(
-                    target=main_loop.run, daemon=True)
-                gst_thread.start()
-        except Exception as e:
-            print(f"[DS] Pipeline build error: {e}")
-            pipeline = None
-    else:
-        print("[DS] DeepStream not available — running ZMQ+Radar only")
+    # ── Build DeepStream pipeline ─────────────────────────────────────────────
+    try:
+        pipeline = build_pipeline(args)
+    except RuntimeError as e:
+        print(f"[Main] Pipeline build failed: {e}")
+        stop.set()
+        for t in threads:
+            t.join(timeout=1.0)
+        sys.exit(1)
 
-    # ── Visualizer (blocks main thread) ───────────────────────────────────
-    visualizer_loop(state, stop)
+    # ── GLib main loop + GStreamer bus ────────────────────────────────────────
+    loop = GLib.MainLoop()
+    bus  = pipeline.get_bus()
+    bus.add_signal_watch()
+    bus.connect("message", _bus_call, loop)
 
-    # ── Cleanup ────────────────────────────────────────────────────────────
-    if pipeline:
+    # ── Start pipeline ────────────────────────────────────────────────────────
+    ret = pipeline.set_state(Gst.State.PLAYING)
+    if ret == Gst.StateChangeReturn.FAILURE:
+        print("[Main] FAILED to set pipeline PLAYING. "
+              "Check device path and config file.")
         pipeline.set_state(Gst.State.NULL)
-    if main_loop and main_loop.is_running():
-        main_loop.quit()
+        stop.set()
+        sys.exit(1)
+
+    print(f"[Main] Pipeline PLAYING  "
+          f"device={args.device}  config={args.config}")
+    print("[Main] Press Ctrl-C to stop\n")
+
+    # ── Run until signal or EOS ───────────────────────────────────────────────
+    # Run the GLib loop in main thread; a signal will set stop and quit the loop
+    def _watch_stop():
+        while not stop.is_set():
+            time.sleep(0.2)
+        loop.quit()
+
+    watch_t = threading.Thread(target=_watch_stop, daemon=True)
+    watch_t.start()
+
+    try:
+        loop.run()
+    except KeyboardInterrupt:
+        pass
+
+    # ── Cleanup ───────────────────────────────────────────────────────────────
+    print("[Main] Stopping pipeline...")
+    pipeline.set_state(Gst.State.NULL)
+    stop.set()
     for t in threads:
         t.join(timeout=2.0)
     print("[Main] Done.")
