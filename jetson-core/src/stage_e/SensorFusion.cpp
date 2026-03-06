@@ -112,11 +112,11 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
   }
   const cv::Rect2f &roi = cached_roi_;
 
-  // Scale intrinsics (identity when running at calibration resolution)
-  const float sx = fw / config_.calib_width_px;
-  const float sy = fh / config_.calib_height_px;
-  const float fy_s = config_.f_y * sy;
-  const float cy_s = config_.c_y * sy;
+  // Scale intrinsics — sx/sy are 1.0 when running at calibration resolution
+  // (which is always the case here since fw/fh are clamped to calib dims above).
+  // Use intrinsics directly to avoid spurious "unused variable" warnings.
+  const float fy_s = config_.f_y;
+  const float cy_s = config_.c_y;
 
   // Log fusion frame header once when verbose
   if (g_verbose_mode.load()) {

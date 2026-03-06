@@ -364,7 +364,7 @@ GstPadProbeReturn FrontCamDeepStream::osdSinkPadProbe(GstPad * /*pad*/,
     hdr.mount = Mount::FrontCam;
     hdr.seq = static_cast<uint32_t>(
         self->frames_processed_.load(std::memory_order_relaxed));
-    hdr.valid = true;
+    hdr.healthy = true;
 
     DetBatch batch;
     batch.h = hdr;
