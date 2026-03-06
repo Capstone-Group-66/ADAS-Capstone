@@ -120,10 +120,10 @@ void IngestManager::launchDirectCameras() {
 
   // ── Front Camera: Python DeepStream publisher ────────────────────────────
   // FrontCamDeepStream (C++) has been replaced by scripts/deepstream_fusion.py.
-  // That standalone Python pyds script owns the GStreamer pipeline and publishes
-  // detections. The det_front_ds_queue_ below will be fed by a future ZMQ bridge.
+  // That standalone Python pyds script owns the GStreamer pipeline and
+  // publishes detections. The det_front_ds_queue_ below will be fed by a future
+  // ZMQ bridge.
   std::cout << "[IngestManager] FrontCam: managed by deepstream_fusion.py\n";
-
 
   // SideCamL
   auto it = hw_map_.mappings.find(Mount::SideCamL);
