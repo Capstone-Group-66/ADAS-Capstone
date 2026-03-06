@@ -136,7 +136,7 @@ fun CenteredCar() {
         contentAlignment = Alignment.Center,
     ) {
         Image(
-            painter = painterResource(R.drawable.ic_car),
+            painter = painterResource(R.drawable.image),
             contentDescription = "Car",
             modifier =
                 Modifier.size(400.dp).offset(y = 100.dp),
