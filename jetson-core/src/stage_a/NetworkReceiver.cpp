@@ -249,7 +249,11 @@ void NetworkReceiver::cameraThread() {
 }
 
 void NetworkReceiver::radarLThread() {
-  std::vector<uint8_t> buffer(4096);
+  // Pi BSD_STRUCT = struct.Struct("<B") — exactly 1 byte of presence flag.
+  // There is no RadarPayloadHeader and no range_cm field on the wire.
+  // The old code expected payload_size >= 7, silently dropping every packet.
+  constexpr size_t BSD_PAYLOAD_SIZE = 1;
+  std::vector<uint8_t> buffer(256);
 
   while (running_.load()) {
     int len = zmq_recv(radar_l_socket_, buffer.data(), buffer.size(), 0);
@@ -270,54 +274,51 @@ void NetworkReceiver::radarLThread() {
       continue;
     }
 
-    // Check drops
     if (stats_.radar_l_packets > 0 &&
         header.sequence != last_radar_l_seq_ + 1) {
       stats_.drops += header.sequence - last_radar_l_seq_ - 1;
     }
     last_radar_l_seq_ = header.sequence;
 
-    // Parse radar payload
-    // Using simple format: [presence | range_cm (2 bytes)] from
-    // RadarPayloadHeader + raw bytes
-    size_t payload_size = header.payload_size;
-    if (payload_size >= sizeof(RadarPayloadHeader) + 3) {
-      RadarPayloadHeader rad_header;
-      std::memcpy(&rad_header, buffer.data() + sizeof(PiMessageHeader),
-                  sizeof(rad_header));
+    // Validate: payload must be exactly 1 byte (BSD presence flag)
+    if (header.payload_size != BSD_PAYLOAD_SIZE ||
+        static_cast<size_t>(len) < sizeof(PiMessageHeader) + BSD_PAYLOAD_SIZE) {
+      std::cerr << "[RadarL] Dropped packet: unexpected payload_size="
+                << header.payload_size << " (expected 1)\n";
+      stats_.errors++;
+      stats_.radar_l_packets++;
+      continue;
+    }
 
-      const uint8_t *raw_data =
-          buffer.data() + sizeof(PiMessageHeader) + sizeof(RadarPayloadHeader);
+    const uint8_t presence = buffer[sizeof(PiMessageHeader)];
+    const uint64_t jetson_arrival_ns = Clock::now_ns();
 
-      uint8_t presence = raw_data[0];
-      uint16_t range_cm = raw_data[1] | (raw_data[2] << 8);
+    if (radar_l_queue_) {
+      RadarTargets targets;
+      targets.h.mount = Mount::RearCornerRadarL;
+      targets.h.seq = header.sequence;
+      targets.h.t_device_ns = header.timestamp_ns;
+      targets.h.t_ingest_ns = jetson_arrival_ns;
+      targets.h.healthy = true;
 
-      if (presence > 0 && range_cm > 0 && radar_l_queue_) {
-        const uint64_t jetson_arrival_ns = Clock::now_ns();
-        RadarTargets targets;
-        targets.h.mount = Mount::RearCornerRadarL;
-        targets.h.seq = header.sequence;
-        targets.h.t_device_ns = header.timestamp_ns;
-        targets.h.t_ingest_ns = jetson_arrival_ns;
-        targets.h.healthy = true;
-
+      if (presence > 0) {
+        // Pi confirmed presence — push a dummy 1m target to signal BSD active
         RadarTarget target;
-        target.range_m = static_cast<float>(range_cm) / 100.0f;
+        target.range_m     = 1.0f; // Pi radar is a presence sensor; no real range
         target.azimuth_rad = 0.0f;
         target.radial_vel_mps = 0.0f;
-        target.rcs_db = 0.0f;
+        target.rcs_db  = 0.0f;
         target.sigma_r = 0.1f;
         target.sigma_az = 0.5f;
         target.sigma_v = 1.0f;
-
         targets.targets.push_back(target);
-
-        if (auto *rec = recorder_.load(std::memory_order_acquire)) {
-          rec->recordRadar(targets);
-        }
-
-        radar_l_queue_->try_push(std::move(targets));
       }
+      // presence == 0: push empty targets so downstream can clear the BSD latch
+
+      if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+        rec->recordRadar(targets);
+      }
+      radar_l_queue_->try_push(std::move(targets));
     }
 
     stats_.radar_l_packets++;
@@ -325,7 +326,9 @@ void NetworkReceiver::radarLThread() {
 }
 
 void NetworkReceiver::radarRThread() {
-  std::vector<uint8_t> buffer(4096);
+  // Mirrors radarLThread — same Pi BSD_STRUCT (1-byte presence flag).
+  constexpr size_t BSD_PAYLOAD_SIZE = 1;
+  std::vector<uint8_t> buffer(256);
 
   while (running_.load()) {
     int len = zmq_recv(radar_r_socket_, buffer.data(), buffer.size(), 0);
@@ -352,45 +355,42 @@ void NetworkReceiver::radarRThread() {
     }
     last_radar_r_seq_ = header.sequence;
 
-    // Parse radar payload
-    size_t payload_size = header.payload_size;
-    if (payload_size >= sizeof(RadarPayloadHeader) + 3) {
-      RadarPayloadHeader rad_header;
-      std::memcpy(&rad_header, buffer.data() + sizeof(PiMessageHeader),
-                  sizeof(rad_header));
+    if (header.payload_size != BSD_PAYLOAD_SIZE ||
+        static_cast<size_t>(len) < sizeof(PiMessageHeader) + BSD_PAYLOAD_SIZE) {
+      std::cerr << "[RadarR] Dropped packet: unexpected payload_size="
+                << header.payload_size << " (expected 1)\n";
+      stats_.errors++;
+      stats_.radar_r_packets++;
+      continue;
+    }
 
-      const uint8_t *raw_data =
-          buffer.data() + sizeof(PiMessageHeader) + sizeof(RadarPayloadHeader);
+    const uint8_t presence = buffer[sizeof(PiMessageHeader)];
+    const uint64_t jetson_arrival_ns = Clock::now_ns();
 
-      uint8_t presence = raw_data[0];
-      uint16_t range_cm = raw_data[1] | (raw_data[2] << 8);
+    if (radar_r_queue_) {
+      RadarTargets targets;
+      targets.h.mount = Mount::RearCornerRadarR;
+      targets.h.seq = header.sequence;
+      targets.h.t_device_ns = header.timestamp_ns;
+      targets.h.t_ingest_ns = jetson_arrival_ns;
+      targets.h.healthy = true;
 
-      if (presence > 0 && range_cm > 0 && radar_r_queue_) {
-        const uint64_t jetson_arrival_ns = Clock::now_ns();
-        RadarTargets targets;
-        targets.h.mount = Mount::RearCornerRadarR;
-        targets.h.seq = header.sequence;
-        targets.h.t_device_ns = header.timestamp_ns;
-        targets.h.t_ingest_ns = jetson_arrival_ns;
-        targets.h.healthy = true;
-
+      if (presence > 0) {
         RadarTarget target;
-        target.range_m = static_cast<float>(range_cm) / 100.0f;
+        target.range_m     = 1.0f;
         target.azimuth_rad = 0.0f;
         target.radial_vel_mps = 0.0f;
-        target.rcs_db = 0.0f;
+        target.rcs_db  = 0.0f;
         target.sigma_r = 0.1f;
         target.sigma_az = 0.5f;
         target.sigma_v = 1.0f;
-
         targets.targets.push_back(target);
-
-        if (auto *rec = recorder_.load(std::memory_order_acquire)) {
-          rec->recordRadar(targets);
-        }
-
-        radar_r_queue_->try_push(std::move(targets));
       }
+
+      if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+        rec->recordRadar(targets);
+      }
+      radar_r_queue_->try_push(std::move(targets));
     }
 
     stats_.radar_r_packets++;
