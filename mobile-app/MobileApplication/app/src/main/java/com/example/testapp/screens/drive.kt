@@ -53,7 +53,7 @@ fun DriveContent(
     // Wrap everything in a Surface that fills the screen
     androidx.compose.material3.Surface(
         modifier = Modifier.fillMaxSize(),
-        color = Color(0xFF121212) // Example: Dark Charcoal color
+        color = Color(0xFF121212), // Example: Dark Charcoal color
     ) {
         Column(Modifier.padding(16.dp)) {
             Text("drive page")
@@ -243,16 +243,14 @@ fun StatusRow(
     }
 }
 
-
-
-
 @Composable
 fun BsdLeft(detectionLR: Int) {
-    val tintColor = if (detectionLR == 1) {
-        Color.Red
-    } else {
-        Color(0xFF121212)
-    }
+    val tintColor =
+        if (detectionLR == 1) {
+            Color.Red
+        } else {
+            Color(0xFF121212)
+        }
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -272,11 +270,12 @@ fun BsdLeft(detectionLR: Int) {
 
 @Composable
 fun BsdRight(detectionLR: Int) {
-    val tintColor = if (detectionLR == 1) {
-        Color.Red
-    } else {
-        Color(0xFF121212)
-    }
+    val tintColor =
+        if (detectionLR == 1) {
+            Color.Red
+        } else {
+            Color(0xFF121212)
+        }
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -301,12 +300,12 @@ fun LaneDepartureDetection(
     @DrawableRes lane: Int,
     detectionLR: Int,
 ) {
-
-    val tintColor = if (detectionLR == 1) {
-        Color.Red
-    } else {
-        Color(0xFF121212)
-    }
+    val tintColor =
+        if (detectionLR == 1) {
+            Color.Red
+        } else {
+            Color(0xFF121212)
+        }
 
     Column(
         modifier = modifier,
