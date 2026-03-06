@@ -63,7 +63,7 @@ set(STAGE_B_SOURCES
     src/stage_b/ObjectDetector.cpp
     src/stage_b/ObjectTracker.cpp
     src/stage_b/CameraPipeline.cpp
-    src/stage_b/FrontCamDeepStream.cpp   # DeepStream front-camera pipeline
+    # FrontCamDeepStream.cpp removed — pipeline now runs in Python (deepstream_fusion.py)
 )
 
 set(STAGE_E_SOURCES
@@ -120,50 +120,8 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
         message(WARNING "TensorRT not found - ObjectDetector will be disabled")
     endif()
 
-    # ── DeepStream 6.0 + GStreamer (Front Camera inference pipeline) ─────────
-    # DeepStream ships with its own GStreamer build on Jetson via JetPack.
-    # Standard install path: /opt/nvidia/deepstream/deepstream/
-    set(DS_ROOT "/opt/nvidia/deepstream/deepstream" CACHE PATH
-        "DeepStream SDK root directory")
-
-    find_library(NVDSGST_META_LIB nvdsgst_meta
-        HINTS ${DS_ROOT}/lib /opt/nvidia/deepstream/deepstream-6.0/lib)
-    find_library(NVDS_META_LIB   nvds_meta
-        HINTS ${DS_ROOT}/lib /opt/nvidia/deepstream/deepstream-6.0/lib)
-
-    find_package(PkgConfig QUIET)
-    if(PkgConfig_FOUND)
-        pkg_check_modules(GST QUIET
-            gstreamer-1.0
-            gstreamer-video-1.0
-        )
-    endif()
-
-    if(NVDSGST_META_LIB AND NVDS_META_LIB AND GST_FOUND)
-        message(STATUS "DeepStream found: ${DS_ROOT}")
-        message(STATUS "GStreamer: ${GST_LIBRARIES}")
-
-        target_include_directories(jetson_core PRIVATE
-            ${DS_ROOT}/sources/includes    # nvdsmeta.h, gstnvdsmeta.h, etc.
-            ${GST_INCLUDE_DIRS}
-        )
-        target_link_libraries(jetson_core
-            ${NVDSGST_META_LIB}
-            ${NVDS_META_LIB}
-            ${GST_LIBRARIES}
-        )
-        target_compile_definitions(jetson_core PRIVATE HAS_DEEPSTREAM)
-        message(STATUS "DeepStream + GStreamer linked — FrontCamDeepStream ENABLED")
-    else()
-        message(WARNING
-            "DeepStream or GStreamer not found — FrontCamDeepStream will be a stub.\n"
-            "  Install DeepStream 6.0 via JetPack or:\n"
-            "    sudo apt install deepstream-6.0\n"
-            "  GStreamer status: GST_FOUND=${GST_FOUND}\n"
-            "  nvdsgst_meta:    ${NVDSGST_META_LIB}\n"
-            "  nvds_meta:       ${NVDS_META_LIB}"
-        )
-    endif()
+    # DeepStream / GStreamer — now handled entirely in Python (deepstream_fusion.py).
+    # No C++ linkage needed.
 endif()
 
 if(MSVC)

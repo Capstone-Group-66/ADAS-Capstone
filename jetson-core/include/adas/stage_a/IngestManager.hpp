@@ -9,8 +9,9 @@
 #include "adas/stage_a/NetworkIngest.hpp"
 #include "adas/stage_a/RadarIngest.hpp"
 #include "adas/recording/ReplayEngine.hpp"
-// Front Camera: DeepStream replaces the old CameraIngest + TRT ObjectDetector
-#include "adas/stage_b/FrontCamDeepStream.hpp"
+// Front Camera: DeepStream pipeline now runs as standalone Python script
+// (scripts/deepstream_fusion.py). The det_front_ds_queue_ below still acts
+// as the handoff point; a future ZMQ bridge will feed into it from Python.
 
 #ifdef HAS_ZMQ
 #include "adas/stage_a/NetworkReceiver.hpp"
@@ -100,6 +101,16 @@ class IngestManager {
         return 0.0f;
     }
 
+    /// Get the most recent roll angle received via ZMQ from the Pi.
+    float getLatestRoll() const {
+#ifdef HAS_ZMQ
+        if (zmq_receiver_) {
+            return zmq_receiver_->getLatestRoll();
+        }
+#endif
+        return 0.0f;
+    }
+
     // ═══════════════════════════════════════════════════════════════════════════
     //                             HEALTH MONITORING
     // ═══════════════════════════════════════════════════════════════════════════
@@ -156,8 +167,8 @@ class IngestManager {
     //                           INGEST INSTANCES
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // Front Camera: DeepStream pipeline (owns GStreamer mainloop + pad probe)
-    std::unique_ptr<FrontCamDeepStream> cam_front_ds_;
+    // Front Camera: queue fed by deepstream_fusion.py via future ZMQ bridge.
+    // In replay mode, ReplayEngine populates this queue directly.
 
     // Side cameras: unchanged OpenCV CameraIngest
     std::unique_ptr<CameraIngest> cam_side_l_;

@@ -106,10 +106,7 @@ void IngestManager::stop() {
   if (cam_side_l_) {
     cam_side_l_->stop();
   }
-  // Front Camera DeepStream pipeline (owns GLib main loop + GStreamer state)
-  if (cam_front_ds_) {
-    cam_front_ds_->stop();
-  }
+  // Front Camera pipeline (Python): stopped externally
 
   if (replay_engine_) {
     replay_engine_->stop();
@@ -121,27 +118,12 @@ void IngestManager::stop() {
 void IngestManager::launchDirectCameras() {
   std::cout << "[IngestManager] Launching cameras...\n";
 
-  // ── Front Camera: DeepStream pipeline ────────────────────────────────────
-  // The old CameraIngest (OpenCV V4L2) + TensorRT YOLO path has been removed.
-  // FrontCamDeepStream owns the full GStreamer pipeline:
-  //   v4l2src (YUYV 1280x720 @ 10 FPS) -> nvv4l2decoder -> nvstreammux
-  //   -> nvinfer (DashCamNet FP16) -> nvtracker -> nvdsosd [pad probe]
-  // The pad probe directly populates det_front_ds_queue_ with DetBatch objects.
-  auto front_it = hw_map_.mappings.find(Mount::FrontCam);
-  if (front_it != hw_map_.mappings.end()) {
-    DeepStreamConfig ds_cfg;
-    ds_cfg.device_path = front_it->second; // e.g. "/dev/video2"
-    cam_front_ds_ =
-        std::make_unique<FrontCamDeepStream>(ds_cfg, det_front_ds_queue_);
-    if (!cam_front_ds_->start()) {
-      std::cerr << "[IngestManager] WARNING: FrontCam DeepStream pipeline "
-                   "failed to start (check GStreamer / DeepStream install)\n";
-      cam_front_ds_.reset();
-    }
-  } else {
-    std::cerr << "[IngestManager] WARNING: FrontCam not in hardware_map — "
-                 "DeepStream pipeline not started\n";
-  }
+  // ── Front Camera: Python DeepStream publisher ────────────────────────────
+  // FrontCamDeepStream (C++) has been replaced by scripts/deepstream_fusion.py.
+  // That standalone Python pyds script owns the GStreamer pipeline and publishes
+  // detections. The det_front_ds_queue_ below will be fed by a future ZMQ bridge.
+  std::cout << "[IngestManager] FrontCam: managed by deepstream_fusion.py\n";
+
 
   // SideCamL
   auto it = hw_map_.mappings.find(Mount::SideCamL);
@@ -387,8 +369,7 @@ void IngestManager::printStatus() const {
 
 void IngestManager::setRecorder(Recorder *recorder) {
   // Propagate to side cameras.
-  // Note: FrontCam (DeepStream) does not have a Recorder hook yet —
-  // the pad probe can be extended to call recorder->recordCamera() if needed.
+  // FrontCam (Python deepstream_fusion.py) — no recorder hook needed here
   if (cam_side_l_)
     cam_side_l_->setRecorder(recorder);
   if (cam_side_r_)
