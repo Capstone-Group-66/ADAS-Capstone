@@ -144,7 +144,7 @@ void IngestManager::launchDirectCameras() {
   }
 
   // SideCamL
-  it = hw_map_.mappings.find(Mount::SideCamL);
+  auto it = hw_map_.mappings.find(Mount::SideCamL);
   if (it != hw_map_.mappings.end()) {
     cam_side_l_ = std::make_unique<CameraIngest>(
         Mount::SideCamL, it->second, cam_side_l_queue_, config_.cameras);
