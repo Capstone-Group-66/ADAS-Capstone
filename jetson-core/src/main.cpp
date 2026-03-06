@@ -476,7 +476,10 @@ void visualizationThread() {
   }
 
   if (display_enabled) {
-    try { cv::destroyAllWindows(); } catch (...) {}
+    try {
+      cv::destroyAllWindows();
+    } catch (...) {
+    }
   }
   std::cout << "[StageE] Thread stopped\n";
 }
@@ -606,7 +609,7 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   // Add camera pipelines for each mapped camera
   // Wire FrontCam into Stage B for live preview + TRT inference.
   // deepstream_fusion.py (Python) runs separately for the pyds-annotated view.
-  auto& mappings = hw_map.mappings;
+  auto &mappings = hw_map.mappings;
   if (mappings.find(adas::Mount::FrontCam) != mappings.end()) {
     g_stage_b_manager->addCamera(
         adas::Mount::FrontCam,

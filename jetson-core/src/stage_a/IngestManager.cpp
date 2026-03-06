@@ -121,8 +121,8 @@ void IngestManager::stop() {
 void IngestManager::launchDirectCameras() {
   std::cout << "[IngestManager] Launching cameras...\n";
 
-  // ── Front Camera: CameraIngest for live preview + Stage B inference ─────────
-  // deepstream_fusion.py runs separately for the pyds-annotated view.
+  // ── Front Camera: CameraIngest for live preview + Stage B inference
+  // ───────── deepstream_fusion.py runs separately for the pyds-annotated view.
   auto front_it = hw_map_.mappings.find(Mount::FrontCam);
   if (front_it != hw_map_.mappings.end()) {
     cam_front_ = std::make_unique<CameraIngest>(
