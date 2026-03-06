@@ -165,6 +165,21 @@ struct ImuPitchPayload {
 #pragma pack(pop)
 static_assert(sizeof(ImuPitchPayload) == 4, "ImuPitchPayload must be 4 bytes");
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PITCH + ROLL IMU MESSAGE  (Pi IMU_STRUCT = struct.Struct("<ff"))
+// Sent by the Pi on port 5558, msg_type = IMU_SAMPLE (0x0004).
+// Payload is TWO 32-bit floats (little-endian): pitch then roll, both radians.
+// Distinguished at runtime by:
+//   header.payload_size == sizeof(ImuPitchRollPayload)  (i.e. == 8)
+// ─────────────────────────────────────────────────────────────────────────────
+#pragma pack(push, 1)
+struct ImuPitchRollPayload {
+    float theta_radians; ///< Smoothed pitch angle (radians). Positive = nose-up.
+    float phi_radians;   ///< Smoothed roll  angle (radians). Positive = right-lean.
+};
+#pragma pack(pop)
+static_assert(sizeof(ImuPitchRollPayload) == 8, "ImuPitchRollPayload must be 8 bytes");
+
 // Heartbeat payload
 #pragma pack(push, 1)
 struct HeartbeatPayload {

@@ -86,10 +86,17 @@ class NetworkReceiver {
     }
 
     /// Get the most recent smoothed pitch angle received from Pi on port 5558.
-    /// Written by imuThread when a 4-byte ImuPitchPayload is received.
+    /// Written by imuThread when an ImuPitchRollPayload (8 bytes) is received.
     /// Returns 0.0f if no pitch message has arrived yet.
     float getLatestPitch() const {
         return latest_pitch_rad_.load(std::memory_order_relaxed);
+    }
+
+    /// Get the most recent smoothed roll angle received from Pi on port 5558.
+    /// Written by imuThread when an ImuPitchRollPayload (8 bytes) is received.
+    /// Returns 0.0f if no roll message has arrived yet.
+    float getLatestRoll() const {
+        return latest_roll_rad_.load(std::memory_order_relaxed);
     }
 
     /// Static: Discover devices on Pi without starting full receiver
@@ -158,9 +165,10 @@ class NetworkReceiver {
     // and used to correct t_ingest_ns on ZMQ-received data
     std::atomic<uint64_t> one_way_latency_ns_{0};
 
-    // Smoothed pitch angle from Pi's ImuPitchPayload (4-byte message, port 5558).
-    // Written by imuThread; read by the fusion layer via getLatestPitch().
+    // Smoothed pitch + roll angles from Pi's ImuPitchRollPayload (8-byte message, port 5558).
+    // Written by imuThread; read by the fusion layer via getLatestPitch()/getLatestRoll().
     std::atomic<float> latest_pitch_rad_{0.0f};
+    std::atomic<float> latest_roll_rad_{0.0f};
 
     // Optional recorder for data capture
     // Atomic so it is safely visible across the camera/radar/IMU threads

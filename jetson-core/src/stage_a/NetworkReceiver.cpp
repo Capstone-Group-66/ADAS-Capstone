@@ -451,14 +451,56 @@ void NetworkReceiver::imuThread() {
 
     // ── Dispatch by payload_size ──────────────────────────────────────────
     //
-    //  payload_size == 4  → ImuPitchPayload  (new lightweight pitch message)
-    //  payload_size == 60 → ImuPayload        (existing full BNO085 sample)
+    //  payload_size == 8  → ImuPitchRollPayload  (Pi IMU_STRUCT = "<ff": pitch+roll)
+    //  payload_size == 4  → ImuPitchPayload      (legacy pitch-only, kept for compat)
+    //  payload_size == 60 → ImuPayload            (full BNO085 sample)
     //  anything else      → drop with error
 
-    if (header.payload_size == sizeof(ImuPitchPayload)) {
-      // ── NEW: Lightweight IMU Pitch message (user spec, Part 3) ────────
-      // THE CRITICAL CHECK (per user blueprint): both the declared payload
-      // size AND the received frame length must be sufficient.
+    if (header.payload_size == sizeof(ImuPitchRollPayload)) {
+      // ── PRIMARY: Pitch + Roll (8 bytes) ─────────────────────────────────
+      // Pi sends: IMU_STRUCT = struct.Struct("<ff") → theta, phi
+      if (static_cast<size_t>(len) <
+          sizeof(PiMessageHeader) + sizeof(ImuPitchRollPayload)) {
+        std::cerr << "[IMU] Dropped pitch+roll packet: frame too short ("
+                  << len << " bytes)\\n";
+        stats_.errors++;
+        errors_in_window++;
+        continue;
+      }
+
+      ImuPitchRollPayload pr;
+      std::memcpy(&pr, buffer.data() + sizeof(PiMessageHeader),
+                  sizeof(ImuPitchRollPayload));
+
+      // Sanity: pitch within ±π/2, roll within ±π
+      if (!std::isfinite(pr.theta_radians) ||
+          std::abs(pr.theta_radians) > (float)M_PI_2) {
+        std::cerr << "[IMU] Dropped: theta out of range ("
+                  << pr.theta_radians << " rad)\\n";
+        stats_.errors++; errors_in_window++;
+        continue;
+      }
+      if (!std::isfinite(pr.phi_radians) ||
+          std::abs(pr.phi_radians) > (float)M_PI) {
+        std::cerr << "[IMU] Dropped: phi out of range ("
+                  << pr.phi_radians << " rad)\\n";
+        stats_.errors++; errors_in_window++;
+        continue;
+      }
+
+      latest_pitch_rad_.store(pr.theta_radians, std::memory_order_relaxed);
+      latest_roll_rad_.store(pr.phi_radians,    std::memory_order_relaxed);
+
+      if (g_verbose_mode.load()) {
+        std::cout << "[IMU] θ=" << pr.theta_radians
+                  << " rad  φ=" << pr.phi_radians << " rad\n";
+      }
+
+      stats_.imu_samples++;
+      samples_in_window++;
+
+    } else if (header.payload_size == sizeof(ImuPitchPayload)) {
+      // ── LEGACY: Pitch-only (4 bytes) ─────────────────────────────────────
       if (static_cast<size_t>(len) <
           sizeof(PiMessageHeader) + sizeof(ImuPitchPayload)) {
         std::cerr << "[IMU] Dropped pitch packet: frame too short (" << len
@@ -469,12 +511,10 @@ void NetworkReceiver::imuThread() {
         continue;
       }
 
-      // Safely map payload — no UB thanks to memcpy below
       ImuPitchPayload pitch_payload;
       std::memcpy(&pitch_payload, buffer.data() + sizeof(PiMessageHeader),
                   sizeof(ImuPitchPayload));
 
-      // Basic sanity: pitch should be within ±π/2 (±90°)
       if (!std::isfinite(pitch_payload.theta_radians) ||
           std::abs(pitch_payload.theta_radians) > (float)M_PI_2) {
         std::cerr << "[IMU] Dropped pitch packet: theta out of range ("
@@ -484,7 +524,6 @@ void NetworkReceiver::imuThread() {
         continue;
       }
 
-      // Atomically publish pitch for consumption by SensorFusion::fuse()
       latest_pitch_rad_.store(pitch_payload.theta_radians,
                               std::memory_order_relaxed);
 
@@ -542,7 +581,7 @@ void NetworkReceiver::imuThread() {
     } else {
       // Unknown payload size — drop and warn
       std::cerr << "[IMU] Dropped packet: unexpected payload_size="
-                << header.payload_size << " (expected 4 or 60)\n";
+                << header.payload_size << " (expected 8)\n";
       stats_.errors++;
       errors_in_window++;
     }
