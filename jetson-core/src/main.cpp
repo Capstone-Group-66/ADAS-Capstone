@@ -24,9 +24,10 @@
 #include "adas/stage_a/DeviceWizard.hpp"
 #include "adas/stage_a/IngestManager.hpp"
 #include "adas/stage_b/CameraPipeline.hpp"
-// FrontCamDeepStream.hpp removed — pipeline runs as deepstream_fusion.py (Python pyds)
+// FrontCamDeepStream.hpp removed — pipeline runs as deepstream_fusion.py
+// (Python pyds)
 
-#include "adas/stage_b/ObjectDetector.hpp"     // For class name lookup
+#include "adas/stage_b/ObjectDetector.hpp" // For class name lookup
 #include "adas/stage_e/EgoFrame.hpp"
 #include "adas/stage_e/FCWMonitor.hpp"
 #include "adas/stage_e/SensorFusion.hpp"
