@@ -263,15 +263,10 @@ IngestManager::HealthStatus IngestManager::getHealth() const {
     return status;
   }
 
-  // Check front cam DeepStream pipeline
-  if (cam_front_ds_) {
-    bool h = cam_front_ds_->isHealthy();
-    status.sensor_health[Mount::FrontCam] = h;
-    status.total_drops += det_front_ds_queue_.drops();
-    if (!h) {
-      status.all_healthy = false;
-    }
-  }
+  // FrontCam health: managed by deepstream_fusion.py (Python).
+  // We still report queue drop count to surface backpressure issues.
+  status.sensor_health[Mount::FrontCam] = true; // assume OK; Python script logs its own health
+  status.total_drops += det_front_ds_queue_.drops();
   if (cam_side_l_) {
     bool h = cam_side_l_->isHealthy();
     status.sensor_health[Mount::SideCamL] = h;
