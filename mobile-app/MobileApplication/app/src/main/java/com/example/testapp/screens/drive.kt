@@ -50,46 +50,55 @@ fun DriveContent(
     onDebugFcw: () -> Unit,
     onDebugClear: () -> Unit,
 ) {
-    Column(Modifier.padding(16.dp)) {
-        Text("drive page")
+    // Wrap everything in a Surface that fills the screen
+    androidx.compose.material3.Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = Color(0xFF121212), // Example: Dark Charcoal color
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text("drive page")
 
-        StatusRow(
-            s1 = state.status1,
-            s2 = state.status2,
-            s3 = state.status3,
-            s4 = state.status4,
-        )
+            StatusRow(
+                s1 = state.status1,
+                s2 = state.status2,
+                s3 = state.status3,
+                s4 = state.status4,
+            )
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.padding(top = 16.dp),
-        ) {
-            androidx.compose.material3.Button(onClick = onDebugFcw) {
-                Text("TRIGGER FCW")
-            }
-            androidx.compose.material3.Button(onClick = onDebugClear) {
-                Text("CLEAR")
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(top = 16.dp),
+            ) {
+                androidx.compose.material3.Button(onClick = onDebugFcw) {
+                    Text("TRIGGER FCW")
+                }
+                androidx.compose.material3.Button(onClick = onDebugClear) {
+                    Text("CLEAR")
+                }
             }
         }
-    }
 
-    CenteredCar()
-    FrontDetection(state.sonarValue)
-    RearDetection(state.sonarValue)
-    FcwWarningOverlay(state)
-    Bsd()
-    Box(modifier = Modifier.fillMaxSize()) {
-        LaneDepartureDetection(
-            count = 9,
-            modifier = Modifier.offset(x = 85.dp, y = 100.dp),
-            lane = R.drawable.ic_right_lane,
-        )
+        CenteredCar()
+        FrontDetection(state.sonarValue)
+        RearDetection(state.sonarValue)
+        FcwWarningOverlay(state)
+        BsdLeft(0)
+        BsdRight(0)
+        Box(modifier = Modifier.fillMaxSize()) {
+            LaneDepartureDetection(
+                count = 9,
+                modifier = Modifier.offset(x = 85.dp, y = 100.dp),
+                lane = R.drawable.ic_right_lane,
+                0,
+            )
 
-        LaneDepartureDetection(
-            count = 9,
-            modifier = Modifier.offset(x = 270.dp, y = 100.dp),
-            lane = R.drawable.ic_right_lane,
-        )
+            LaneDepartureDetection(
+                count = 9,
+                modifier = Modifier.offset(x = 270.dp, y = 100.dp),
+                lane = R.drawable.ic_right_lane,
+                0,
+            )
+        }
     }
 }
 
@@ -139,7 +148,9 @@ fun CenteredCar() {
             painter = painterResource(R.drawable.image),
             contentDescription = "Car",
             modifier =
-                Modifier.size(400.dp).offset(y = 100.dp),
+                Modifier
+                    .size(320.dp)
+                    .offset(y = 100.dp),
         )
     }
 }
@@ -168,7 +179,10 @@ fun FrontDetection(detectionValue: SonarColor) {
             // Will be changed to use detectionValue once the detection system is implemented
             colorFilter = ColorFilter.tint(detectionValue.color),
             modifier =
-                Modifier.offset(y = -130.dp).size(300.dp).rotate(-90f),
+                Modifier
+                    .offset(y = -130.dp)
+                    .size(200.dp)
+                    .rotate(-90f),
         )
     }
 }
@@ -185,7 +199,10 @@ fun RearDetection(detectionValue: SonarColor) {
             // Will be changed to use detectionValue once the detection system is implemented
             colorFilter = ColorFilter.tint(detectionValue.color),
             modifier =
-                Modifier.offset(x = -5.dp, y = 320.dp).size(250.dp).rotate(-272f),
+                Modifier
+                    .offset(x = -5.dp, y = 320.dp)
+                    .size(200.dp)
+                    .rotate(-272f),
         )
     }
 }
@@ -227,7 +244,14 @@ fun StatusRow(
 }
 
 @Composable
-fun Bsd() {
+fun BsdLeft(detectionLR: Int) {
+    val tintColor =
+        if (detectionLR == 1) {
+            Color.Red
+        } else {
+            Color(0xFF121212)
+        }
+
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
@@ -235,10 +259,23 @@ fun Bsd() {
         Image(
             painter = painterResource(R.drawable.ic_bsd_right),
             contentDescription = "Blindspot left",
+            colorFilter = ColorFilter.tint(tintColor),
             modifier =
-                Modifier.size(300.dp).offset(x = 215.dp, y = 210.dp),
+                Modifier
+                    .size(300.dp)
+                    .offset(x = 215.dp, y = 210.dp),
         )
     }
+}
+
+@Composable
+fun BsdRight(detectionLR: Int) {
+    val tintColor =
+        if (detectionLR == 1) {
+            Color.Red
+        } else {
+            Color(0xFF121212)
+        }
 
     Box(
         modifier = Modifier.fillMaxSize(),
@@ -247,8 +284,11 @@ fun Bsd() {
         Image(
             painter = painterResource(R.drawable.ic_bsd_left),
             contentDescription = "Blindspot Right",
+            colorFilter = ColorFilter.tint(tintColor),
             modifier =
-                Modifier.size(300.dp).offset(x = -60.dp, y = 210.dp),
+                Modifier
+                    .size(300.dp)
+                    .offset(x = -60.dp, y = 210.dp),
         )
     }
 }
@@ -258,7 +298,15 @@ fun LaneDepartureDetection(
     count: Int,
     modifier: Modifier = Modifier,
     @DrawableRes lane: Int,
+    detectionLR: Int,
 ) {
+    val tintColor =
+        if (detectionLR == 1) {
+            Color.Red
+        } else {
+            Color(0xFF121212)
+        }
+
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(30.dp),
@@ -267,6 +315,7 @@ fun LaneDepartureDetection(
             Image(
                 painter = painterResource(lane),
                 contentDescription = null,
+                colorFilter = ColorFilter.tint(tintColor),
                 modifier =
                     Modifier
                         .size(50.dp)
