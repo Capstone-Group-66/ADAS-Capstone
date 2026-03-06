@@ -82,8 +82,8 @@ fun DriveContent(
         FrontDetection(state.sonarValue)
         RearDetection(state.sonarValue)
         FcwWarningOverlay(state)
-        BsdLeft(0)
-        BsdRight(0)
+        BsdLeft(state.sonarValue)
+        BsdRight(state.sonarValue)
         Box(modifier = Modifier.fillMaxSize()) {
             LaneDepartureDetection(
                 count = 9,
@@ -150,7 +150,7 @@ fun CenteredCar() {
             modifier =
                 Modifier
                     .size(320.dp)
-                    .offset(y = 100.dp),
+                    .offset(x = -5.dp, y = 100.dp),
         )
     }
 }
@@ -180,7 +180,7 @@ fun FrontDetection(detectionValue: SonarColor) {
             colorFilter = ColorFilter.tint(detectionValue.color),
             modifier =
                 Modifier
-                    .offset(y = -130.dp)
+                    .offset(y = -100.dp)
                     .size(200.dp)
                     .rotate(-90f),
         )
@@ -244,51 +244,39 @@ fun StatusRow(
 }
 
 @Composable
-fun BsdLeft(detectionLR: Int) {
-    val tintColor =
-        if (detectionLR == 1) {
-            Color.Red
-        } else {
-            Color(0xFF121212)
-        }
-
+fun BsdLeft(detectionValue: SonarColor) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
         Image(
-            painter = painterResource(R.drawable.ic_bsd_right),
+            painter = painterResource(R.drawable.ic_detection_re),
             contentDescription = "Blindspot left",
-            colorFilter = ColorFilter.tint(tintColor),
+            colorFilter = ColorFilter.tint(detectionValue.color),
             modifier =
                 Modifier
-                    .size(300.dp)
-                    .offset(x = 215.dp, y = 210.dp),
+                    .size(150.dp)
+                    .offset(x = -110.dp, y = 190.dp)
+                    .rotate(135f),
         )
     }
 }
 
 @Composable
-fun BsdRight(detectionLR: Int) {
-    val tintColor =
-        if (detectionLR == 1) {
-            Color.Red
-        } else {
-            Color(0xFF121212)
-        }
-
+fun BsdRight(detectionValue: SonarColor) {
     Box(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center,
     ) {
         Image(
-            painter = painterResource(R.drawable.ic_bsd_left),
-            contentDescription = "Blindspot Right",
-            colorFilter = ColorFilter.tint(tintColor),
+            painter = painterResource(R.drawable.ic_detection_re),
+            contentDescription = "Blindspot right",
+            colorFilter = ColorFilter.tint(detectionValue.color),
             modifier =
                 Modifier
-                    .size(300.dp)
-                    .offset(x = -60.dp, y = 210.dp),
+                    .size(150.dp)
+                    .offset(x = 110.dp, y = 190.dp)
+                    .rotate(45f),
         )
     }
 }
@@ -304,7 +292,7 @@ fun LaneDepartureDetection(
         if (detectionLR == 1) {
             Color.Red
         } else {
-            Color(0xFF121212)
+            Color.White
         }
 
     Column(
