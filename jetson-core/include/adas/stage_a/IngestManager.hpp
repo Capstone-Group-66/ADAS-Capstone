@@ -74,8 +74,7 @@ class IngestManager {
     //                        QUEUE ACCESS FOR DOWNSTREAM
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /// Get camera queue by mount (Side cameras only — FrontCam uses DeepStream)
-    /// @throws std::out_of_range if mount is not a valid side/rear camera
+    /// Get camera queue by mount.
     SPSCQueue<CameraFrameData, 8> &getCameraQueue(Mount mount);
 
     /// Get the DeepStream DetBatch output queue for the Front Camera.
@@ -167,8 +166,10 @@ class IngestManager {
     //                           INGEST INSTANCES
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // Front Camera: queue fed by deepstream_fusion.py via future ZMQ bridge.
-    // In replay mode, ReplayEngine populates this queue directly.
+    // Front Camera: plain CameraIngest for live preview + Stage B inference.
+    // deepstream_fusion.py runs separately for the pyds-annotated view.
+    std::unique_ptr<CameraIngest> cam_front_;
+
 
     // Side cameras: unchanged OpenCV CameraIngest
     std::unique_ptr<CameraIngest> cam_side_l_;

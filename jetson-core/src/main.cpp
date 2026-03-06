@@ -476,7 +476,7 @@ void visualizationThread() {
   }
 
   if (display_enabled) {
-    cv::destroyWindow("Stage B: FrontCam");
+    try { cv::destroyAllWindows(); } catch (...) {}
   }
   std::cout << "[StageE] Thread stopped\n";
 }
@@ -604,15 +604,15 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
       std::make_unique<adas::StageBManager>(calib_dir, model_path);
 
   // Add camera pipelines for each mapped camera
-  // FCW Vertical Slice: FrontCam detections now come from DeepStream.
-  // The FrontCamDeepStream pad probe (inside IngestManager) pushes DetBatch
-  // objects directly into g_ingest_manager->getFrontCamDetQueue(), which is
-  // the same queue as g_det_front_queue — the Stage E visualisation thread
-  // reads from g_det_front_queue as before.
-  //
-  // StageBManager is kept alive for future side-camera YOLO/TRT inference
-  // (BSD, LCW). It is intentionally left empty here.
-  // NOTE: No addCamera(FrontCam, ...) call — DeepStream owns that path.
+  // Wire FrontCam into Stage B for live preview + TRT inference.
+  // deepstream_fusion.py (Python) runs separately for the pyds-annotated view.
+  auto& mappings = hw_map.mappings;
+  if (mappings.find(adas::Mount::FrontCam) != mappings.end()) {
+    g_stage_b_manager->addCamera(
+        adas::Mount::FrontCam,
+        g_ingest_manager->getCameraQueue(adas::Mount::FrontCam),
+        g_det_front_queue);
+  }
 
   // Side cameras can be added here in future (BSD/LCW):
   // if (mappings.find(adas::Mount::SideCamL) != mappings.end()) {

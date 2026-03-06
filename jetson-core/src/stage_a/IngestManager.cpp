@@ -106,7 +106,10 @@ void IngestManager::stop() {
   if (cam_side_l_) {
     cam_side_l_->stop();
   }
-  // Front Camera pipeline (Python): stopped externally
+  // Front Camera
+  if (cam_front_) {
+    cam_front_->stop();
+  }
 
   if (replay_engine_) {
     replay_engine_->stop();
@@ -118,12 +121,16 @@ void IngestManager::stop() {
 void IngestManager::launchDirectCameras() {
   std::cout << "[IngestManager] Launching cameras...\n";
 
-  // ── Front Camera: Python DeepStream publisher ────────────────────────────
-  // FrontCamDeepStream (C++) has been replaced by scripts/deepstream_fusion.py.
-  // That standalone Python pyds script owns the GStreamer pipeline and
-  // publishes detections. The det_front_ds_queue_ below will be fed by a future
-  // ZMQ bridge.
-  std::cout << "[IngestManager] FrontCam: managed by deepstream_fusion.py\n";
+  // ── Front Camera: CameraIngest for live preview + Stage B inference ─────────
+  // deepstream_fusion.py runs separately for the pyds-annotated view.
+  auto front_it = hw_map_.mappings.find(Mount::FrontCam);
+  if (front_it != hw_map_.mappings.end()) {
+    cam_front_ = std::make_unique<CameraIngest>(
+        Mount::FrontCam, front_it->second, cam_front_queue_, config_.cameras);
+    cam_front_->start();
+  } else {
+    std::cerr << "[IngestManager] WARNING: FrontCam not in hardware_map\n";
+  }
 
   // SideCamL
   auto it = hw_map_.mappings.find(Mount::SideCamL);
@@ -221,11 +228,7 @@ SPSCQueue<CameraFrameData, 8> &IngestManager::getCameraQueue(Mount mount) {
   case Mount::RearCam:
     return cam_rear_queue_;
   case Mount::FrontCam:
-    // FrontCam no longer produces CameraFrameData — it outputs DetBatch via
-    // DeepStream. Callers should use getFrontCamDetQueue() instead.
-    throw std::logic_error("FrontCam no longer uses the CameraFrameData path. "
-                           "Use IngestManager::getFrontCamDetQueue() for "
-                           "DeepStream DetBatch output.");
+    return cam_front_queue_;
   default:
     throw std::out_of_range("Invalid camera mount");
   }
@@ -366,6 +369,8 @@ void IngestManager::printStatus() const {
 void IngestManager::setRecorder(Recorder *recorder) {
   // Propagate to side cameras.
   // FrontCam (Python deepstream_fusion.py) — no recorder hook needed here
+  if (cam_front_)
+    cam_front_->setRecorder(recorder);
   if (cam_side_l_)
     cam_side_l_->setRecorder(recorder);
   if (cam_side_r_)
