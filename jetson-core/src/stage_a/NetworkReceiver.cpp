@@ -451,18 +451,18 @@ void NetworkReceiver::imuThread() {
 
     // ── Dispatch by payload_size ──────────────────────────────────────────
     //
-    //  payload_size == 8  → ImuPitchRollPayload  (Pi IMU_STRUCT = "<ff": pitch+roll)
-    //  payload_size == 4  → ImuPitchPayload      (legacy pitch-only, kept for compat)
-    //  payload_size == 60 → ImuPayload            (full BNO085 sample)
-    //  anything else      → drop with error
+    //  payload_size == 8  → ImuPitchRollPayload  (Pi IMU_STRUCT = "<ff":
+    //  pitch+roll) payload_size == 4  → ImuPitchPayload      (legacy
+    //  pitch-only, kept for compat) payload_size == 60 → ImuPayload (full
+    //  BNO085 sample) anything else      → drop with error
 
     if (header.payload_size == sizeof(ImuPitchRollPayload)) {
       // ── PRIMARY: Pitch + Roll (8 bytes) ─────────────────────────────────
       // Pi sends: IMU_STRUCT = struct.Struct("<ff") → theta, phi
       if (static_cast<size_t>(len) <
           sizeof(PiMessageHeader) + sizeof(ImuPitchRollPayload)) {
-        std::cerr << "[IMU] Dropped pitch+roll packet: frame too short ("
-                  << len << " bytes)\\n";
+        std::cerr << "[IMU] Dropped pitch+roll packet: frame too short (" << len
+                  << " bytes)\\n";
         stats_.errors++;
         errors_in_window++;
         continue;
@@ -475,21 +475,23 @@ void NetworkReceiver::imuThread() {
       // Sanity: pitch within ±π/2, roll within ±π
       if (!std::isfinite(pr.theta_radians) ||
           std::abs(pr.theta_radians) > (float)M_PI_2) {
-        std::cerr << "[IMU] Dropped: theta out of range ("
-                  << pr.theta_radians << " rad)\\n";
-        stats_.errors++; errors_in_window++;
+        std::cerr << "[IMU] Dropped: theta out of range (" << pr.theta_radians
+                  << " rad)\\n";
+        stats_.errors++;
+        errors_in_window++;
         continue;
       }
       if (!std::isfinite(pr.phi_radians) ||
           std::abs(pr.phi_radians) > (float)M_PI) {
-        std::cerr << "[IMU] Dropped: phi out of range ("
-                  << pr.phi_radians << " rad)\\n";
-        stats_.errors++; errors_in_window++;
+        std::cerr << "[IMU] Dropped: phi out of range (" << pr.phi_radians
+                  << " rad)\\n";
+        stats_.errors++;
+        errors_in_window++;
         continue;
       }
 
       latest_pitch_rad_.store(pr.theta_radians, std::memory_order_relaxed);
-      latest_roll_rad_.store(pr.phi_radians,    std::memory_order_relaxed);
+      latest_roll_rad_.store(pr.phi_radians, std::memory_order_relaxed);
 
       if (g_verbose_mode.load()) {
         std::cout << "[IMU] θ=" << pr.theta_radians
