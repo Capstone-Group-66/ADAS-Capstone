@@ -8,6 +8,8 @@ data class UpdateUIstate(
     val status3: Boolean,
     val status4: Boolean,
     val sonarValue: SonarColor,
+    val leftBlindspotValue: SonarColor,
+    val rightBlindspotValue: SonarColor,
     val timestamp: Long = 0,
     val fcwExpiry: Long = 0,
 )

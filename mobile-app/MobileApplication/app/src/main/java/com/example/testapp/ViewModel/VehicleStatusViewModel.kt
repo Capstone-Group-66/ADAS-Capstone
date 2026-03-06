@@ -25,6 +25,8 @@ class VehicleStatusViewModel(
                     status3 = vehicleAlert.bsd.rightActive,
                     status4 = vehicleAlert.cameras.frontOk,
                     sonarValue = vehicleAlert.sonar.front,
+                    leftBlindspotValue = vehicleAlert.sonar.left,
+                    rightBlindspotValue = vehicleAlert.sonar.right,
                     timestamp = vehicleAlert.timestampMs,
                     fcwExpiry = vehicleAlert.fcwExpiry,
                 )
@@ -38,6 +40,8 @@ class VehicleStatusViewModel(
                         status3 = false,
                         status4 = false,
                         sonarValue = SonarColor.GREEN,
+                        leftBlindspotValue = SonarColor.GREEN,
+                        rightBlindspotValue = SonarColor.GREEN,
                     ),
             )
 }
