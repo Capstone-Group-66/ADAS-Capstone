@@ -45,6 +45,7 @@ std::unique_ptr<adas::IngestManager> g_ingest_manager;
 std::unique_ptr<adas::StageBManager> g_stage_b_manager;
 std::atomic<bool> g_shutdown_requested{false};
 std::atomic<bool> g_pipeline_running{false};
+std::atomic<bool> g_rtsp_streaming{false};
 
 // DeepStream Python subprocess (deepstream_fusion.py)
 pid_t g_ds_pid = -1;
@@ -86,7 +87,9 @@ void launchDeepStreamScript(const std::string &pi_ip,
         "--config", config_path.c_str(),
         "--tracker", tracker_path.c_str()
     };
-    if (!has_display) {
+    if (g_rtsp_streaming.load()) {
+        args.push_back("--rtsp");
+    } else if (!has_display) {
         args.push_back("--no-display");
     }
     args.push_back(nullptr);
@@ -677,6 +680,8 @@ void printMenu() {
             << "]\n";
   std::cout << " 12) Start Pipeline (Replay Mode)\n";
   std::cout << " 13) Edit Camera Config (opens editor, hot-reload)\n";
+  std::cout << " 14) Toggle RTSP Stream ["
+            << (g_rtsp_streaming.load() ? "ON" : "OFF") << "]\n";
   std::cout << "  0) Exit\n";
   std::cout
       << "==============================================================\n";
@@ -1279,6 +1284,13 @@ int main(int argc, char **argv) {
           startReplayPipeline(file_path, speed, config, hw_map, calib_dir,
                               model_path);
         }
+      } break;
+
+      case 14: // Toggle RTSP Server
+      {
+        bool new_val = !g_rtsp_streaming.load();
+        g_rtsp_streaming.store(new_val);
+        std::cout << "[Main] RTSP Streaming " << (new_val ? "ENABLED" : "DISABLED") << " (takes effect on next pipeline start)\n";
       } break;
 
       case 0: // Exit

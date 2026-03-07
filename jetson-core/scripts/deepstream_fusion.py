@@ -39,7 +39,11 @@ from typing import Dict, List, Optional, Tuple
 
 import gi
 gi.require_version("Gst", "1.0")
-from gi.repository import Gst, GLib
+try:
+    gi.require_version('GstRtspServer', '1.0')
+except ValueError:
+    pass
+from gi.repository import Gst, GLib, GstRtspServer
 
 # DeepStream Python bindings (pyds.so) are not installed as a normal pip package.
 # Add the DeepStream lib directory to sys.path so any python3 interpreter finds it.
@@ -469,7 +473,24 @@ def build_pipeline(args):
     nvinfer    = make("nvinfer",        "infer")
     nvtracker  = make("nvtracker",      "tracker")
     nvosd      = make("nvdsosd",        "osd")
-    sink       = make("fakesink" if args.no_display else "nv3dsink", "sink")
+
+    if args.rtsp:
+        nvvidconv = make("nvvideoconvert", "nvvideo-converter")
+        encoder_caps = make("capsfilter", "encoder-caps")
+        encoder_caps.set_property("caps", Gst.Caps.from_string("video/x-raw(memory:NVMM), format=I420"))
+        encoder = make("nvv4l2h264enc", "h264-encoder")
+        encoder.set_property("bitrate", 4000000)
+        encoder.set_property('preset-level', 1)
+        encoder.set_property('insert-sps-pps', 1)
+        encoder.set_property('bufapi-version', 1)
+        rtppay = make("rtph264pay", "rtppay")
+        sink = make("udpsink", "udpsink")
+        sink.set_property("host", "224.224.255.255")
+        sink.set_property("port", 5400)
+        sink.set_property("async", False)
+        sink.set_property("sync", 1)
+    else:
+        sink       = make("fakesink" if args.no_display else "nv3dsink", "sink")
 
     # ── Configure elements ────────────────────────────────────────────────────
     source.set_property("device", args.device)
@@ -500,8 +521,14 @@ def build_pipeline(args):
         sink.set_property("sync", False)
 
     # ── Add all elements to pipeline ──────────────────────────────────────────
-    for el in (source, caps_src, jpegparse, decoder, streammux,
-               nvinfer, nvtracker, nvosd, sink):
+    elements = [source, caps_src, jpegparse, decoder, streammux,
+                nvinfer, nvtracker, nvosd]
+    if args.rtsp:
+        elements.extend([nvvidconv, encoder_caps, encoder, rtppay, sink])
+    else:
+        elements.append(sink)
+
+    for el in elements:
         pipeline.add(el)
 
     # ── Link: src → caps → jpegparse → decoder → (mux via request pad) ───────
@@ -521,11 +548,18 @@ def build_pipeline(args):
         raise RuntimeError("Failed to link decoder → nvstreammux")
 
     # ── Link: mux → infer → tracker → osd → sink ─────────────────────────────
-    for a, b in [(streammux, nvinfer), (nvinfer, nvtracker),
-                 (nvtracker, nvosd),   (nvosd, sink)]:
+    link_pairs = [(streammux, nvinfer), (nvinfer, nvtracker), (nvtracker, nvosd)]
+    if args.rtsp:
+        link_pairs.extend([
+            (nvosd, nvvidconv), (nvvidconv, encoder_caps), 
+            (encoder_caps, encoder), (encoder, rtppay), (rtppay, sink)
+        ])
+    else:
+        link_pairs.append((nvosd, sink))
+
+    for a, b in link_pairs:
         if not a.link(b):
-            raise RuntimeError(
-                f"Failed to link {a.get_name()} → {b.get_name()}")
+            raise RuntimeError(f"Failed to link {a.get_name()} → {b.get_name()}")
 
     # ── Attach the buffer probe to the OSD SINK pad ───────────────────────────
     # This is the canonical DeepStream Python probe hook:
@@ -587,6 +621,8 @@ def main():
     parser.add_argument("--no-display", action="store_true",
                         help="Use fakesink instead of nv3dsink "
                              "(headless / SSH mode)")
+    parser.add_argument("--rtsp", action="store_true",
+                        help="Start an RTSP server to stream the pipeline output")
     args = parser.parse_args()
 
     # ── Shared state ──────────────────────────────────────────────────────────
@@ -635,6 +671,19 @@ def main():
     bus  = pipeline.get_bus()
     bus.add_signal_watch()
     bus.connect("message", _bus_call, loop)
+
+    # ── RTSP Server ───────────────────────────────────────────────────────────
+    if args.rtsp:
+        server = GstRtspServer.RTSPServer.new()
+        server.set_address("0.0.0.0")
+        server.set_service("8554")
+        factory = GstRtspServer.RTSPMediaFactory.new()
+        factory.set_launch('( udpsrc name=pay0 port=5400 buffer-size=524288 caps="application/x-rtp, media=video, clock-rate=90000, encoding-name=(string)H264, payload=96 " )')
+        factory.set_shared(True)
+        server.get_mount_points().add_factory("/ds-test", factory)
+        server.attach(None)
+        print(f"\n[DS] *** RTSP STREAMING ENABLED ***")
+        print(f"[DS] *** Connect VLC to: rtsp://<THIS_JETSON_IP>:8554/ds-test ***\n")
 
     # ── Start pipeline ────────────────────────────────────────────────────────
     ret = pipeline.set_state(Gst.State.PLAYING)
