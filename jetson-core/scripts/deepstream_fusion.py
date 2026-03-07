@@ -444,12 +444,12 @@ def build_pipeline(args):
     """
     Pipeline topology (as mandated by DeepStream pyds architecture):
 
-      v4l2src → capsfilter → nvv4l2decoder
+      v4l2src → capsfilter → jpegparse → nvv4l2decoder
         → nvstreammux
         → nvinfer (config-file-path = args.config)
         → nvtracker
         → nvdsosd   ◄──── osd_sink_pad_buffer_probe attached here
-        → (nveglglessink  OR  fakesink if --no-display)
+        → (nv3dsink  OR  fakesink if --no-display)
     """
     Gst.init(None)
 
@@ -469,7 +469,7 @@ def build_pipeline(args):
     nvinfer    = make("nvinfer",        "infer")
     nvtracker  = make("nvtracker",      "tracker")
     nvosd      = make("nvdsosd",        "osd")
-    sink       = make("fakesink" if args.no_display else "nveglglessink", "sink")
+    sink       = make("fakesink" if args.no_display else "nv3dsink", "sink")
 
     # ── Configure elements ────────────────────────────────────────────────────
     source.set_property("device", args.device)
@@ -585,7 +585,7 @@ def main():
                         help="Serial port for OPS243-C  (e.g. /dev/ttyACM0)")
     parser.add_argument("--radar-baud", type=int, default=115200)
     parser.add_argument("--no-display", action="store_true",
-                        help="Use fakesink instead of nveglglessink "
+                        help="Use fakesink instead of nv3dsink "
                              "(headless / SSH mode)")
     args = parser.parse_args()
 
