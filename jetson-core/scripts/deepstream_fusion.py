@@ -39,11 +39,7 @@ from typing import Dict, List, Optional, Tuple
 
 import gi
 gi.require_version("Gst", "1.0")
-try:
-    gi.require_version('GstRtspServer', '1.0')
-except ValueError:
-    pass
-from gi.repository import Gst, GLib, GstRtspServer
+from gi.repository import Gst, GLib
 
 # DeepStream Python bindings (pyds.so) are not installed as a normal pip package.
 # Add the DeepStream lib directory to sys.path so any python3 interpreter finds it.
@@ -671,6 +667,13 @@ def main():
 
     # ── RTSP Server ───────────────────────────────────────────────────────────
     if args.rtsp:
+        try:
+            gi.require_version('GstRtspServer', '1.0')
+            from gi.repository import GstRtspServer
+        except (ValueError, ImportError):
+            print("[DS] ERROR: GstRtspServer typelib not found. Cannot start RTSP stream.")
+            sys.exit(1)
+            
         server = GstRtspServer.RTSPServer.new()
         server.set_address("0.0.0.0")
         server.set_service("8554")
