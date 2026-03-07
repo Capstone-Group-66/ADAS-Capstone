@@ -85,7 +85,8 @@ void launchDeepStreamScript(const std::string &pi_ip,
         "--pi-ip", pi_ip.c_str(),
         "--device", front_cam_device.c_str(),
         "--config", config_path.c_str(),
-        "--tracker", tracker_path.c_str()
+        "--tracker", tracker_path.c_str(),
+        "--fps", "10"
     };
     if (g_rtsp_streaming.load()) {
         args.push_back("--rtsp");
