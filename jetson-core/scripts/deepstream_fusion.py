@@ -463,6 +463,7 @@ def build_pipeline(args):
     pipeline   = Gst.Pipeline.new("adas-pipeline")
     source     = make("v4l2src",        "src")
     caps_src   = make("capsfilter",     "caps_src")
+    jpegparse  = make("jpegparse",      "jpegparse")
     decoder    = make("nvv4l2decoder",  "decoder")
     streammux  = make("nvstreammux",    "mux")
     nvinfer    = make("nvinfer",        "infer")
@@ -474,7 +475,7 @@ def build_pipeline(args):
     source.set_property("device", args.device)
 
     caps_src.set_property("caps", Gst.Caps.from_string(
-        f"video/x-raw,format=YUY2,width={FRAME_W},"
+        f"image/jpeg,width={FRAME_W},"
         f"height={FRAME_H},framerate={args.fps}/1"))
 
     # nvstreammux — batch single stream
@@ -499,15 +500,17 @@ def build_pipeline(args):
         sink.set_property("sync", False)
 
     # ── Add all elements to pipeline ──────────────────────────────────────────
-    for el in (source, caps_src, decoder, streammux,
+    for el in (source, caps_src, jpegparse, decoder, streammux,
                nvinfer, nvtracker, nvosd, sink):
         pipeline.add(el)
 
-    # ── Link: src → caps → decoder → (mux via request pad) ───────────────────
+    # ── Link: src → caps → jpegparse → decoder → (mux via request pad) ───────
     if not source.link(caps_src):
         raise RuntimeError("Failed to link v4l2src → capsfilter")
-    if not caps_src.link(decoder):
-        raise RuntimeError("Failed to link capsfilter → nvv4l2decoder")
+    if not caps_src.link(jpegparse):
+        raise RuntimeError("Failed to link capsfilter → jpegparse")
+    if not jpegparse.link(decoder):
+        raise RuntimeError("Failed to link jpegparse → nvv4l2decoder")
 
     # decoder src pad → nvstreammux sink_0 (request pad)
     dec_src_pad = decoder.get_static_pad("src")
