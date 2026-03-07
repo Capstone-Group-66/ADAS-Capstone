@@ -444,7 +444,7 @@ def build_pipeline(args):
     """
     Pipeline topology (as mandated by DeepStream pyds architecture):
 
-      v4l2src → capsfilter → nvv4l2decoder
+      v4l2src → capsfilter(YUY2) → nvvideoconvert → capsfilter(NVMM)
         → nvstreammux
         → nvinfer (config-file-path = args.config)
         → nvtracker
@@ -463,7 +463,8 @@ def build_pipeline(args):
     pipeline   = Gst.Pipeline.new("adas-pipeline")
     source     = make("v4l2src",        "src")
     caps_src   = make("capsfilter",     "caps_src")
-    decoder    = make("nvv4l2decoder",  "decoder")
+    vidconv    = make("nvvideoconvert", "vidconv")
+    caps_vid   = make("capsfilter",     "caps_vid")
     streammux  = make("nvstreammux",    "mux")
     nvinfer    = make("nvinfer",        "infer")
     nvtracker  = make("nvtracker",      "tracker")
@@ -494,6 +495,9 @@ def build_pipeline(args):
         f"video/x-raw,format=YUY2,width={FRAME_W},"
         f"height={FRAME_H},framerate={args.fps}/1"))
 
+    caps_vid.set_property("caps", Gst.Caps.from_string(
+        "video/x-raw(memory:NVMM),format=NV12"))
+
     # nvstreammux — batch single stream
     streammux.set_property("batch-size",            1)
     streammux.set_property("width",                 FRAME_W)
@@ -516,7 +520,7 @@ def build_pipeline(args):
         sink.set_property("sync", False)
 
     # ── Add all elements to pipeline ──────────────────────────────────────────
-    elements = [source, caps_src, decoder, streammux,
+    elements = [source, caps_src, vidconv, caps_vid, streammux,
                 nvinfer, nvtracker, nvosd]
     if args.rtsp:
         elements.extend([nvvidconv, encoder_caps, encoder, rtppay, sink])
@@ -526,19 +530,21 @@ def build_pipeline(args):
     for el in elements:
         pipeline.add(el)
 
-    # ── Link: src → caps → decoder → (mux via request pad) ───────
+    # ── Link: src → caps_src → vidconv → caps_vid → (mux via request pad) ───────
     if not source.link(caps_src):
-        raise RuntimeError("Failed to link v4l2src → capsfilter")
-    if not caps_src.link(decoder):
-        raise RuntimeError("Failed to link capsfilter → nvv4l2decoder")
+        raise RuntimeError("Failed to link v4l2src → caps_src")
+    if not caps_src.link(vidconv):
+        raise RuntimeError("Failed to link caps_src → nvvideoconvert")
+    if not vidconv.link(caps_vid):
+        raise RuntimeError("Failed to link nvvideoconvert → caps_vid")
 
-    # decoder src pad → nvstreammux sink_0 (request pad)
-    dec_src_pad = decoder.get_static_pad("src")
+    # vidconv caps src pad → nvstreammux sink_0 (request pad)
+    vid_src_pad = caps_vid.get_static_pad("src")
     mux_sink_pad = streammux.get_request_pad("sink_0")
-    if not dec_src_pad or not mux_sink_pad:
-        raise RuntimeError("Could not get decoder src pad or mux sink_0 pad")
-    if dec_src_pad.link(mux_sink_pad) != Gst.PadLinkReturn.OK:
-        raise RuntimeError("Failed to link decoder → nvstreammux")
+    if not vid_src_pad or not mux_sink_pad:
+        raise RuntimeError("Could not get caps_vid src pad or mux sink_0 pad")
+    if vid_src_pad.link(mux_sink_pad) != Gst.PadLinkReturn.OK:
+        raise RuntimeError("Failed to link caps_vid → nvstreammux")
 
     # ── Link: mux → infer → tracker → osd → sink ─────────────────────────────
     link_pairs = [(streammux, nvinfer), (nvinfer, nvtracker), (nvtracker, nvosd)]
