@@ -183,6 +183,8 @@ void IngestManager::launchNetworkIngest() {
     return;
   }
 
+  pi_ip_ = pi_ip;  // cache for getPiIp()
+
   std::cout << "[IngestManager] Launching ZMQ receiver for Pi at " << pi_ip
             << "...\n";
 

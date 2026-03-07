@@ -110,6 +110,9 @@ class IngestManager {
         return 0.0f;
     }
 
+    /// Return the Pi IP address extracted from the hardware map, or "".
+    const std::string& getPiIp() const { return pi_ip_; }
+
     // ═══════════════════════════════════════════════════════════════════════════
     //                             HEALTH MONITORING
     // ═══════════════════════════════════════════════════════════════════════════
@@ -191,6 +194,7 @@ class IngestManager {
 
     std::atomic<bool> running_{false};
     bool is_replay_mode_{false};
+    std::string pi_ip_;  ///< Pi IP extracted from hw_map (zmq://IP:PORT format)
 };
 
 } // namespace adas
