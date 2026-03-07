@@ -121,11 +121,11 @@ void IngestManager::stop() {
 void IngestManager::launchDirectCameras() {
   std::cout << "[IngestManager] Launching cameras...\n";
 
-  // ── Front Camera: owned by deepstream_fusion.py (v4l2src in GStreamer) ──────
-  // Do NOT open a CameraIngest here — the Python child process holds /dev/video0.
-  // cam_front_queue_ is still used in replay mode (ReplayEngine feeds it).
+  // ── Front Camera: owned by deepstream_fusion.py (v4l2src in GStreamer)
+  // ────── Do NOT open a CameraIngest here — the Python child process holds
+  // /dev/video0. cam_front_queue_ is still used in replay mode (ReplayEngine
+  // feeds it).
   std::cout << "[IngestManager] FrontCam: managed by deepstream_fusion.py\n";
-
 
   // SideCamL
   auto it = hw_map_.mappings.find(Mount::SideCamL);
