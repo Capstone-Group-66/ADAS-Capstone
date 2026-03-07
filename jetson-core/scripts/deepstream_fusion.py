@@ -40,7 +40,27 @@ from typing import Dict, List, Optional, Tuple
 import gi
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst, GLib
-import pyds
+
+# DeepStream Python bindings (pyds.so) are not installed as a normal pip package.
+# Add the DeepStream lib directory to sys.path so any python3 interpreter finds it.
+_DS_PYDS_PATHS = [
+    "/opt/nvidia/deepstream/deepstream/lib",
+    "/opt/nvidia/deepstream/deepstream-6.0/lib",
+    "/opt/nvidia/deepstream/deepstream-6.1/lib",
+]
+for _p in _DS_PYDS_PATHS:
+    if os.path.isdir(_p) and _p not in sys.path:
+        sys.path.insert(0, _p)
+        break
+
+try:
+    import pyds
+except ModuleNotFoundError:
+    print("[DS] ERROR: pyds not found. Tried paths:")
+    for _p in _DS_PYDS_PATHS:
+        print(f"  {_p}")
+    print("[DS] Install DeepStream 6.x or check PYTHONPATH.")
+    sys.exit(1)
 
 import zmq
 

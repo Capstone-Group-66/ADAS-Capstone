@@ -121,16 +121,11 @@ void IngestManager::stop() {
 void IngestManager::launchDirectCameras() {
   std::cout << "[IngestManager] Launching cameras...\n";
 
-  // ── Front Camera: CameraIngest for live preview + Stage B inference
-  // ───────── deepstream_fusion.py runs separately for the pyds-annotated view.
-  auto front_it = hw_map_.mappings.find(Mount::FrontCam);
-  if (front_it != hw_map_.mappings.end()) {
-    cam_front_ = std::make_unique<CameraIngest>(
-        Mount::FrontCam, front_it->second, cam_front_queue_, config_.cameras);
-    cam_front_->start();
-  } else {
-    std::cerr << "[IngestManager] WARNING: FrontCam not in hardware_map\n";
-  }
+  // ── Front Camera: owned by deepstream_fusion.py (v4l2src in GStreamer) ──────
+  // Do NOT open a CameraIngest here — the Python child process holds /dev/video0.
+  // cam_front_queue_ is still used in replay mode (ReplayEngine feeds it).
+  std::cout << "[IngestManager] FrontCam: managed by deepstream_fusion.py\n";
+
 
   // SideCamL
   auto it = hw_map_.mappings.find(Mount::SideCamL);
