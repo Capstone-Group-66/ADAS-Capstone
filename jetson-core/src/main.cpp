@@ -10,6 +10,7 @@
 #include <opencv2/imgproc.hpp>
 #include <sstream>
 #include <string>
+#include <vector>
 #include <thread>
 // POSIX process management (fork/exec/kill) for deepstream_fusion.py
 #include <sys/types.h>
@@ -68,13 +69,29 @@ void launchDeepStreamScript(const std::string &pi_ip,
     return;
   }
 
+  bool has_display = true;
+  const char* disp_env = std::getenv("DISPLAY");
+  if (!disp_env || std::string(disp_env).empty() || std::string(disp_env) == "") {
+      has_display = false;
+      std::cout << "[DS] No DISPLAY environment variable found, running headless (--no-display)\n";
+  }
+
   pid_t pid = fork();
   if (pid == 0) {
     // Child: exec the Python script and never return
-    execl("/usr/bin/python3", "python3", script.c_str(), "--pi-ip",
-          pi_ip.c_str(), "--device", front_cam_device.c_str(), "--config",
-          config_path.c_str(), "--tracker", tracker_path.c_str(),
-          (char *)nullptr);
+    std::vector<const char*> args = {
+        "python3", script.c_str(),
+        "--pi-ip", pi_ip.c_str(),
+        "--device", front_cam_device.c_str(),
+        "--config", config_path.c_str(),
+        "--tracker", tracker_path.c_str()
+    };
+    if (!has_display) {
+        args.push_back("--no-display");
+    }
+    args.push_back(nullptr);
+
+    execv("/usr/bin/python3", const_cast<char* const*>(args.data()));
     std::cerr << "[DS] exec deepstream_fusion.py failed\n";
     _exit(1);
   } else if (pid > 0) {
