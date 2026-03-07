@@ -48,22 +48,20 @@ std::atomic<bool> g_pipeline_running{false};
 // DeepStream Python subprocess (deepstream_fusion.py)
 pid_t g_ds_pid = -1;
 
-void launchDeepStreamScript(const std::string& pi_ip,
-                            const std::string& front_cam_device,
-                            const adas::Config& cfg) {
+void launchDeepStreamScript(const std::string &pi_ip,
+                            const std::string &front_cam_device,
+                            const adas::Config &cfg) {
   // Resolve script path relative to the executable or a fixed install location.
   // Try $HOME/ADAS-Capstone/jetson-core/scripts first, then fall back.
-  const char* home = std::getenv("HOME");
+  const char *home = std::getenv("HOME");
   std::string script =
       std::string(home ? home : "/home/capstone-66") +
       "/ADAS-Capstone/jetson-core/scripts/deepstream_fusion.py";
 
-  std::string config_path =
-      std::string(home ? home : "/home/capstone-66") +
-      "/dashcamnet/config_infer.txt";
-  std::string tracker_path =
-      std::string(home ? home : "/home/capstone-66") +
-      "/dashcamnet/tracker_config.txt";
+  std::string config_path = std::string(home ? home : "/home/capstone-66") +
+                            "/dashcamnet/config_infer.txt";
+  std::string tracker_path = std::string(home ? home : "/home/capstone-66") +
+                             "/dashcamnet/tracker_config.txt";
 
   if (pi_ip.empty()) {
     std::cerr << "[DS] Cannot launch deepstream_fusion.py: Pi IP unknown.\n";
@@ -73,13 +71,10 @@ void launchDeepStreamScript(const std::string& pi_ip,
   pid_t pid = fork();
   if (pid == 0) {
     // Child: exec the Python script and never return
-    execl("/usr/bin/python3", "python3",
-          script.c_str(),
-          "--pi-ip",  pi_ip.c_str(),
-          "--device", front_cam_device.c_str(),
-          "--config", config_path.c_str(),
-          "--tracker", tracker_path.c_str(),
-          (char*)nullptr);
+    execl("/usr/bin/python3", "python3", script.c_str(), "--pi-ip",
+          pi_ip.c_str(), "--device", front_cam_device.c_str(), "--config",
+          config_path.c_str(), "--tracker", tracker_path.c_str(),
+          (char *)nullptr);
     std::cerr << "[DS] exec deepstream_fusion.py failed\n";
     _exit(1);
   } else if (pid > 0) {
@@ -92,13 +87,17 @@ void launchDeepStreamScript(const std::string& pi_ip,
 
 void stopDeepStreamScript() {
   if (g_ds_pid > 0) {
-    std::cout << "[DS] Stopping deepstream_fusion.py (PID " << g_ds_pid << ")\n";
+    std::cout << "[DS] Stopping deepstream_fusion.py (PID " << g_ds_pid
+              << ")\n";
     ::kill(g_ds_pid, SIGTERM);
     // Give it up to 3 s to shut down gracefully, then SIGKILL
     for (int i = 0; i < 30; ++i) {
       int wstatus;
       pid_t r = waitpid(g_ds_pid, &wstatus, WNOHANG);
-      if (r > 0) { g_ds_pid = -1; return; }
+      if (r > 0) {
+        g_ds_pid = -1;
+        return;
+      }
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     ::kill(g_ds_pid, SIGKILL);
@@ -205,12 +204,13 @@ void visualizationThread() {
   while (g_visualizer_running.load() && !g_shutdown_requested.load()) {
     bool got_frame = false;
     adas::DetBatch batch;
-    // Drain to latest  
+    // Drain to latest
     while (g_det_front_queue.try_pop(batch)) {
       got_frame = true;
     }
 
-    if (display_enabled && got_frame && !batch.frame.empty() && !window_created) {
+    if (display_enabled && got_frame && !batch.frame.empty() &&
+        !window_created) {
       cv::namedWindow("Stage B: FrontCam", cv::WINDOW_AUTOSIZE);
       window_created = true;
     }
@@ -687,12 +687,14 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   // ── DeepStream: launch deepstream_fusion.py for FrontCam ─────────────────
   // The Python script (via menu option 1) takes over the FrontCam V4L2 device.
   // It runs nvinfer (DashCamNet) inside GStreamer and shows an nveglglessink
-  // window with bounding boxes, fusion annotations, BSD indicators & pitch/roll.
-  // Do NOT wire FrontCam into StageBManager — that would conflict on /dev/video0.
+  // window with bounding boxes, fusion annotations, BSD indicators &
+  // pitch/roll. Do NOT wire FrontCam into StageBManager — that would conflict
+  // on /dev/video0.
   {
     std::string front_cam_dev = "/dev/video0";
     auto fc_it = hw_map.mappings.find(adas::Mount::FrontCam);
-    if (fc_it != hw_map.mappings.end()) front_cam_dev = fc_it->second;
+    if (fc_it != hw_map.mappings.end())
+      front_cam_dev = fc_it->second;
     launchDeepStreamScript(g_ingest_manager->getPiIp(), front_cam_dev, config);
   }
 
