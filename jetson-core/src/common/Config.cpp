@@ -197,14 +197,14 @@ void ConfigLoader::saveConfig(const std::string &path, const Config &config) {
       continue;
     }
 
-    if (current_section == "mounts" && current_mount == "FrontCam" && key == "xyz_m") {
+    if (current_section == "mounts" && current_mount == "FrontCam" &&
+        key == "xyz_m") {
       auto it = config.mounts.find(Mount::FrontCam);
       if (it != config.mounts.end()) {
         std::stringstream ss;
-        ss << std::string(indent, ' ') << "xyz_m: [" 
-           << it->second.xyz_m[0] << ", " 
-           << it->second.xyz_m[1] << ", " 
-           << it->second.xyz_m[2] << "]\n";
+        ss << std::string(indent, ' ') << "xyz_m: [" << it->second.xyz_m[0]
+           << ", " << it->second.xyz_m[1] << ", " << it->second.xyz_m[2]
+           << "]\n";
         new_content += ss.str();
         continue;
       }

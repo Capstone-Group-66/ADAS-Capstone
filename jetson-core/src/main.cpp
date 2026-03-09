@@ -693,7 +693,7 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   adas::FusionConfig fusion_config;
   auto it = config.mounts.find(adas::Mount::FrontCam);
   if (it != config.mounts.end()) {
-      fusion_config.cam_height_m = it->second.xyz_m[2];
+    fusion_config.cam_height_m = it->second.xyz_m[2];
   }
   g_sensor_fusion = std::make_unique<adas::SensorFusion>(fusion_config);
 
@@ -1008,13 +1008,16 @@ int main(int argc, char **argv) {
           try {
             adas::ConfigLoader::saveConfig(config_path, config);
             if (g_sensor_fusion) {
-               g_sensor_fusion->setCameraHeight(new_height);
-               std::cout << "\n[Config] Dynamic camera height updated to " << new_height << "m on-the-fly!\n\n";
+              g_sensor_fusion->setCameraHeight(new_height);
+              std::cout << "\n[Config] Dynamic camera height updated to "
+                        << new_height << "m on-the-fly!\n\n";
             } else {
-               std::cout << "\n[Config] Camera height saved to config (will apply on next start).\n\n";
+              std::cout << "\n[Config] Camera height saved to config (will "
+                           "apply on next start).\n\n";
             }
-          } catch(const std::exception& e) {
-            std::cout << "\n[Error] Failed to save config: " << e.what() << "\n\n";
+          } catch (const std::exception &e) {
+            std::cout << "\n[Error] Failed to save config: " << e.what()
+                      << "\n\n";
           }
         } else {
           std::cin.clear();

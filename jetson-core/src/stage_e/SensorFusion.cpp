@@ -34,7 +34,8 @@
 
 namespace adas {
 
-SensorFusion::SensorFusion(const FusionConfig &config) : config_(config), cam_height_m_(config.cam_height_m) {}
+SensorFusion::SensorFusion(const FusionConfig &config)
+    : config_(config), cam_height_m_(config.cam_height_m) {}
 
 // ─────────────────────────────────────────────────────────────────────────────
 //  Public API
@@ -120,9 +121,10 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
 
   // Read pitch atomically (written by ZMQ imuThread, read here by viz thread)
   const float theta = pitch_rad_.load(std::memory_order_relaxed);
-  
+
   // Read dynamic camera height atomically (updated by menu command)
-  const float current_cam_height = cam_height_m_.load(std::memory_order_relaxed);
+  const float current_cam_height =
+      cam_height_m_.load(std::memory_order_relaxed);
 
   const float fw = config_.calib_width_px;
   const float fh = config_.calib_height_px;
@@ -153,7 +155,8 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
     const float u = det.box_px.x + det.box_px.width * 0.5f;
     const float v = det.box_px.y + det.box_px.height; // bottom row
 
-    const float z_cam = estimateDistance(v, fy_s, cy_s, theta, current_cam_height);
+    const float z_cam =
+        estimateDistance(v, fy_s, cy_s, theta, current_cam_height);
     const bool z_valid = (z_cam >= config_.z_min_m && z_cam <= config_.z_max_m);
 
     std::cout << "[StageE: 2_Depth] ID " << det.object_id
@@ -291,7 +294,8 @@ float SensorFusion::calculateIOU(const cv::Rect2f &a,
 }
 
 float SensorFusion::estimateDistance(float v_bottom, float fy_scaled,
-                                     float cy_scaled, float pitch_rad, float cam_height_m) const {
+                                     float cy_scaled, float pitch_rad,
+                                     float cam_height_m) const {
   // α = atan((v - c_y) / f_y)  [vertical optical angle]
   const float alpha = std::atan((v_bottom - cy_scaled) / fy_scaled);
   const float angle = pitch_rad + alpha;
