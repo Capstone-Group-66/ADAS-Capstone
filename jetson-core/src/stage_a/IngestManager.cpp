@@ -185,6 +185,9 @@ void IngestManager::launchNetworkIngest() {
   std::cout << "[IngestManager] Launching ZMQ receiver for Pi at " << pi_ip
             << "...\n";
 
+  // Create NetworkReceiver (constructor takes only IP)
+  zmq_receiver_ = std::make_unique<NetworkReceiver>(pi_ip);
+
   // Start with queue pointers
   if (zmq_receiver_->start(&cam_rear_queue_, &imu_queue_, &radar_rear_l_queue_,
                            &radar_rear_r_queue_)) {
