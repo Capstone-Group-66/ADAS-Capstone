@@ -192,16 +192,19 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
         if (z_rad_adj < 0.1f)
           continue;
 
-        // The radar physically sits below the camera; therefore its targets appear lower
-        // in the camera's image space (i.e. positive Y pixel offset from the principal point).
-        float v_rad_proj = cy_s + fy_s * (config_.radar_below_cam_m / z_rad_adj);
+        // The radar physically sits below the camera; therefore its targets
+        // appear lower in the camera's image space (i.e. positive Y pixel
+        // offset from the principal point).
+        float v_rad_proj =
+            cy_s + fy_s * (config_.radar_below_cam_m / z_rad_adj);
 
         std::string gate_result = "FUSED!";
 
         // Step 4: Distance & Spatial Gating
         const float dz = std::abs(z_cam - z_rad_adj);
         if (dz > config_.dist_gate_m) {
-          gate_result = "REJECTED (Distance dz > " + std::to_string(config_.dist_gate_m) + "m)";
+          gate_result = "REJECTED (Distance dz > " +
+                        std::to_string(config_.dist_gate_m) + "m)";
         } else if (v_rad_proj < det.box_px.y ||
                    v_rad_proj > (det.box_px.y + det.box_px.height)) {
           gate_result = "REJECTED (Spatial Bounds)";
@@ -300,8 +303,9 @@ float SensorFusion::estimateDistance(float v_bottom, float fy_scaled,
 bool SensorFusion::inRadarROI(float x, float y, const cv::Rect2f &roi) const {
   // Only gate on the horizontal bound (x)
   // Bounding boxes often extend well outside the vertical radar lobe,
-  // especially for close pedestrians whose feet drop to the bottom of the camera frame.
-  // The vertical alignment is checked rigorously later via v_rad_proj.
+  // especially for close pedestrians whose feet drop to the bottom of the
+  // camera frame. The vertical alignment is checked rigorously later via
+  // v_rad_proj.
   return (x >= roi.x && x <= (roi.x + roi.width));
 }
 
