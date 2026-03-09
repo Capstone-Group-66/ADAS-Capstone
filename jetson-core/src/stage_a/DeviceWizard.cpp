@@ -64,6 +64,12 @@ void DeviceWizard::runRegistration(const std::string &output_path,
         << "--------------------------------------------------------------\n";
     std::cout << "Device: " << device_path << "\n";
 
+    if (device_path == "/dev/video0") {
+      std::cout << "  [RESERVED] " << device_path << " -> FrontCam (DeepStream)\n";
+      mappings[Mount::FrontCam] = device_path;
+      continue;
+    }
+
     // Test if device can be opened
     if (!testVideoDevice(device_path)) {
       std::cout << "  [SKIP] Cannot open device\n";
