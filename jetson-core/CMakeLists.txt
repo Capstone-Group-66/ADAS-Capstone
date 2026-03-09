@@ -74,6 +74,7 @@ set(STAGE_E_SOURCES
     src/stage_e/FCWMonitor.cpp
     src/stage_e/Track.cpp
     src/stage_e/EgoFrame.cpp
+    src/stage_e/BEVDashboard.cpp
 )
 
 # Main brain sources needed by jetson_core for BLE

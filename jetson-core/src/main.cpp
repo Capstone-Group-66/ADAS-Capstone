@@ -38,6 +38,7 @@
 #include "adas/stage_e/EgoFrame.hpp"
 #include "adas/stage_e/FCWMonitor.hpp"
 #include "adas/stage_e/SensorFusion.hpp"
+#include "adas/stage_e/BEVDashboard.hpp"
 
 namespace {
 
@@ -131,6 +132,9 @@ std::atomic<int> g_fcw_ttc_ms{
 // Stage A: BSD Receiver
 std::unique_ptr<adas::BSDReceiver> g_bsd_receiver;
 
+// Stage E: BEV Dashboard
+std::unique_ptr<adas::BEVDashboard> g_bev_dashboard;
+
 // BLE Server for mobile app communication
 std::unique_ptr<adas::SimpleBleServer> g_ble_server;
 
@@ -205,11 +209,8 @@ void visualizationThread() {
       }
     }
 
-    if (display_enabled && got_frame && !batch.frame.empty() &&
-        !window_created) {
-      cv::namedWindow("Stage B: FrontCam", cv::WINDOW_AUTOSIZE);
-      window_created = true;
-    }
+    // DeepStream owns the X11 video window now. 
+    // Legacy OpenCV cv::namedWindow creation removed.
 
     // Get latest radar data from IngestManager
     adas::RadarTargets radar;
@@ -377,228 +378,9 @@ void visualizationThread() {
                                    ttc, range, triggered, e2e_latency_ms);
       }
 
-      // ── Step 10: OpenCV Visualization (only when display is enabled and
-      // frame exists) ──
-      if (display_enabled && !batch.frame.empty()) {
-        // CRITICAL: Clone the frame to get our own memory buffer
-        // The original batch.frame may be reused by ingest thread
-        cv::Mat vis = batch.frame.clone();
-        int vis_width = vis.cols;
-        int vis_height = vis.rows;
-
-        // Detection persistence: Hold detections for 500ms to reduce jitter
-        // Uses a static buffer that persists across frames
-        static std::vector<
-            std::pair<adas::FusedObject, std::chrono::steady_clock::time_point>>
-            persistent_dets;
-        const auto det_hold_duration = std::chrono::milliseconds(500);
-
-        // Add/update current detections in buffer
-        for (const auto &obj : fused) {
-          // Check if similar detection exists (overlap > 50%)
-          bool found = false;
-          for (auto &[stored_obj, timestamp] : persistent_dets) {
-            cv::Rect2f intersection = stored_obj.box_px & obj.box_px;
-            float overlap =
-                intersection.area() /
-                std::max(stored_obj.box_px.area(), obj.box_px.area());
-            if (overlap > 0.3f && stored_obj.object_class == obj.object_class) {
-              // Update existing detection
-              stored_obj = obj;
-              timestamp = now_time;
-              found = true;
-              break;
-            }
-          }
-          if (!found) {
-            persistent_dets.push_back({obj, now_time});
-          }
-        }
-
-        // Remove stale detections
-        persistent_dets.erase(
-            std::remove_if(persistent_dets.begin(), persistent_dets.end(),
-                           [&](const auto &item) {
-                             return now_time - item.second > det_hold_duration;
-                           }),
-            persistent_dets.end());
-
-        // Draw persistent detections (instead of just current frame)
-        for (const auto &[obj, timestamp] : persistent_dets) {
-          // Bounds check - skip invalid detections
-          int x = static_cast<int>(obj.box_px.x);
-          int y = static_cast<int>(obj.box_px.y);
-          int w = static_cast<int>(obj.box_px.width);
-          int h = static_cast<int>(obj.box_px.height);
-
-          // Clamp to frame bounds
-          x = std::max(0, std::min(x, vis_width - 1));
-          y = std::max(0, std::min(y, vis_height - 1));
-          w = std::max(1, std::min(w, vis_width - x));
-          h = std::max(1, std::min(h, vis_height - y));
-
-          cv::Rect safe_box(x, y, w, h);
-          cv::Point safe_centroid(
-              std::max(0, std::min(static_cast<int>(obj.centroid_px.x),
-                                   vis_width - 1)),
-              std::max(0, std::min(static_cast<int>(obj.centroid_px.y),
-                                   vis_height - 1)));
-
-          cv::Scalar color((obj.object_class * 50) % 255,
-                           (obj.object_class * 80 + 100) % 255,
-                           (obj.object_class * 120 + 200) % 255);
-
-          cv::rectangle(vis, safe_box, color, 2);
-
-          std::string class_name =
-              adas::ObjectDetector::getClassName(obj.object_class);
-          std::string label =
-              class_name + " " +
-              std::to_string(static_cast<int>(obj.score * 100)) + "%";
-
-          // Add TTC if radar matched
-          if (obj.has_radar) {
-            if (obj.ttc_s < 100.0f) {
-              label += " R:" + std::to_string(static_cast<int>(obj.range_m)) +
-                       "m TTC:" + std::to_string(static_cast<int>(obj.ttc_s)) +
-                       "s";
-            } else {
-              label +=
-                  " R:" + std::to_string(static_cast<int>(obj.range_m)) + "m";
-            }
-          }
-
-          int baseLine;
-          cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX,
-                                               0.5, 1, &baseLine);
-
-          int label_y = std::max(labelSize.height + 2, y);
-
-          cv::rectangle(
-              vis, cv::Point(x, label_y - labelSize.height - 2),
-              cv::Point(std::min(x + labelSize.width, vis_width), label_y),
-              color, cv::FILLED);
-
-          cv::putText(vis, label, cv::Point(x, label_y - 2),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
-
-          cv::circle(vis, safe_centroid, 3, cv::Scalar(0, 255, 0), -1);
-        }
-
-        // Draw FCW alert overlay if active (with 2-second hold)
-        if (now_time < fcw_alert_until) {
-          g_fcw_alert_active.store(true);
-          g_fcw_ttc_ms.store(static_cast<int>(last_fcw_ttc * 1000.0f));
-
-          // Red border
-          if (vis.cols > 10 && vis.rows > 10) {
-            cv::rectangle(vis, cv::Point(4, 4),
-                          cv::Point(vis.cols - 5, vis.rows - 5),
-                          cv::Scalar(0, 0, 255), 8);
-          }
-
-          // FCW warning text with range
-          std::string fcw_text =
-              "FCW ALERT! Range:" +
-              std::to_string(static_cast<int>(last_fcw_range * 10) / 10) + "." +
-              std::to_string(static_cast<int>(last_fcw_range * 10) % 10) + "m";
-          int text_x = std::max(10, vis.cols / 2 - 150);
-          cv::putText(vis, fcw_text, cv::Point(text_x, 60),
-                      cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 0, 255), 3);
-        } else {
-          g_fcw_alert_active.store(false);
-        }
-
-        // Calculate FPS
-        frame_count++;
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           now - last_fps_time)
-                           .count();
-        if (elapsed >= 1000) {
-          fps = frame_count * 1000.0 / elapsed;
-          frame_count = 0;
-          last_fps_time = now;
-        }
-
-        // Draw info overlay
-        std::string info =
-            "Inf: " +
-            std::to_string(static_cast<int>(batch.inference_time_us / 1000)) +
-            "ms | FPS: " + std::to_string(static_cast<int>(fps));
-        cv::putText(vis, info, cv::Point(10, 25), cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                    cv::Scalar(0, 255, 0), 2);
-
-        // ── Bird's-Eye View BSD Dashboard ──
-        if (g_bsd_receiver) {
-          int bev_width = 200;
-          int bev_height = 150;
-          int bev_x = (vis_width - bev_width) / 2;
-          int bev_y = vis_height - bev_height - 20;
-
-          // Draw translucent background for dashboard
-          cv::Mat overlay;
-          vis.copyTo(overlay);
-          cv::rectangle(overlay, cv::Rect(bev_x, bev_y, bev_width, bev_height),
-                        cv::Scalar(40, 40, 40), -1);
-          cv::addWeighted(overlay, 0.7, vis, 0.3, 0, vis);
-
-          cv::putText(vis, "BSD STATUS", cv::Point(bev_x + 60, bev_y + 20),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255),
-                      1);
-
-          // Ego Vehicle
-          int ego_w = 30;
-          int ego_h = 60;
-          int ego_x = bev_x + (bev_width - ego_w) / 2;
-          int ego_y = bev_y + (bev_height - ego_h) / 2;
-          cv::rectangle(vis, cv::Rect(ego_x, ego_y, ego_w, ego_h),
-                        cv::Scalar(200, 200, 200), -1);
-
-          // Left Blind Spot Zone
-          std::vector<cv::Point> left_poly = {
-              cv::Point(ego_x - 40, ego_y + ego_h - 20),
-              cv::Point(ego_x - 10, ego_y + ego_h - 20),
-              cv::Point(ego_x - 10, ego_y + ego_h + 30),
-              cv::Point(ego_x - 40, ego_y + ego_h + 30)};
-
-          if (g_bsd_receiver->getLeftBSDState()) {
-            cv::fillPoly(vis, std::vector<std::vector<cv::Point>>{left_poly},
-                         cv::Scalar(0, 0, 255));
-          } else {
-            cv::polylines(vis, std::vector<std::vector<cv::Point>>{left_poly},
-                          true, cv::Scalar(100, 100, 100), 1);
-          }
-
-          // Right Blind Spot Zone
-          std::vector<cv::Point> right_poly = {
-              cv::Point(ego_x + ego_w + 10, ego_y + ego_h - 20),
-              cv::Point(ego_x + ego_w + 40, ego_y + ego_h - 20),
-              cv::Point(ego_x + ego_w + 40, ego_y + ego_h + 30),
-              cv::Point(ego_x + ego_w + 10, ego_y + ego_h + 30)};
-
-          if (g_bsd_receiver->getRightBSDState()) {
-            cv::fillPoly(vis, std::vector<std::vector<cv::Point>>{right_poly},
-                         cv::Scalar(0, 0, 255));
-          } else {
-            cv::polylines(vis, std::vector<std::vector<cv::Point>>{right_poly},
-                          true, cv::Scalar(100, 100, 100), 1);
-          }
-        }
-
-        // Rate-limit display to 20 FPS to reduce stuttering
-        auto now_display = std::chrono::steady_clock::now();
-        if (now_display - last_display_time >= display_interval) {
-          cv::imshow("Stage B: FrontCam", vis);
-          last_display_time = now_display;
-        }
-      } // end if (display_enabled) — Step 10
-    }
-
-    if (display_enabled) {
-      // Non-blocking waitKey with minimal delay
-      if (cv::waitKey(1) == 'q') {
-        g_shutdown_requested.store(true);
+      // ── Step 10: Update standalone BEV Dashboard ──
+      if (g_bev_dashboard) {
+        g_bev_dashboard->update(fused);
       }
     }
 
@@ -607,13 +389,8 @@ void visualizationThread() {
     }
   }
 
-  if (display_enabled) {
-    try {
-      cv::destroyAllWindows();
-    } catch (...) {
-    }
-  }
   std::cout << "[StageE] Thread stopped\n";
+}
 }
 
 void statusBarThread() {
@@ -776,6 +553,10 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   // Initialize EgoFrame for ego vehicle state from IMU
   g_ego_frame = std::make_unique<adas::EgoFrame>();
   g_ego_frame->init();
+
+  // Initialize BEVDashboard
+  g_bev_dashboard = std::make_unique<adas::BEVDashboard>(g_bsd_receiver.get(), fusion_config.c_x, fusion_config.f_x);
+  g_bev_dashboard->start();
 
   std::cout << "[Main] Stage E fusion initialized (TTC threshold: "
             << g_fcw_monitor->getThreshold() << "s, Physics FCW: "
@@ -946,6 +727,11 @@ void stopPipeline() {
   }
 
   // Stop in reverse order
+  if (g_bev_dashboard) {
+    g_bev_dashboard->stop();
+    g_bev_dashboard.reset();
+  }
+
   if (g_bsd_receiver) {
     g_bsd_receiver->stop();
     g_bsd_receiver.reset();
