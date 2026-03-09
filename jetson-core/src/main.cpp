@@ -35,10 +35,10 @@
 
 #include "adas/stage_a/BSDReceiver.hpp"
 #include "adas/stage_b/ObjectDetector.hpp" // For class name lookup
+#include "adas/stage_e/BEVDashboard.hpp"
 #include "adas/stage_e/EgoFrame.hpp"
 #include "adas/stage_e/FCWMonitor.hpp"
 #include "adas/stage_e/SensorFusion.hpp"
-#include "adas/stage_e/BEVDashboard.hpp"
 
 namespace {
 
@@ -209,7 +209,7 @@ void visualizationThread() {
       }
     }
 
-    // DeepStream owns the X11 video window now. 
+    // DeepStream owns the X11 video window now.
     // Legacy OpenCV cv::namedWindow creation removed.
 
     // Get latest radar data from IngestManager
@@ -555,7 +555,8 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   g_ego_frame->init();
 
   // Initialize BEVDashboard
-  g_bev_dashboard = std::make_unique<adas::BEVDashboard>(g_bsd_receiver.get(), fusion_config.c_x, fusion_config.f_x);
+  g_bev_dashboard = std::make_unique<adas::BEVDashboard>(
+      g_bsd_receiver.get(), fusion_config.c_x, fusion_config.f_x);
   g_bev_dashboard->start();
 
   std::cout << "[Main] Stage E fusion initialized (TTC threshold: "

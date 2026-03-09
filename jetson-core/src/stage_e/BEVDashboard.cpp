@@ -1,23 +1,22 @@
 // File: src/stage_e/BEVDashboard.cpp
 #include "adas/stage_e/BEVDashboard.hpp"
-#include <iostream>
-#include <iomanip>
-#include <sstream>
 #include <chrono>
+#include <iomanip>
+#include <iostream>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
+#include <sstream>
 
 namespace adas {
 
-BEVDashboard::BEVDashboard(BSDReceiver* bsd_receiver, float c_x, float f_x)
+BEVDashboard::BEVDashboard(BSDReceiver *bsd_receiver, float c_x, float f_x)
     : bsd_receiver_(bsd_receiver), c_x_(c_x), f_x_(f_x) {}
 
-BEVDashboard::~BEVDashboard() {
-  stop();
-}
+BEVDashboard::~BEVDashboard() { stop(); }
 
 void BEVDashboard::start() {
-  if (running_.load()) return;
+  if (running_.load())
+    return;
   running_.store(true);
   thread_ = std::thread(&BEVDashboard::renderLoop, this);
 }
@@ -29,7 +28,7 @@ void BEVDashboard::stop() {
   }
 }
 
-void BEVDashboard::update(const std::vector<FusedObject>& fused_objects) {
+void BEVDashboard::update(const std::vector<FusedObject> &fused_objects) {
   std::lock_guard<std::mutex> lock(data_mutex_);
   latest_fused_ = fused_objects;
 }
@@ -46,7 +45,8 @@ void BEVDashboard::renderLoop() {
   cv::namedWindow("ADAS BEVDashboard", cv::WINDOW_AUTOSIZE);
 
   while (running_.load()) {
-    cv::Mat canvas(canvas_height, canvas_width, CV_8UC3, cv::Scalar(30, 30, 30));
+    cv::Mat canvas(canvas_height, canvas_width, CV_8UC3,
+                   cv::Scalar(30, 30, 30));
 
     // Get BSD States safely
     bool left_bsd = false;
@@ -105,8 +105,9 @@ void BEVDashboard::renderLoop() {
       current_fused = latest_fused_;
     }
 
-    for (const auto& obj : current_fused) {
-      if (!obj.has_radar) continue; // Only plot radar-fused objects for true depth
+    for (const auto &obj : current_fused) {
+      if (!obj.has_radar)
+        continue; // Only plot radar-fused objects for true depth
 
       // Exact pinhole math for X offset
       float z_m = obj.range_m;
@@ -116,13 +117,14 @@ void BEVDashboard::renderLoop() {
       int y_canvas = static_cast<int>(ego_y - (z_m * pixels_per_meter));
 
       // Don't draw if completely out of bounds (save render time)
-      if (x_canvas < -100 || x_canvas > canvas_width + 100 ||
-          y_canvas < -100 || y_canvas > canvas_height + 100) {
+      if (x_canvas < -100 || x_canvas > canvas_width + 100 || y_canvas < -100 ||
+          y_canvas > canvas_height + 100) {
         continue;
       }
 
       bool is_threat = (obj.ttc_s <= 3.0f);
-      cv::Scalar color = is_threat ? cv::Scalar(0, 0, 255) : cv::Scalar(255, 255, 0); // Red or Cyan
+      cv::Scalar color = is_threat ? cv::Scalar(0, 0, 255)
+                                   : cv::Scalar(255, 255, 0); // Red or Cyan
       int radius = is_threat ? 10 : 6;
 
       if (is_threat) {
@@ -134,17 +136,17 @@ void BEVDashboard::renderLoop() {
 
       // Telemetry Text
       std::stringstream ss;
-      ss << "[" << (obj.object_id == UINT64_MAX ? 0 : obj.object_id) << "] Z: "
-         << std::fixed << std::setprecision(1) << obj.range_m << "m | V: "
-         << static_cast<int>(obj.radial_vel_mps) << "m/s";
+      ss << "[" << (obj.object_id == UINT64_MAX ? 0 : obj.object_id)
+         << "] Z: " << std::fixed << std::setprecision(1) << obj.range_m
+         << "m | V: " << static_cast<int>(obj.radial_vel_mps) << "m/s";
 
       int baseline = 0;
       cv::Size text_size = cv::getTextSize(ss.str(), cv::FONT_HERSHEY_SIMPLEX,
                                            0.4, 1, &baseline);
-      cv::putText(canvas, ss.str(),
-                  cv::Point(x_canvas - text_size.width / 2,
-                            y_canvas - radius - 5),
-                  cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);
+      cv::putText(
+          canvas, ss.str(),
+          cv::Point(x_canvas - text_size.width / 2, y_canvas - radius - 5),
+          cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);
     }
 
     cv::imshow("ADAS BEVDashboard", canvas);
