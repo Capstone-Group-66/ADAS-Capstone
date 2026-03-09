@@ -195,8 +195,10 @@ void visualizationThread() {
     bool got_frame = false;
     adas::DetBatch batch;
     // Drain to latest
-    while (g_det_front_queue.try_pop(batch)) {
-      got_frame = true;
+    if (g_ingest_manager) {
+      while (g_ingest_manager->getFrontCamDetQueue().try_pop(batch)) {
+        got_frame = true;
+      }
     }
 
     if (display_enabled && got_frame && !batch.frame.empty() &&
