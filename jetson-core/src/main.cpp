@@ -10,8 +10,8 @@
 #include <opencv2/imgproc.hpp>
 #include <sstream>
 #include <string>
-#include <vector>
 #include <thread>
+#include <vector>
 // POSIX process management (fork/exec/kill) for deepstream_fusion.py
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -55,17 +55,17 @@ void launchDeepStreamApp() {
   if (pid == 0) {
     // Child: exec the C application and never return
     if (chdir("/home/capstone-66/dashcamnet") != 0) {
-      std::cerr << "[DS] Failed to change directory to /home/capstone-66/dashcamnet\n";
+      std::cerr << "[DS] Failed to change directory to "
+                   "/home/capstone-66/dashcamnet\n";
       _exit(1);
     }
-    
-    std::vector<const char*> args = {
-        "/opt/nvidia/deepstream/deepstream-6.0/sources/apps/sample_apps/deepstream-app/deepstream-app",
-        "-c", "deepstream_app.txt",
-        nullptr
-    };
 
-    execv(args[0], const_cast<char* const*>(args.data()));
+    std::vector<const char *> args = {
+        "/opt/nvidia/deepstream/deepstream-6.0/sources/apps/sample_apps/"
+        "deepstream-app/deepstream-app",
+        "-c", "deepstream_app.txt", nullptr};
+
+    execv(args[0], const_cast<char *const *>(args.data()));
     std::cerr << "[DS] exec deepstream-app failed\n";
     _exit(1);
   } else if (pid > 0) {
@@ -78,8 +78,7 @@ void launchDeepStreamApp() {
 
 void stopDeepStreamApp() {
   if (g_ds_pid > 0) {
-    std::cout << "[DS] Stopping deepstream-app (PID " << g_ds_pid
-              << ")\n";
+    std::cout << "[DS] Stopping deepstream-app (PID " << g_ds_pid << ")\n";
     ::kill(g_ds_pid, SIGTERM);
     // Give it up to 3 s to shut down gracefully, then SIGKILL
     for (int i = 0; i < 30; ++i) {
@@ -678,8 +677,9 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
       std::make_unique<adas::StageBManager>(calib_dir, model_path);
 
   // ── DeepStream: launch deepstream-app for FrontCam ─────────────────
-  // The C application runs nvinfer (DashCamNet) inside GStreamer and shows an nveglglessink
-  // window with bounding boxes. It connects to our ZMQ IPC socket to feed detections.
+  // The C application runs nvinfer (DashCamNet) inside GStreamer and shows an
+  // nveglglessink window with bounding boxes. It connects to our ZMQ IPC socket
+  // to feed detections.
   launchDeepStreamApp();
 
   // Side cameras can be added to Stage B here in future (BSD/LCW):
@@ -1252,7 +1252,9 @@ int main(int argc, char **argv) {
       {
         bool new_val = !g_rtsp_streaming.load();
         g_rtsp_streaming.store(new_val);
-        std::cout << "[Main] RTSP Streaming " << (new_val ? "ENABLED" : "DISABLED") << " (takes effect on next pipeline start)\n";
+        std::cout << "[Main] RTSP Streaming "
+                  << (new_val ? "ENABLED" : "DISABLED")
+                  << " (takes effect on next pipeline start)\n";
       } break;
 
       case 0: // Exit

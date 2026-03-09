@@ -197,7 +197,8 @@ void IngestManager::launchNetworkIngest() {
   // Launch local IPC receiver for DeepStream
   ds_receiver_ = std::make_unique<DeepStreamReceiver>();
   if (ds_receiver_->start(&det_front_ds_queue_)) {
-    std::cout << "[IngestManager] DeepStream IPC receiver started for Front Camera\n";
+    std::cout
+        << "[IngestManager] DeepStream IPC receiver started for Front Camera\n";
   } else {
     std::cerr << "[IngestManager] Failed to start DeepStream IPC receiver\n";
     ds_receiver_.reset();
