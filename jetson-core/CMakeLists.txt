@@ -54,6 +54,9 @@ set(STAGE_A_SOURCES
     src/stage_a/CameraCalibrator.cpp
     src/stage_a/DeviceWizard.cpp
     src/stage_a/NetworkIngest.cpp
+    src/stage_a/NetworkReceiver.cpp
+    src/stage_a/DeepStreamReceiver.cpp
+    src/stage_a/BSDReceiver.cpp
     src/stage_a/RadarIngest.cpp
     src/stage_a/IngestManager.cpp
 )
