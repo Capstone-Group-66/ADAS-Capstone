@@ -91,15 +91,18 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
   // ── Phase 1: IOU Deduplication ──────────────────────────────────────────
   std::vector<Det> deduped_dets;
   std::vector<bool> dropped(camera.dets.size(), false);
-  
+
   for (size_t i = 0; i < camera.dets.size(); ++i) {
-    if (dropped[i]) continue;
+    if (dropped[i])
+      continue;
     for (size_t j = i + 1; j < camera.dets.size(); ++j) {
-      if (dropped[j]) continue;
-      
+      if (dropped[j])
+        continue;
+
       if (calculateIOU(camera.dets[i].box_px, camera.dets[j].box_px) > 0.75f) {
-        if (camera.dets[i].score < camera.dets[j].score || 
-           (camera.dets[i].score == camera.dets[j].score && camera.dets[i].object_id > camera.dets[j].object_id)) {
+        if (camera.dets[i].score < camera.dets[j].score ||
+            (camera.dets[i].score == camera.dets[j].score &&
+             camera.dets[i].object_id > camera.dets[j].object_id)) {
           dropped[i] = true;
           break; // i is dropped, stop inner loop
         } else {
@@ -129,9 +132,10 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
   const float cy_s = config_.c_y;
 
   if (g_verbose_mode.load()) {
-    std::cout << "[Fusion] Frame " << camera.h.seq << ": " << deduped_dets.size()
-              << " dets (deduped), " << radar.targets.size() << " radar targets"
-              << "  θ=" << theta << " rad\n";
+    std::cout << "[Fusion] Frame " << camera.h.seq << ": "
+              << deduped_dets.size() << " dets (deduped), "
+              << radar.targets.size() << " radar targets" << "  θ=" << theta
+              << " rad\n";
   }
 
   fused.reserve(deduped_dets.size());
@@ -179,8 +183,9 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
         // Step 3: Radar Extrinsic Translation
         float z_rad_adj = tgt.range_m - 0.0127f;
         // Divide by zero protection on z_rad_adj
-        if (z_rad_adj < 0.1f) continue;
-        
+        if (z_rad_adj < 0.1f)
+          continue;
+
         float v_rad_proj = cy_s + fy_s * (-0.0762f / z_rad_adj);
 
         // Step 4: Distance & Spatial Gating
@@ -189,7 +194,8 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
           continue;
         }
 
-        if (v_rad_proj < det.box_px.y || v_rad_proj > (det.box_px.y + det.box_px.height)) {
+        if (v_rad_proj < det.box_px.y ||
+            v_rad_proj > (det.box_px.y + det.box_px.height)) {
           continue;
         }
 
@@ -206,7 +212,8 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
 
       obj.has_radar = true;
       obj.range_m = tgt.range_m - 0.0127f;
-      // Inherit radar velocity (keep spec convention where negative is approaching out of FCW)
+      // Inherit radar velocity (keep spec convention where negative is
+      // approaching out of FCW)
       obj.radial_vel_mps = tgt.radial_vel_mps;
       obj.sources |= SRC_RAD_F;
 
@@ -240,7 +247,8 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
 //  Private helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-float SensorFusion::calculateIOU(const cv::Rect2f &a, const cv::Rect2f &b) const {
+float SensorFusion::calculateIOU(const cv::Rect2f &a,
+                                 const cv::Rect2f &b) const {
   float x_left = std::max(a.x, b.x);
   float y_top = std::max(a.y, b.y);
   float x_right = std::min(a.x + a.width, b.x + b.width);
@@ -275,8 +283,7 @@ bool SensorFusion::inRadarROI(float u, float v, const cv::Rect2f &roi) const {
          v <= (roi.y + roi.height);
 }
 
-float SensorFusion::computeTTC(float z_rad,
-                               float v_rad_doppler) const {
+float SensorFusion::computeTTC(float z_rad, float v_rad_doppler) const {
   if (v_rad_doppler < 0.0f) {
     return z_rad / std::abs(v_rad_doppler);
   }
