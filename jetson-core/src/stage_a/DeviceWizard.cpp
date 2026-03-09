@@ -344,8 +344,8 @@ std::optional<Mount> DeviceWizard::promptMountAssignment(
 }
 
 std::vector<Mount> DeviceWizard::getDirectCameraMounts() {
-  // Only direct USB cameras - RearCam comes via network
-  return {Mount::FrontCam, Mount::SideCamL, Mount::SideCamR};
+  // Only side cameras - RearCam comes via network, FrontCam used by DeepStream
+  return {Mount::SideCamL, Mount::SideCamR};
 }
 
 void DeviceWizard::printSummary(const std::map<Mount, std::string> &mappings) {

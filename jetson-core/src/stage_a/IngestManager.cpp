@@ -188,9 +188,8 @@ void IngestManager::launchNetworkIngest() {
 
   // Start with queue pointers
   if (zmq_receiver_->start(&cam_rear_queue_, &imu_queue_, &radar_rear_l_queue_,
-                           &radar_rear_r_queue_)) {
-    std::cout << "[IngestManager] ZMQ receiver started for RearCam, Rear Radar "
-                 "L/R, + IMU\n";
+                           &radar_rear_r_queue_, &det_front_ds_queue_)) {
+    std::cout << "[IngestManager] ZMQ receiver started for Pi sensors and DeepStream IPC\n";
   } else {
     std::cerr << "[IngestManager] Failed to start ZMQ receiver\n";
     zmq_receiver_.reset();
