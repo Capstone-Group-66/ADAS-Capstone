@@ -115,7 +115,7 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
     }
   }
 
-  std::cout << "[StageE: 1_NMS] Raw Dets: " << camera.dets.size() 
+  std::cout << "[StageE: 1_NMS] Raw Dets: " << camera.dets.size()
             << " -> Deduped: " << deduped_dets.size() << "\n";
 
   // Read pitch atomically (written by ZMQ imuThread, read here by viz thread)
@@ -153,7 +153,7 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
     const float z_cam = estimateDistance(v, fy_s, cy_s, theta);
     const bool z_valid = (z_cam >= config_.z_min_m && z_cam <= config_.z_max_m);
 
-    std::cout << "[StageE: 2_Depth] ID " << det.object_id 
+    std::cout << "[StageE: 2_Depth] ID " << det.object_id
               << " | v_bottom: " << v << " | Z_cam: " << z_cam << "m\n";
 
     // ── Phase 5, Gate 1: Spatial ROI ────────────────────────────────────
@@ -206,9 +206,11 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
         }
 
         std::cout << "[StageE: 3_Gate] ID " << det.object_id << " vs Radar | "
-                  << "Z_cam: " << z_cam << "m, Z_rad_adj: " << z_rad_adj << "m, dZ: " << dz << "m | "
-                  << "v_proj: " << v_rad_proj << " (Bounds: " << det.box_px.y << " to " << (det.box_px.y + det.box_px.height) << ") "
-                  << "-> " << gate_result << "\n";
+                  << "Z_cam: " << z_cam << "m, Z_rad_adj: " << z_rad_adj
+                  << "m, dZ: " << dz << "m | " << "v_proj: " << v_rad_proj
+                  << " (Bounds: " << det.box_px.y << " to "
+                  << (det.box_px.y + det.box_px.height) << ") " << "-> "
+                  << gate_result << "\n";
 
         if (gate_result != "FUSED!") {
           continue;

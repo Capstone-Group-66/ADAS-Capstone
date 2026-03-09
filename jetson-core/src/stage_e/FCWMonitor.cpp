@@ -95,9 +95,10 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
       }
     }
 
-    std::string alert_status = (ttc_triggered || physics_triggered) ? "ALERT TRIGGERED" : "SAFE";
-    std::cout << "[StageE: 4_FCW] ID " << obj.object_id 
-              << " | Z: " << obj.range_m << "m | V: " << obj.radial_vel_mps 
+    std::string alert_status =
+        (ttc_triggered || physics_triggered) ? "ALERT TRIGGERED" : "SAFE";
+    std::cout << "[StageE: 4_FCW] ID " << obj.object_id
+              << " | Z: " << obj.range_m << "m | V: " << obj.radial_vel_mps
               << "m/s | TTC: " << obj.ttc_s << "s -> " << alert_status << "\n";
 
     // Alert if either condition triggers
