@@ -121,13 +121,15 @@ void DeepStreamReceiver::dsThread() {
 
         batch.dets.push_back(det);
         offset += sizeof(ipc::DeepStreamDet);
-        
-        ids += std::to_string(det.object_id) + (i < header.num_detections - 1 ? ", " : "");
+
+        ids += std::to_string(det.object_id) +
+               (i < header.num_detections - 1 ? ", " : "");
       }
 
       ds_queue_->try_push(std::move(batch));
-      std::cout << "[DeepStream] Received batch: " << header.num_detections 
-                << " detections at " << header.timestamp_ns << " ns. IDs: [" << ids << "]\n";
+      std::cout << "[DeepStream] Received batch: " << header.num_detections
+                << " detections at " << header.timestamp_ns << " ns. IDs: ["
+                << ids << "]\n";
     }
   }
 }
