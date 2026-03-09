@@ -12,6 +12,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include <unordered_map>
+#include <chrono>
 
 namespace adas {
 
@@ -44,8 +46,18 @@ class BEVDashboard {
     float c_x_;
     float f_x_;
 
+    struct Track {
+      float x_offset_m;
+      float z_m;
+      bool is_threat;
+      std::string label;
+      float radial_vel_mps;
+      std::chrono::steady_clock::time_point last_seen;
+    };
+
     std::vector<FusedObject> latest_fused_;
     std::mutex data_mutex_;
+    std::unordered_map<uint64_t, Track> tracks_;
 
     std::thread thread_;
     std::atomic<bool> running_{false};
