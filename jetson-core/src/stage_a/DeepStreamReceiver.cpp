@@ -106,6 +106,7 @@ void DeepStreamReceiver::dsThread() {
       batch.inference_time_us = 0; // Info not provided currently
 
       size_t offset = sizeof(ipc::DeepStreamDetBatchHeader);
+      std::string ids = "";
       for (uint32_t i = 0; i < header.num_detections; ++i) {
         ipc::DeepStreamDet ds_det;
         std::memcpy(&ds_det, buffer.data() + offset,
@@ -120,11 +121,13 @@ void DeepStreamReceiver::dsThread() {
 
         batch.dets.push_back(det);
         offset += sizeof(ipc::DeepStreamDet);
+        
+        ids += std::to_string(det.object_id) + (i < header.num_detections - 1 ? ", " : "");
       }
 
       ds_queue_->try_push(std::move(batch));
-      std::cout << "[DeepStream] Received batch: " << header.num_detections
-                << " detections at " << header.timestamp_ns << " ns\n";
+      std::cout << "[DeepStream] Received batch: " << header.num_detections 
+                << " detections at " << header.timestamp_ns << " ns. IDs: [" << ids << "]\n";
     }
   }
 }
