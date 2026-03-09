@@ -150,14 +150,17 @@ void BSDReceiver::receiveLoop() {
                 }
                 left_last_seq_ = header->sequence;
               } else {
-                std::cout << "[BSD] Left invalid state byte: " << (int)state << "\n";
+                std::cout << "[BSD] Left invalid state byte: " << (int)state
+                          << "\n";
               }
             } else {
-              std::cout << "[BSD] Left invalid length. msg_len=" << msg_len << "\n";
+              std::cout << "[BSD] Left invalid length. msg_len=" << msg_len
+                        << "\n";
             }
           } else {
-            std::cout << "[BSD] Left mismatch. Magic=" << std::hex << header->magic 
-                      << " v=" << header->version << " type=" << header->msg_type << std::dec << "\n";
+            std::cout << "[BSD] Left mismatch. Magic=" << std::hex
+                      << header->magic << " v=" << header->version
+                      << " type=" << header->msg_type << std::dec << "\n";
           }
         }
       }
@@ -189,14 +192,17 @@ void BSDReceiver::receiveLoop() {
                 }
                 right_last_seq_ = header->sequence;
               } else {
-                std::cout << "[BSD] Right invalid state byte: " << (int)state << "\n";
+                std::cout << "[BSD] Right invalid state byte: " << (int)state
+                          << "\n";
               }
             } else {
-              std::cout << "[BSD] Right invalid length. msg_len=" << msg_len << "\n";
+              std::cout << "[BSD] Right invalid length. msg_len=" << msg_len
+                        << "\n";
             }
           } else {
-            std::cout << "[BSD] Right mismatch. Magic=" << std::hex << header->magic 
-                      << " v=" << header->version << " type=" << header->msg_type << std::dec << "\n";
+            std::cout << "[BSD] Right mismatch. Magic=" << std::hex
+                      << header->magic << " v=" << header->version
+                      << " type=" << header->msg_type << std::dec << "\n";
           }
         }
       }
