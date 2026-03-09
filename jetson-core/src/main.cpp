@@ -269,10 +269,11 @@ void visualizationThread() {
 
       // Update FCW alert active status
       if (fcw_alert.has_value() || proximity_alert) {
-         // Radar alerts handled by BLE, we can keep g_fcw_alert_active for potential dashboard UI later.
-         g_fcw_alert_active.store(true);
+        // Radar alerts handled by BLE, we can keep g_fcw_alert_active for
+        // potential dashboard UI later.
+        g_fcw_alert_active.store(true);
       } else {
-         g_fcw_alert_active.store(false);
+        g_fcw_alert_active.store(false);
       }
 
       // BLE Transmission: Heartbeat (1Hz) + Alerts (Immediate)
