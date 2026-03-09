@@ -193,7 +193,7 @@ class GroundPlaneFusion:
             z_cam = self.estimate_z(v, pitch_rad)
             v_cam = self.estimate_v(oid, z_cam if z_cam else 0.0, t_ns)
 
-            in_roi = ROI_X_MIN <= u <= ROI_X_MAX and ROI_Y_MIN <= v <= ROI_Y_MAX
+            in_roi = ROI_X_MIN <= u <= ROI_X_MAX
 
             r = dict(d)
             r.update(z_cam=z_cam, v_cam=v_cam, in_roi=in_roi,
