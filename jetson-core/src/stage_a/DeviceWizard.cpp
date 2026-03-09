@@ -90,7 +90,7 @@ void DeviceWizard::runRegistration(const std::string &output_path,
       if (cap.isOpened()) {
         cap.set(cv::CAP_PROP_FOURCC,
                 cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
-        cap.set(cv::CAP_PROP_FRAME_WIDTH, 320);
+        cap.set(cv::CAP_PROP_FRAME_WIDTH, 424);
         cap.set(cv::CAP_PROP_FRAME_HEIGHT, 240);
         window_name =
             "Preview: " + device_path + " (make selection in terminal)";
@@ -286,7 +286,7 @@ void DeviceWizard::showPreview(const std::string &device_path,
 
   // Force MJPEG
   cap.set(cv::CAP_PROP_FOURCC, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
-  cap.set(cv::CAP_PROP_FRAME_WIDTH, 320);
+  cap.set(cv::CAP_PROP_FRAME_WIDTH, 424);
   cap.set(cv::CAP_PROP_FRAME_HEIGHT, 240);
 
   std::string window_name = "Preview: " + device_path;

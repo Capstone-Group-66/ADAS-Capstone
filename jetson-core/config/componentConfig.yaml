@@ -25,7 +25,7 @@ network:
 cameras:
   width: 960
   height: 540
-  side_width: 320
+  side_width: 424
   side_height: 240
   target_fps: 20
   use_mjpeg: true
