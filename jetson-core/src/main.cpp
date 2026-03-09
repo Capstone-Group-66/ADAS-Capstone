@@ -33,11 +33,11 @@
 // FrontCamDeepStream.hpp removed — pipeline runs as deepstream_fusion.py
 // (Python pyds)
 
+#include "adas/stage_a/BSDReceiver.hpp"
 #include "adas/stage_b/ObjectDetector.hpp" // For class name lookup
 #include "adas/stage_e/EgoFrame.hpp"
 #include "adas/stage_e/FCWMonitor.hpp"
 #include "adas/stage_e/SensorFusion.hpp"
-#include "adas/stage_a/BSDReceiver.hpp"
 
 namespace {
 
@@ -539,44 +539,50 @@ void visualizationThread() {
           // Draw translucent background for dashboard
           cv::Mat overlay;
           vis.copyTo(overlay);
-          cv::rectangle(overlay, cv::Rect(bev_x, bev_y, bev_width, bev_height), cv::Scalar(40, 40, 40), -1);
+          cv::rectangle(overlay, cv::Rect(bev_x, bev_y, bev_width, bev_height),
+                        cv::Scalar(40, 40, 40), -1);
           cv::addWeighted(overlay, 0.7, vis, 0.3, 0, vis);
 
-          cv::putText(vis, "BSD STATUS", cv::Point(bev_x + 60, bev_y + 20), cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);
+          cv::putText(vis, "BSD STATUS", cv::Point(bev_x + 60, bev_y + 20),
+                      cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255),
+                      1);
 
           // Ego Vehicle
           int ego_w = 30;
           int ego_h = 60;
           int ego_x = bev_x + (bev_width - ego_w) / 2;
           int ego_y = bev_y + (bev_height - ego_h) / 2;
-          cv::rectangle(vis, cv::Rect(ego_x, ego_y, ego_w, ego_h), cv::Scalar(200, 200, 200), -1);
+          cv::rectangle(vis, cv::Rect(ego_x, ego_y, ego_w, ego_h),
+                        cv::Scalar(200, 200, 200), -1);
 
           // Left Blind Spot Zone
           std::vector<cv::Point> left_poly = {
-            cv::Point(ego_x - 40, ego_y + ego_h - 20),
-            cv::Point(ego_x - 10, ego_y + ego_h - 20),
-            cv::Point(ego_x - 10, ego_y + ego_h + 30),
-            cv::Point(ego_x - 40, ego_y + ego_h + 30)
-          };
+              cv::Point(ego_x - 40, ego_y + ego_h - 20),
+              cv::Point(ego_x - 10, ego_y + ego_h - 20),
+              cv::Point(ego_x - 10, ego_y + ego_h + 30),
+              cv::Point(ego_x - 40, ego_y + ego_h + 30)};
 
           if (g_bsd_receiver->getLeftBSDState()) {
-            cv::fillPoly(vis, std::vector<std::vector<cv::Point>>{left_poly}, cv::Scalar(0, 0, 255));
+            cv::fillPoly(vis, std::vector<std::vector<cv::Point>>{left_poly},
+                         cv::Scalar(0, 0, 255));
           } else {
-            cv::polylines(vis, std::vector<std::vector<cv::Point>>{left_poly}, true, cv::Scalar(100, 100, 100), 1);
+            cv::polylines(vis, std::vector<std::vector<cv::Point>>{left_poly},
+                          true, cv::Scalar(100, 100, 100), 1);
           }
 
           // Right Blind Spot Zone
           std::vector<cv::Point> right_poly = {
-            cv::Point(ego_x + ego_w + 10, ego_y + ego_h - 20),
-            cv::Point(ego_x + ego_w + 40, ego_y + ego_h - 20),
-            cv::Point(ego_x + ego_w + 40, ego_y + ego_h + 30),
-            cv::Point(ego_x + ego_w + 10, ego_y + ego_h + 30)
-          };
+              cv::Point(ego_x + ego_w + 10, ego_y + ego_h - 20),
+              cv::Point(ego_x + ego_w + 40, ego_y + ego_h - 20),
+              cv::Point(ego_x + ego_w + 40, ego_y + ego_h + 30),
+              cv::Point(ego_x + ego_w + 10, ego_y + ego_h + 30)};
 
           if (g_bsd_receiver->getRightBSDState()) {
-            cv::fillPoly(vis, std::vector<std::vector<cv::Point>>{right_poly}, cv::Scalar(0, 0, 255));
+            cv::fillPoly(vis, std::vector<std::vector<cv::Point>>{right_poly},
+                         cv::Scalar(0, 0, 255));
           } else {
-            cv::polylines(vis, std::vector<std::vector<cv::Point>>{right_poly}, true, cv::Scalar(100, 100, 100), 1);
+            cv::polylines(vis, std::vector<std::vector<cv::Point>>{right_poly},
+                          true, cv::Scalar(100, 100, 100), 1);
           }
         }
 
@@ -746,8 +752,9 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
 
   // Stage A: BSD Receiver (Pi presence-mode tracking)
   if (g_ingest_manager && !g_ingest_manager->getPiIp().empty()) {
-      g_bsd_receiver = std::make_unique<adas::BSDReceiver>(g_ingest_manager->getPiIp());
-      g_bsd_receiver->start();
+    g_bsd_receiver =
+        std::make_unique<adas::BSDReceiver>(g_ingest_manager->getPiIp());
+    g_bsd_receiver->start();
   }
 
   // Stage E: Fusion + FCW + EgoFrame
