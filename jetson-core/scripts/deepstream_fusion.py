@@ -97,7 +97,7 @@ FRAME_W   = 1280
 FRAME_H   = 720
 F_Y       = 829.0   # vertical focal length [px]  — adjust to your calibration
 C_Y       = 360.0   # principal point y    [px]
-H_CAM_M   = 0.90    # camera height above road surface [m]
+H_CAM_M   = 1.30    # camera height above road surface [m]
 
 # Gating thresholds
 DIST_GATE_M  = 5.0   # |Z_cam - Z_rad| [m]

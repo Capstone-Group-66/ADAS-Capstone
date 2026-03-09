@@ -74,7 +74,7 @@ struct FusionConfig {
     float calib_height_px = 720.f;
 
     // ── Rig geometry ────────────────────────────────────────────────────────
-    float cam_height_m      = 1.15f;    ///< H: camera optical centre above ground (m)
+    float cam_height_m      = 1.30f;    ///< H: camera optical centre above ground (m)
     float radar_below_cam_m = 0.0762f;  ///< Physical distance radar is below camera (m)
                                         ///< = 3 inches. Used to project radar centre
                                         ///< into image space for ROI computation.
