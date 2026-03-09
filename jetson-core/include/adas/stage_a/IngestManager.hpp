@@ -12,9 +12,9 @@
 // Front Camera: DeepStream pipeline now runs as standalone Python script
 // (scripts/deepstream_fusion.py). The det_front_ds_queue_ below still acts
 // as the handoff point; a future ZMQ bridge will feed into it from Python.
-
 #ifdef HAS_ZMQ
 #include "adas/stage_a/NetworkReceiver.hpp"
+#include "adas/stage_a/DeepStreamReceiver.hpp"
 #endif
 
 #include <map>
@@ -184,6 +184,8 @@ class IngestManager {
 #ifdef HAS_ZMQ
     // ZMQ-based network receiver (preferred over TCP NetworkIngest)
     std::unique_ptr<NetworkReceiver> zmq_receiver_;
+    // ZMQ-based IPC receiver for DeepStream local detections
+    std::unique_ptr<DeepStreamReceiver> ds_receiver_;
 #endif
 
     // Direct front radar

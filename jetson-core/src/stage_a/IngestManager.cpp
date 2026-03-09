@@ -88,8 +88,10 @@ void IngestManager::stop() {
   std::cout << "\n[IngestManager] Stopping all ingest threads...\n";
   running_.store(false, std::memory_order_relaxed);
 
-  // Stop in reverse order
 #ifdef HAS_ZMQ
+  if (ds_receiver_) {
+    ds_receiver_->stop();
+  }
   if (zmq_receiver_) {
     zmq_receiver_->stop();
   }
@@ -183,16 +185,22 @@ void IngestManager::launchNetworkIngest() {
   std::cout << "[IngestManager] Launching ZMQ receiver for Pi at " << pi_ip
             << "...\n";
 
-  // Create NetworkReceiver (constructor takes only IP)
-  zmq_receiver_ = std::make_unique<NetworkReceiver>(pi_ip);
-
   // Start with queue pointers
   if (zmq_receiver_->start(&cam_rear_queue_, &imu_queue_, &radar_rear_l_queue_,
-                           &radar_rear_r_queue_, &det_front_ds_queue_)) {
-    std::cout << "[IngestManager] ZMQ receiver started for Pi sensors and DeepStream IPC\n";
+                           &radar_rear_r_queue_)) {
+    std::cout << "[IngestManager] ZMQ receiver started for Pi sensors\n";
   } else {
     std::cerr << "[IngestManager] Failed to start ZMQ receiver\n";
     zmq_receiver_.reset();
+  }
+
+  // Launch local IPC receiver for DeepStream
+  ds_receiver_ = std::make_unique<DeepStreamReceiver>();
+  if (ds_receiver_->start(&det_front_ds_queue_)) {
+    std::cout << "[IngestManager] DeepStream IPC receiver started for Front Camera\n";
+  } else {
+    std::cerr << "[IngestManager] Failed to start DeepStream IPC receiver\n";
+    ds_receiver_.reset();
   }
 
 #else

@@ -39,8 +39,7 @@ std::string NetworkReceiver::buildAddr(int port) const {
 bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
                             SPSCQueue<ImuSample, 32> *imu_queue,
                             SPSCQueue<RadarTargets, 8> *radar_l_queue,
-                            SPSCQueue<RadarTargets, 8> *radar_r_queue,
-                            SPSCQueue<DetBatch, 8> *ds_queue) {
+                            SPSCQueue<RadarTargets, 8> *radar_r_queue) {
   if (running_.load()) {
     return true; // Already running
   }
@@ -49,7 +48,6 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
   imu_queue_ = imu_queue;
   radar_l_queue_ = radar_l_queue;
   radar_r_queue_ = radar_r_queue;
-  ds_queue_ = ds_queue;
 
   // Create sockets
   cam_socket_ = zmq_socket(context_, ZMQ_PULL);
@@ -58,7 +56,6 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
   imu_socket_ = zmq_socket(context_, ZMQ_PULL);
   heartbeat_socket_ =
       zmq_socket(context_, ZMQ_REQ); // REQ/REP pattern for control
-  ds_socket_ = zmq_socket(context_, ZMQ_PULL);
 
   // Set socket options
   int hwm = 10;
@@ -74,7 +71,6 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
   configure_socket(radar_r_socket_);
   configure_socket(imu_socket_);
   configure_socket(heartbeat_socket_);
-  configure_socket(ds_socket_);
 
   // Connect to Pi (Pi binds, we connect)
   std::cout << "[NetworkReceiver] Connecting to Pi at " << pi_ip_ << "...\n";
@@ -100,13 +96,7 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
     return false;
   }
 
-  // Bind local IPC socket for DeepStream
-  if (zmq_bind(ds_socket_, "ipc:///tmp/ds_front_cam.sock") != 0) {
-    std::cerr << "[NetworkReceiver] Failed to bind DeepStream IPC socket\n";
-    return false;
-  }
-
-  std::cout << "[NetworkReceiver] Connected to all Pi streams and bound local IPC socket\n";
+  std::cout << "[NetworkReceiver] Connected to all Pi streams\n";
 
   // Measure initial RTT for latency correction on ZMQ-received timestamps
   double rtt_ms = measureRTT(pi_ip_);
@@ -129,7 +119,6 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
   radar_r_thread_ = std::thread(&NetworkReceiver::radarRThread, this);
   imu_thread_ = std::thread(&NetworkReceiver::imuThread, this);
   heartbeat_thread_ = std::thread(&NetworkReceiver::heartbeatThread, this);
-  ds_thread_ = std::thread(&NetworkReceiver::dsThread, this);
 
   return true;
 }
@@ -152,8 +141,6 @@ void NetworkReceiver::stop() {
     imu_thread_.join();
   if (heartbeat_thread_.joinable())
     heartbeat_thread_.join();
-  if (ds_thread_.joinable())
-    ds_thread_.join();
 
   // Close sockets
   if (cam_socket_) {
@@ -175,10 +162,6 @@ void NetworkReceiver::stop() {
   if (heartbeat_socket_) {
     zmq_close(heartbeat_socket_);
     heartbeat_socket_ = nullptr;
-  }
-  if (ds_socket_) {
-    zmq_close(ds_socket_);
-    ds_socket_ = nullptr;
   }
 
   std::cout << "[NetworkReceiver] Stopped\n";
@@ -684,63 +667,6 @@ void NetworkReceiver::heartbeatThread() {
 
     // Wait 1 second between heartbeats
     std::this_thread::sleep_for(std::chrono::seconds(1));
-  }
-}
-
-void NetworkReceiver::dsThread() {
-  std::vector<uint8_t> buffer(1024 * 1024); // 1MB buffer
-
-  while (running_.load()) {
-    int len = zmq_recv(ds_socket_, buffer.data(), buffer.size(), 0);
-    if (len < 0) {
-      continue; // Timeout or error
-    }
-
-    if (static_cast<size_t>(len) < sizeof(DeepStreamDetBatchHeader)) {
-      stats_.errors++;
-      continue;
-    }
-
-    DeepStreamDetBatchHeader header;
-    std::memcpy(&header, buffer.data(), sizeof(header));
-
-    size_t expected_size = sizeof(DeepStreamDetBatchHeader) +
-                           header.num_detections * sizeof(DeepStreamDet);
-
-    if (static_cast<size_t>(len) < expected_size) {
-      std::cerr << "[DeepStream] Dropped packet: incomplete batch (" << len 
-                << " bytes, expected " << expected_size << ")\n";
-      stats_.errors++;
-      continue;
-    }
-
-    if (ds_queue_) {
-      DetBatch batch;
-      batch.h.mount = Mount::FrontCam;
-      batch.h.t_device_ns = header.timestamp_ns; // Provided by DeepStream (CLOCK_MONOTONIC)
-      batch.h.t_ingest_ns = Clock::now_ns();     // Arrival time on this thread
-      batch.h.seq = 0; // Not explicitly tracked via ZMQ header here currently
-      batch.h.healthy = true;
-      batch.inference_time_us = 0; // Info not provided currently
-
-      size_t offset = sizeof(DeepStreamDetBatchHeader);
-      for (uint32_t i = 0; i < header.num_detections; ++i) {
-        DeepStreamDet ds_det;
-        std::memcpy(&ds_det, buffer.data() + offset, sizeof(DeepStreamDet));
-        
-        Det det;
-        det.box_px = cv::Rect2f(ds_det.x, ds_det.y, ds_det.w, ds_det.h);
-        det.centroid = cv::Point2f(ds_det.centroid_x, ds_det.centroid_y);
-        det.cls = ds_det.cls;
-        det.score = ds_det.score;
-        det.object_id = ds_det.object_id;
-
-        batch.dets.push_back(det);
-        offset += sizeof(DeepStreamDet);
-      }
-
-      ds_queue_->try_push(std::move(batch));
-    }
   }
 }
 

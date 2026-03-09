@@ -65,8 +65,7 @@ class NetworkReceiver {
     /// @param radar_r_queue Queue for Rear R Radar targets
     /// @return true if connected successfully
     bool start(SPSCQueue<CameraFrameData, 8> *cam_queue, SPSCQueue<ImuSample, 32> *imu_queue,
-               SPSCQueue<RadarTargets, 8> *radar_l_queue, SPSCQueue<RadarTargets, 8> *radar_r_queue,
-               SPSCQueue<DetBatch, 8> *ds_queue = nullptr);
+               SPSCQueue<RadarTargets, 8> *radar_l_queue, SPSCQueue<RadarTargets, 8> *radar_r_queue);
 
     /// Stop receiving and disconnect
     void stop();
@@ -119,7 +118,6 @@ class NetworkReceiver {
     void radarRThread();
     void imuThread();
     void heartbeatThread();
-    void dsThread(); // DeepStream IPC ingest
 
     /// Process received message
     bool processMessage(const uint8_t *data, size_t len, protocol::MessageType expected);
@@ -137,14 +135,12 @@ class NetworkReceiver {
     void *radar_r_socket_ = nullptr;
     void *imu_socket_ = nullptr;
     void *heartbeat_socket_ = nullptr;
-    void *ds_socket_ = nullptr; // DeepStream IPC socket
 
     // Output queues (not owned)
     SPSCQueue<CameraFrameData, 8> *cam_queue_ = nullptr;
     SPSCQueue<ImuSample, 32> *imu_queue_ = nullptr;
     SPSCQueue<RadarTargets, 8> *radar_l_queue_ = nullptr;
     SPSCQueue<RadarTargets, 8> *radar_r_queue_ = nullptr;
-    SPSCQueue<DetBatch, 8> *ds_queue_ = nullptr;
 
     // Threads
     std::thread cam_thread_;
@@ -152,7 +148,6 @@ class NetworkReceiver {
     std::thread radar_r_thread_;
     std::thread imu_thread_;
     std::thread heartbeat_thread_;
-    std::thread ds_thread_;
 
     // Control
     std::atomic<bool> running_{false};

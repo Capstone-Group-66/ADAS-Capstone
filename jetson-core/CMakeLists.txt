@@ -222,6 +222,7 @@ if(ZMQ_FOUND)
     # Network receiver integrated with pipeline
     add_library(network_receiver STATIC
         src/stage_a/NetworkReceiver.cpp
+        src/stage_a/DeepStreamReceiver.cpp
         ${RECORDING_SOURCES}
     )
     target_include_directories(network_receiver PRIVATE
