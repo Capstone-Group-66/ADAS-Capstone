@@ -146,6 +146,8 @@ std::unique_ptr<adas::Recorder> g_recorder;
 std::unique_ptr<adas::ReplayEngine> g_replay_engine;
 std::string g_record_dir = "./recordings";
 std::string g_replay_file;
+float g_replay_speed = 1.0f;
+bool g_replay_fast = false;
 
 std::string formatUptime(std::chrono::seconds uptime) {
   int hours = uptime.count() / 3600;
@@ -284,6 +286,7 @@ void visualizationThread() {
         // Radar-only alerts are sent
         bool is_alerting = fcw_alert.has_value() || proximity_alert;
 
+        auto now_time = std::chrono::steady_clock::now();
         auto time_since = std::chrono::duration_cast<std::chrono::milliseconds>(
             now_time - last_ble_send);
 
