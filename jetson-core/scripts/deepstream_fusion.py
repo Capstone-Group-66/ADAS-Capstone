@@ -295,6 +295,14 @@ def _radar_serial_thread(state: AdasState, port: str, baud: int,
 # ─────────────────────────────────────────────────────────────────────────────
 _fusion = GroundPlaneFusion()
 
+# Create a ZMQ PUSH socket to send detections to the C++ pipeline
+_ds_ctx = zmq.Context.instance()
+_ds_push = _ds_ctx.socket(zmq.PUSH)
+_ds_push.connect("ipc:///tmp/ds_front_cam.sock")
+
+DS_HEADER_FMT = "<QII"
+DS_DET_FMT = "<ffffffifQ"
+
 def osd_sink_pad_buffer_probe(pad, info, u_data):
     """
     Attached to the SINK pad of nvdsosd.
@@ -348,6 +356,23 @@ def osd_sink_pad_buffer_probe(pad, info, u_data):
                 l_obj = l_obj.next
             except StopIteration:
                 break
+
+        # ── Step 3.5: Broadcast raw detections to C++ Pipeline via IPC ─────
+        header_bytes = struct.pack(DS_HEADER_FMT, time.time_ns(), len(dets), 0)
+        payload = bytearray(header_bytes)
+        for d in dets:
+            cx = d["box"][0] + d["box"][2] * 0.5
+            cy = d["box"][1] + d["box"][3] * 0.5
+            payload.extend(struct.pack(
+                DS_DET_FMT,
+                d["box"][0], d["box"][1], d["box"][2], d["box"][3],
+                cx, cy, d["cls"], d["conf"], d["obj_id"]
+            ))
+
+        try:
+            _ds_push.send(payload, zmq.NOBLOCK)
+        except zmq.Again:
+            pass # Drop fast if C++ is not draining
 
         # ── Step 4: run 1D-2D fusion ──────────────────────────────────────────
         fused_results = _fusion.fuse(dets, radar_z, radar_v, pitch)
