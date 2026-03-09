@@ -131,6 +131,12 @@ class SensorFusion {
         return pitch_rad_.load(std::memory_order_relaxed);
     }
 
+    /// Set the dynamic camera height (meters).
+    /// Called by the visualisation thread when changed in the config menu.
+    void setCameraHeight(float height_m) {
+        cam_height_m_.store(height_m, std::memory_order_relaxed);
+    }
+
     /// Run the full fusion pipeline for one frame.
     /// @param camera  DetBatch from Stage B (DeepStream probe output)
     /// @param radar   RadarTargets from Stage A (OPS243-A FrontRadar)
@@ -148,7 +154,7 @@ class SensorFusion {
     /// the ground-plane model:  Z = H / tan(θ + α), where α = atan2(v - c_y, f_y).
     /// Returns zero (invalid) if the geometry produces a negative or implausible Z.
     float estimateDistance(float v_bottom, float fy_scaled, float cy_scaled,
-                           float pitch_rad) const;
+                           float pitch_rad, float cam_height_m) const;
 
     /// Helper to compute Intersection over Union of two bounding boxes (Phase 1)
     float calculateIOU(const cv::Rect2f& a, const cv::Rect2f& b) const;
@@ -167,6 +173,9 @@ class SensorFusion {
 
     /// Current camera pitch from ZMQ IMU pitch message (atomic for thread safety).
     std::atomic<float> pitch_rad_{0.0f};
+
+    /// Current camera height above road (atomic for thread safety).
+    std::atomic<float> cam_height_m_{1.30f};
 
     /// Cached ROI for the last seen frame resolution (lazy-updated in fuse()).
     mutable cv::Rect2f cached_roi_;

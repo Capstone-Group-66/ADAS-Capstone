@@ -44,6 +44,7 @@ Config ConfigLoader::loadConfig(const std::string &path) {
   std::istringstream stream(content);
   std::string line;
   std::string current_section; // Track which section we're in
+  std::string current_mount;   // Track which mount subsection we're in
 
   while (std::getline(stream, line)) {
     // Check indentation to determine if this is a section header
@@ -67,6 +68,9 @@ Config ConfigLoader::loadConfig(const std::string &path) {
     if (value.empty() || value[0] == '#') {
       if (indent == 0) {
         current_section = key;
+        current_mount = "";
+      } else if (current_section == "mounts" && indent > 0) {
+        current_mount = key;
       }
       continue;
     }
@@ -136,9 +140,84 @@ Config ConfigLoader::loadConfig(const std::string &path) {
         config.imu.bus = value;
       }
     }
+    // Mounts config
+    else if (current_section == "mounts" && !current_mount.empty()) {
+      if (key == "xyz_m" && current_mount == "FrontCam") {
+        if (value.size() >= 2 && value.front() == '[' && value.back() == ']') {
+          std::string inner = value.substr(1, value.size() - 2);
+          std::stringstream ss(inner);
+          std::string item;
+          int i = 0;
+          while (std::getline(ss, item, ',') && i < 3) {
+            config.mounts[Mount::FrontCam].xyz_m[i] = std::stof(trim(item));
+            i++;
+          }
+        }
+      }
+    }
   }
 
   return config;
+}
+
+void ConfigLoader::saveConfig(const std::string &path, const Config &config) {
+  std::string content = readFile(path);
+  std::istringstream stream(content);
+  std::string line;
+  std::string current_section;
+  std::string current_mount;
+  std::string new_content;
+
+  while (std::getline(stream, line)) {
+    size_t indent = line.find_first_not_of(" \t");
+    std::string trimmed = trim(line);
+
+    if (trimmed.empty() || trimmed[0] == '#') {
+      new_content += line + "\n";
+      continue;
+    }
+
+    size_t colonPos = trimmed.find(':');
+    if (colonPos == std::string::npos) {
+      new_content += line + "\n";
+      continue;
+    }
+
+    std::string key = trim(trimmed.substr(0, colonPos));
+    std::string value = trim(trimmed.substr(colonPos + 1));
+
+    if (value.empty() || value[0] == '#') {
+      if (indent == 0) {
+        current_section = key;
+        current_mount = "";
+      } else if (current_section == "mounts" && indent > 0) {
+        current_mount = key;
+      }
+      new_content += line + "\n";
+      continue;
+    }
+
+    if (current_section == "mounts" && current_mount == "FrontCam" && key == "xyz_m") {
+      auto it = config.mounts.find(Mount::FrontCam);
+      if (it != config.mounts.end()) {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "xyz_m: [" 
+           << it->second.xyz_m[0] << ", " 
+           << it->second.xyz_m[1] << ", " 
+           << it->second.xyz_m[2] << "]\n";
+        new_content += ss.str();
+        continue;
+      }
+    }
+
+    new_content += line + "\n";
+  }
+
+  std::ofstream out(path);
+  if (!out.is_open()) {
+    throw std::runtime_error("Cannot write config to: " + path);
+  }
+  out << new_content;
 }
 
 HardwareMap ConfigLoader::loadHardwareMap(const std::string &path) {

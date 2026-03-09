@@ -655,6 +655,7 @@ void printMenu() {
   std::cout << " 13) Edit Camera Config (opens editor, hot-reload)\n";
   std::cout << " 14) Toggle RTSP Stream ["
             << (g_rtsp_streaming.load() ? "ON" : "OFF") << "]\n";
+  std::cout << "  h) Set Camera Height On-The-Fly\n";
   std::cout << "  0) Exit\n";
   std::cout
       << "==============================================================\n";
@@ -689,7 +690,12 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   g_stage_b_manager->start();
 
   // Stage E: Fusion + FCW + EgoFrame
-  g_sensor_fusion = std::make_unique<adas::SensorFusion>();
+  adas::FusionConfig fusion_config;
+  auto it = config.mounts.find(adas::Mount::FrontCam);
+  if (it != config.mounts.end()) {
+      fusion_config.cam_height_m = it->second.xyz_m[2];
+  }
+  g_sensor_fusion = std::make_unique<adas::SensorFusion>(fusion_config);
 
   // Configure FCW with physics-based parameters
   adas::FCWMonitor::Config fcw_config;
@@ -990,10 +996,38 @@ int main(int argc, char **argv) {
     while (!g_shutdown_requested.load(std::memory_order_relaxed)) {
       printMenu();
 
-      int choice = -1;
-      std::cin >> choice;
+      std::string input;
+      std::cin >> input;
 
-      if (std::cin.fail()) {
+      if (input == "h" || input == "H") {
+        std::cout << "  Enter new camera height from road (meters): ";
+        float new_height = 0.0f;
+        std::cin >> new_height;
+        if (!std::cin.fail() && new_height > 0.0f) {
+          config.mounts[adas::Mount::FrontCam].xyz_m[2] = new_height;
+          try {
+            adas::ConfigLoader::saveConfig(config_path, config);
+            if (g_sensor_fusion) {
+               g_sensor_fusion->setCameraHeight(new_height);
+               std::cout << "\n[Config] Dynamic camera height updated to " << new_height << "m on-the-fly!\n\n";
+            } else {
+               std::cout << "\n[Config] Camera height saved to config (will apply on next start).\n\n";
+            }
+          } catch(const std::exception& e) {
+            std::cout << "\n[Error] Failed to save config: " << e.what() << "\n\n";
+          }
+        } else {
+          std::cin.clear();
+          std::cout << "\n[Error] Invalid height value.\n\n";
+        }
+        std::cin.ignore(10000, '\n');
+        continue;
+      }
+
+      int choice = -1;
+      try {
+        choice = std::stoi(input);
+      } catch (...) {
         std::cin.clear();
         std::cin.ignore(10000, '\n');
         continue;

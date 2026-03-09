@@ -98,6 +98,11 @@ class ConfigLoader {
     /// @throws std::runtime_error if file cannot be read or parsed
     static Config loadConfig(const std::string &path);
 
+    /// Save componentConfig.yaml (updates mounts section)
+    /// @param path Path to YAML config file
+    /// @param config Configuration to save
+    static void saveConfig(const std::string &path, const Config &config);
+
     /// Load hardware_map.json
     /// @param path Path to JSON mapping file
     /// @return Parsed hardware mapping
