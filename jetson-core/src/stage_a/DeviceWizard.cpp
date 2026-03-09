@@ -65,7 +65,8 @@ void DeviceWizard::runRegistration(const std::string &output_path,
     std::cout << "Device: " << device_path << "\n";
 
     if (device_path == "/dev/video0") {
-      std::cout << "  [RESERVED] " << device_path << " -> FrontCam (DeepStream)\n";
+      std::cout << "  [RESERVED] " << device_path
+                << " -> FrontCam (DeepStream)\n";
       mappings[Mount::FrontCam] = device_path;
       continue;
     }
