@@ -34,13 +34,13 @@ void BEVDashboard::update(const std::vector<FusedObject> &fused_objects) {
 }
 
 void BEVDashboard::renderLoop() {
-  const int canvas_width = 800;
-  const int canvas_height = 800;
-  const float pixels_per_meter = 15.0f;
-  const int ego_x = 400;
-  const int ego_y = 700;
-  const int ego_w = 40;
-  const int ego_h = 80;
+  const int canvas_width = 300;
+  const int canvas_height = 300;
+  const float pixels_per_meter = 7.0f;
+  const int ego_x = 150;
+  const int ego_y = 240;
+  const int ego_w = 20;
+  const int ego_h = 40;
 
   cv::namedWindow("ADAS BEVDashboard", cv::WINDOW_AUTOSIZE);
 
@@ -58,10 +58,10 @@ void BEVDashboard::renderLoop() {
 
     // ── Left Blind Spot Zone ──
     std::vector<cv::Point> left_poly = {
-        cv::Point(ego_x - ego_w / 2 - 60, ego_y - 20),
-        cv::Point(ego_x - ego_w / 2 - 10, ego_y - 20),
-        cv::Point(ego_x - ego_w / 2 - 10, ego_y + ego_h + 40),
-        cv::Point(ego_x - ego_w / 2 - 60, ego_y + ego_h + 40)};
+        cv::Point(ego_x - ego_w / 2 - 35, ego_y - 10),
+        cv::Point(ego_x - ego_w / 2 - 5, ego_y - 10),
+        cv::Point(ego_x - ego_w / 2 - 5, ego_y + ego_h + 20),
+        cv::Point(ego_x - ego_w / 2 - 35, ego_y + ego_h + 20)};
 
     if (left_bsd) {
       cv::Mat overlay;
@@ -76,10 +76,10 @@ void BEVDashboard::renderLoop() {
 
     // ── Right Blind Spot Zone ──
     std::vector<cv::Point> right_poly = {
-        cv::Point(ego_x + ego_w / 2 + 10, ego_y - 20),
-        cv::Point(ego_x + ego_w / 2 + 60, ego_y - 20),
-        cv::Point(ego_x + ego_w / 2 + 60, ego_y + ego_h + 40),
-        cv::Point(ego_x + ego_w / 2 + 10, ego_y + ego_h + 40)};
+        cv::Point(ego_x + ego_w / 2 + 5, ego_y - 10),
+        cv::Point(ego_x + ego_w / 2 + 35, ego_y - 10),
+        cv::Point(ego_x + ego_w / 2 + 35, ego_y + ego_h + 20),
+        cv::Point(ego_x + ego_w / 2 + 5, ego_y + ego_h + 20)};
 
     if (right_bsd) {
       cv::Mat overlay;
@@ -95,8 +95,8 @@ void BEVDashboard::renderLoop() {
     // ── Ego Vehicle ──
     cv::rectangle(canvas, cv::Rect(ego_x - ego_w / 2, ego_y, ego_w, ego_h),
                   cv::Scalar(200, 200, 200), -1);
-    cv::putText(canvas, "EGO", cv::Point(ego_x - 15, ego_y + ego_h / 2 + 5),
-                cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(0, 0, 0), 1);
+    cv::putText(canvas, "EGO", cv::Point(ego_x - 12, ego_y + ego_h / 2 + 4),
+                cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(0, 0, 0), 1);
 
     // ── Fused Targets (Stage E) ──
     std::vector<FusedObject> current_fused;
@@ -125,11 +125,11 @@ void BEVDashboard::renderLoop() {
       bool is_threat = (obj.ttc_s <= 3.0f);
       cv::Scalar color = is_threat ? cv::Scalar(0, 0, 255)
                                    : cv::Scalar(255, 255, 0); // Red or Cyan
-      int radius = is_threat ? 10 : 6;
+      int radius = is_threat ? 6 : 4;
 
       if (is_threat) {
         // Add glow effect for threat
-        cv::circle(canvas, cv::Point(x_canvas, y_canvas), radius + 6,
+        cv::circle(canvas, cv::Point(x_canvas, y_canvas), radius + 4,
                    cv::Scalar(0, 0, 150), -1);
       }
       cv::circle(canvas, cv::Point(x_canvas, y_canvas), radius, color, -1);
@@ -142,11 +142,11 @@ void BEVDashboard::renderLoop() {
 
       int baseline = 0;
       cv::Size text_size = cv::getTextSize(ss.str(), cv::FONT_HERSHEY_SIMPLEX,
-                                           0.4, 1, &baseline);
+                                           0.3, 1, &baseline);
       cv::putText(
           canvas, ss.str(),
-          cv::Point(x_canvas - text_size.width / 2, y_canvas - radius - 5),
-          cv::FONT_HERSHEY_SIMPLEX, 0.4, cv::Scalar(255, 255, 255), 1);
+          cv::Point(x_canvas - text_size.width / 2, y_canvas - radius - 3),
+          cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(255, 255, 255), 1);
     }
 
     cv::imshow("ADAS BEVDashboard", canvas);
