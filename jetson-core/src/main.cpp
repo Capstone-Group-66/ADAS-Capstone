@@ -146,8 +146,6 @@ std::unique_ptr<adas::Recorder> g_recorder;
 std::unique_ptr<adas::ReplayEngine> g_replay_engine;
 std::string g_record_dir = "./recordings";
 std::string g_replay_file;
-float g_replay_speed = 1.0f;
-bool g_replay_fast = false;
 
 std::string formatUptime(std::chrono::seconds uptime) {
   int hours = uptime.count() / 3600;
@@ -175,29 +173,8 @@ void visualizationThread() {
   std::cout << "[StageE] Thread started (display "
             << (display_enabled ? "enabled" : "disabled") << ")\n";
 
-  // Only create the Stage B window if there's a camera pipeline feeding it.
-  // (FrontCam is handled by deepstream_fusion.py; this window is for future
-  //  side-camera inference.)
-  const bool window_wanted = display_enabled;
-  bool window_created = false;
-
-  if (window_wanted) {
-    // Window is created lazily on first frame so we don't get a blank black box
-  }
-
-  auto last_fps_time = std::chrono::steady_clock::now();
-  auto last_display_time = std::chrono::steady_clock::now();
-  auto fcw_alert_until = std::chrono::steady_clock::now(); // FCW hold timer
-  const auto display_interval =
-      std::chrono::milliseconds(50); // 20 FPS cap for display
-  const auto fcw_hold_duration =
-      std::chrono::seconds(2); // Hold FCW alert for 2 seconds
   const float fcw_proximity_threshold_m =
       1.5f; // Trigger FCW if object within this range
-  int frame_count = 0;
-  double fps = 0.0;
-  float last_fcw_ttc = 0.0f;
-  float last_fcw_range = 0.0f;
 
   while (g_visualizer_running.load() && !g_shutdown_requested.load()) {
     bool got_frame = false;
@@ -279,8 +256,6 @@ void visualizationThread() {
       // Also check for proximity-based FCW (any object within 1.5m)
       bool proximity_alert = false;
       float closest_range = 999.0f;
-      const adas::FusedObject *prox_obj =
-          nullptr; // Capture the object causing the alert
 
       for (const auto &obj : fused) {
         if (obj.has_radar && obj.range_m < fcw_proximity_threshold_m &&
@@ -288,22 +263,16 @@ void visualizationThread() {
           proximity_alert = true;
           if (obj.range_m < closest_range) {
             closest_range = obj.range_m;
-            prox_obj = &obj;
           }
         }
       }
 
-      // Update FCW hold timer if we have an alert
-      auto now_time = std::chrono::steady_clock::now();
+      // Update FCW alert active status
       if (fcw_alert.has_value() || proximity_alert) {
-        fcw_alert_until = now_time + fcw_hold_duration;
-        if (fcw_alert.has_value()) {
-          last_fcw_ttc = fcw_alert->ttc_s;
-          last_fcw_range = fcw_alert->range_m;
-        } else {
-          last_fcw_ttc = closest_range / 1.0f;
-          last_fcw_range = closest_range;
-        }
+         // Radar alerts handled by BLE, we can keep g_fcw_alert_active for potential dashboard UI later.
+         g_fcw_alert_active.store(true);
+      } else {
+         g_fcw_alert_active.store(false);
       }
 
       // BLE Transmission: Heartbeat (1Hz) + Alerts (Immediate)
@@ -390,7 +359,6 @@ void visualizationThread() {
   }
 
   std::cout << "[StageE] Thread stopped\n";
-}
 }
 
 void statusBarThread() {

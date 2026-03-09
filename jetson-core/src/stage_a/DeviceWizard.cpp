@@ -319,7 +319,7 @@ void DeviceWizard::showPreview(const std::string &device_path,
 }
 
 std::optional<Mount> DeviceWizard::promptMountAssignment(
-    const std::string &device_path,
+    const std::string & /*device_path*/,
     const std::vector<Mount> &already_assigned) {
 
   auto direct_mounts = getDirectCameraMounts();
