@@ -58,10 +58,12 @@ void BEVDashboard::renderLoop() {
 
     // ── Left Blind Spot Zone ──
     std::vector<cv::Point> left_poly = {
-        cv::Point(ego_x - ego_w / 2 - 2, ego_y + 15),         // Near side mirror
-        cv::Point(ego_x - ego_w / 2 - 2, ego_y + ego_h + 5),  // Near rear bumper
-        cv::Point(ego_x - ego_w / 2 - 35, ego_y + ego_h + 25), // Wide left, extending behind
-        cv::Point(ego_x - ego_w / 2 - 30, ego_y + 10)         // Wide left, near mirror front
+        cv::Point(ego_x - ego_w / 2 - 2, ego_y + 15),        // Near side mirror
+        cv::Point(ego_x - ego_w / 2 - 2, ego_y + ego_h + 5), // Near rear bumper
+        cv::Point(ego_x - ego_w / 2 - 35,
+                  ego_y + ego_h + 25), // Wide left, extending behind
+        cv::Point(ego_x - ego_w / 2 - 30,
+                  ego_y + 10) // Wide left, near mirror front
     };
 
     if (left_bsd) {
@@ -77,10 +79,12 @@ void BEVDashboard::renderLoop() {
 
     // ── Right Blind Spot Zone ──
     std::vector<cv::Point> right_poly = {
-        cv::Point(ego_x + ego_w / 2 + 2, ego_y + 15),         // Near side mirror
-        cv::Point(ego_x + ego_w / 2 + 2, ego_y + ego_h + 5),  // Near rear bumper
-        cv::Point(ego_x + ego_w / 2 + 35, ego_y + ego_h + 25), // Wide right, extending behind
-        cv::Point(ego_x + ego_w / 2 + 30, ego_y + 10)         // Wide right, near mirror front
+        cv::Point(ego_x + ego_w / 2 + 2, ego_y + 15),        // Near side mirror
+        cv::Point(ego_x + ego_w / 2 + 2, ego_y + ego_h + 5), // Near rear bumper
+        cv::Point(ego_x + ego_w / 2 + 35,
+                  ego_y + ego_h + 25), // Wide right, extending behind
+        cv::Point(ego_x + ego_w / 2 + 30,
+                  ego_y + 10) // Wide right, near mirror front
     };
 
     if (right_bsd) {
@@ -111,7 +115,8 @@ void BEVDashboard::renderLoop() {
 
     // 1. Update tracks with current detections
     for (const auto &obj : current_fused) {
-      if (!obj.has_radar) continue; // Only plot radar-fused objects for true depth
+      if (!obj.has_radar)
+        continue; // Only plot radar-fused objects for true depth
 
       float z_m = obj.range_m;
       float x_offset_m = z_m * ((obj.centroid_px.x - c_x_) / f_x_);
@@ -128,22 +133,28 @@ void BEVDashboard::renderLoop() {
         it->second.z_m = z_m;
         // Keep threat status active to force 5s hold if it was a threat before,
         // or upgrade to threat if newly a threat.
-        if (is_threat) it->second.is_threat = true; 
+        if (is_threat)
+          it->second.is_threat = true;
         it->second.label = ss.str();
         it->second.radial_vel_mps = obj.radial_vel_mps;
         it->second.last_seen = now;
       } else {
-        Track t = {x_offset_m, z_m, is_threat, ss.str(), obj.radial_vel_mps, now};
+        Track t = {x_offset_m,         z_m, is_threat, ss.str(),
+                   obj.radial_vel_mps, now};
         tracks_[obj.object_id] = t;
       }
     }
 
     // 2. Render all internal tracks and fade them out based on age
-    for (auto it = tracks_.begin(); it != tracks_.end(); ) {
+    for (auto it = tracks_.begin(); it != tracks_.end();) {
       float age_s = std::chrono::duration_cast<std::chrono::milliseconds>(
-                      now - it->second.last_seen).count() / 1000.0f;
-                      
-      float max_age_s = it->second.is_threat ? 5.0f : 1.5f; // Threat holds 5s, normal holds 1.5s
+                        now - it->second.last_seen)
+                        .count() /
+                    1000.0f;
+
+      float max_age_s = it->second.is_threat
+                            ? 5.0f
+                            : 1.5f; // Threat holds 5s, normal holds 1.5s
 
       if (age_s > max_age_s) {
         it = tracks_.erase(it);
@@ -155,33 +166,41 @@ void BEVDashboard::renderLoop() {
       float alpha = 1.0f - (age_s / max_age_s);
       alpha = std::max(0.0f, std::min(1.0f, alpha));
 
-      int x_canvas = static_cast<int>(ego_x + (it->second.x_offset_m * pixels_per_meter));
-      int y_canvas = static_cast<int>(ego_y - (it->second.z_m * pixels_per_meter));
+      int x_canvas =
+          static_cast<int>(ego_x + (it->second.x_offset_m * pixels_per_meter));
+      int y_canvas =
+          static_cast<int>(ego_y - (it->second.z_m * pixels_per_meter));
 
-      if (x_canvas < -100 || x_canvas > canvas_width + 100 || 
-          y_canvas < -100 || y_canvas > canvas_height + 100) {
+      if (x_canvas < -100 || x_canvas > canvas_width + 100 || y_canvas < -100 ||
+          y_canvas > canvas_height + 100) {
         ++it;
         continue;
       }
 
       int radius = it->second.is_threat ? 6 : 4;
-      cv::Scalar base_color = it->second.is_threat ? cv::Scalar(0, 0, 255) : cv::Scalar(255, 255, 0); // Red or Cyan
-      cv::Scalar color = base_color * alpha; // Multiply by alpha to get darker/faded color
+      cv::Scalar base_color = it->second.is_threat
+                                  ? cv::Scalar(0, 0, 255)
+                                  : cv::Scalar(255, 255, 0); // Red or Cyan
+      cv::Scalar color =
+          base_color * alpha; // Multiply by alpha to get darker/faded color
 
       if (it->second.is_threat) {
         // Warning glow ring
         cv::Scalar glow_color = cv::Scalar(0, 0, 150) * alpha;
-        cv::circle(canvas, cv::Point(x_canvas, y_canvas), radius + 4, glow_color, -1);
+        cv::circle(canvas, cv::Point(x_canvas, y_canvas), radius + 4,
+                   glow_color, -1);
       }
       cv::circle(canvas, cv::Point(x_canvas, y_canvas), radius, color, -1);
 
       // Telemetry Text (also fading)
       int baseline = 0;
-      cv::Size text_size = cv::getTextSize(it->second.label, cv::FONT_HERSHEY_SIMPLEX, 0.3, 1, &baseline);
+      cv::Size text_size = cv::getTextSize(
+          it->second.label, cv::FONT_HERSHEY_SIMPLEX, 0.3, 1, &baseline);
       cv::putText(
           canvas, it->second.label,
           cv::Point(x_canvas - text_size.width / 2, y_canvas - radius - 3),
-          cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(255 * alpha, 255 * alpha, 255 * alpha), 1);
+          cv::FONT_HERSHEY_SIMPLEX, 0.3,
+          cv::Scalar(255 * alpha, 255 * alpha, 255 * alpha), 1);
 
       ++it;
     }
