@@ -241,7 +241,7 @@ void visualizationThread() {
       }
     }
 
-    if (got_frame && !batch.frame.empty()) {
+    if (got_frame) {
       // Run Stage E fusion
       std::vector<adas::FusedObject> fused;
       if (g_sensor_fusion) {
@@ -371,8 +371,8 @@ void visualizationThread() {
                                    ttc, range, triggered, e2e_latency_ms);
       }
 
-      // ── Step 10: OpenCV Visualization (only when display is enabled) ──
-      if (display_enabled) {
+      // ── Step 10: OpenCV Visualization (only when display is enabled and frame exists) ──
+      if (display_enabled && !batch.frame.empty()) {
         // CRITICAL: Clone the frame to get our own memory buffer
         // The original batch.frame may be reused by ingest thread
         cv::Mat vis = batch.frame.clone();
