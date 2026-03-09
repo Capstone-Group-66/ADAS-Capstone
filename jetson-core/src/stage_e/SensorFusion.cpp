@@ -88,20 +88,33 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
     return fused;
   }
 
+  // ── Phase 1: IOU Deduplication ──────────────────────────────────────────
+  std::vector<Det> deduped_dets;
+  std::vector<bool> dropped(camera.dets.size(), false);
+  
+  for (size_t i = 0; i < camera.dets.size(); ++i) {
+    if (dropped[i]) continue;
+    for (size_t j = i + 1; j < camera.dets.size(); ++j) {
+      if (dropped[j]) continue;
+      
+      if (calculateIOU(camera.dets[i].box_px, camera.dets[j].box_px) > 0.75f) {
+        if (camera.dets[i].score < camera.dets[j].score || 
+           (camera.dets[i].score == camera.dets[j].score && camera.dets[i].object_id > camera.dets[j].object_id)) {
+          dropped[i] = true;
+          break; // i is dropped, stop inner loop
+        } else {
+          dropped[j] = true;
+        }
+      }
+    }
+    if (!dropped[i]) {
+      deduped_dets.push_back(camera.dets[i]);
+    }
+  }
+
   // Read pitch atomically (written by ZMQ imuThread, read here by viz thread)
   const float theta = pitch_rad_.load(std::memory_order_relaxed);
 
-  // ── Lazy-cache the ROI for the current frame resolution ──────────────────
-  // Infer frame size from the first detection's bounding box context.
-  // We use hardcoded calibration width/height as the canonical reference;
-  // if the pipeline is running at a different resolution, DeepStream's
-  // bounding boxes will be in that resolution's pixel space.  Detect the
-  // active resolution from the config (we assume the pipeline sends bboxes
-  // in calib_width × calib_height space unless the caller overrides).
-  // For full robustness with resolution changes: the caller can pre-compute
-  // the ROI via computeRadarROI(frame_w, frame_h) and use a batch header
-  // field — but here we default to calibration resolution as that is what
-  // the DeepStream pipeline is currently configured for.
   const float fw = config_.calib_width_px;
   const float fh = config_.calib_height_px;
 
@@ -112,25 +125,18 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
   }
   const cv::Rect2f &roi = cached_roi_;
 
-  // Scale intrinsics — sx/sy are 1.0 when running at calibration resolution
-  // (which is always the case here since fw/fh are clamped to calib dims
-  // above). Use intrinsics directly to avoid spurious "unused variable"
-  // warnings.
   const float fy_s = config_.f_y;
   const float cy_s = config_.c_y;
 
-  // Log fusion frame header once when verbose
   if (g_verbose_mode.load()) {
-    std::cout << "[Fusion] Frame " << camera.h.seq << ": " << camera.dets.size()
-              << " dets, " << radar.targets.size() << " radar targets"
+    std::cout << "[Fusion] Frame " << camera.h.seq << ": " << deduped_dets.size()
+              << " dets (deduped), " << radar.targets.size() << " radar targets"
               << "  θ=" << theta << " rad\n";
   }
 
-  fused.reserve(camera.dets.size());
+  fused.reserve(deduped_dets.size());
 
-  const uint64_t t_ns = camera.h.t_ingest_ns;
-
-  for (const auto &det : camera.dets) {
+  for (const auto &det : deduped_dets) {
 
     // ── Phase 2: Camera Distance Estimation ─────────────────────────────
     // Bottom-centre pixel (u=horizontal centre, v=bottom row of bbox)
@@ -139,12 +145,6 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
 
     const float z_cam = estimateDistance(v, fy_s, cy_s, theta);
     const bool z_valid = (z_cam >= config_.z_min_m && z_cam <= config_.z_max_m);
-
-    // ── Phase 3: Camera Velocity Estimation ──────────────────────────────
-    float v_cam = std::numeric_limits<float>::quiet_NaN();
-    if (z_valid) {
-      v_cam = updateAndEstimateVelocity(det.object_id, z_cam, t_ns);
-    }
 
     // ── Phase 5, Gate 1: Spatial ROI ────────────────────────────────────
     if (!inRadarROI(u, v, roi)) {
@@ -163,50 +163,41 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
     obj.box_px = det.box_px;
     obj.centroid_px = det.centroid;
     obj.z_cam_m = z_valid ? z_cam : 0.f;
-    obj.v_cam_mps = std::isnan(v_cam) ? 0.f : v_cam;
+    obj.v_cam_mps = 0.f; // Removed historical V_cam
     obj.sources = SRC_CAM_F;
 
-    // ── Phase 4 + Phase 5, Gates 2 & 3: Radar Association ───────────────
+    // ── Phase 3 & 4: Radar Extrinsic Translation & Gating ───────────────
     // Find the best-matching radar target that passes all distance and
-    // velocity gates.  "Best" = minimises |Z_cam - Z_rad|.
+    // spatial gates.  "Best" = minimises |Z_cam - Z_rad_adj|.
     int best_radar_idx = -1;
     float best_dist_delta = std::numeric_limits<float>::max();
 
-    for (size_t i = 0; i < radar.targets.size(); ++i) {
-      const RadarTarget &tgt = radar.targets[i];
+    if (z_valid) {
+      for (size_t i = 0; i < radar.targets.size(); ++i) {
+        const RadarTarget &tgt = radar.targets[i];
 
-      const float z_rad = tgt.range_m;
-      // OPS243-A sign convention: positive radial_vel = approaching.
-      // Spec normalises to negative=approaching; flip sign for V_cam
-      // comparison. V_rad_norm < 0 means approaching (matches V_cam
-      // convention).
-      const float v_rad_norm = -tgt.radial_vel_mps;
+        // Step 3: Radar Extrinsic Translation
+        float z_rad_adj = tgt.range_m - 0.0127f;
+        // Divide by zero protection on z_rad_adj
+        if (z_rad_adj < 0.1f) continue;
+        
+        float v_rad_proj = cy_s + fy_s * (-0.0762f / z_rad_adj);
 
-      // Gate 2: distance match
-      if (!z_valid) {
-        // No valid Z_cam — skip velocity & distance gates
-        // (camera-only object, no radar association possible)
-        break;
-      }
-      const float dz = std::abs(z_cam - z_rad);
-      if (dz >= config_.dist_gate_m) {
-        continue;
-      }
-
-      // Gate 3: velocity match
-      // If V_cam is not yet available (<2 history points), skip velocity
-      // gate — allow distance-only match for the first few frames of a track.
-      if (!std::isnan(v_cam)) {
-        const float dv = std::abs(v_cam - v_rad_norm);
-        if (dv >= config_.vel_gate_mps) {
+        // Step 4: Distance & Spatial Gating
+        const float dz = std::abs(z_cam - z_rad_adj);
+        if (dz > 3.0f) {
           continue;
         }
-      }
 
-      // Prefer the closest distance-matched target
-      if (dz < best_dist_delta) {
-        best_dist_delta = dz;
-        best_radar_idx = static_cast<int>(i);
+        if (v_rad_proj < det.box_px.y || v_rad_proj > (det.box_px.y + det.box_px.height)) {
+          continue;
+        }
+
+        // Prefer the closest distance-matched target
+        if (dz < best_dist_delta) {
+          best_dist_delta = dz;
+          best_radar_idx = static_cast<int>(i);
+        }
       }
     }
 
@@ -214,20 +205,19 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
       const RadarTarget &tgt = radar.targets[best_radar_idx];
 
       obj.has_radar = true;
-      obj.range_m = tgt.range_m;
-      // Expose radar velocity in the spec convention (positive=approaching)
-      // so the existing FCWMonitor logic is unchanged.
+      obj.range_m = tgt.range_m - 0.0127f;
+      // Inherit radar velocity (keep spec convention where negative is approaching out of FCW)
       obj.radial_vel_mps = tgt.radial_vel_mps;
       obj.sources |= SRC_RAD_F;
 
-      // TTC authoritative from radar (Z_rad / |V_rad|, positive approach)
-      obj.ttc_s = computeTTC(tgt.range_m, tgt.radial_vel_mps);
+      // TTC authoritative from radar
+      obj.ttc_s = computeTTC(obj.range_m, obj.radial_vel_mps);
 
       if (g_verbose_mode.load()) {
         std::cout << "  [Fusion] MATCHED obj " << det.object_id
                   << " cls=" << det.cls << " Z_cam=" << z_cam
-                  << "m V_cam=" << obj.v_cam_mps << "m/s Z_rad=" << tgt.range_m
-                  << "m V_rad=" << tgt.radial_vel_mps << "m/s TTC="
+                  << "m Z_fused=" << obj.range_m
+                  << "m V_fused=" << obj.radial_vel_mps << "m/s TTC="
                   << (obj.ttc_s < 999.f ? std::to_string((int)obj.ttc_s) + "s"
                                         : "inf")
                   << "\n";
@@ -243,26 +233,6 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
     fused.push_back(obj);
   }
 
-  // Evict stale tracks to prevent unbounded memory growth.
-  // Keep only track IDs that appeared in this frame.
-  {
-    std::vector<uint64_t> active_ids;
-    active_ids.reserve(camera.dets.size());
-    for (const auto &det : camera.dets) {
-      active_ids.push_back(det.object_id);
-    }
-    for (auto it = track_history_.begin(); it != track_history_.end();) {
-      bool is_active = false;
-      for (uint64_t id : active_ids) {
-        if (id == it->first) {
-          is_active = true;
-          break;
-        }
-      }
-      it = is_active ? std::next(it) : track_history_.erase(it);
-    }
-  }
-
   return fused;
 }
 
@@ -270,50 +240,34 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
 //  Private helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
-float SensorFusion::estimateDistance(float v_bottom, float fy_scaled,
-                                     float cy_scaled, float pitch_rad) const {
-  // α = atan2(v - c_y, f_y)  [vertical optical angle, positive = below horizon]
-  const float alpha = std::atan2(v_bottom - cy_scaled, fy_scaled);
-  const float angle = pitch_rad + alpha;
+float SensorFusion::calculateIOU(const cv::Rect2f &a, const cv::Rect2f &b) const {
+  float x_left = std::max(a.x, b.x);
+  float y_top = std::max(a.y, b.y);
+  float x_right = std::min(a.x + a.width, b.x + b.width);
+  float y_bottom = std::min(a.y + a.height, b.y + b.height);
 
-  // Avoid division by zero or negative tangent (object behind or at horizon)
-  const float tan_angle = std::tan(angle);
-  if (tan_angle <= 1e-4f) {
-    return 0.f; // Invalid — object at or above horizon in camera frame
+  if (x_right < x_left || y_bottom < y_top) {
+    return 0.0f;
   }
 
-  return config_.cam_height_m / tan_angle;
+  float intersection_area = (x_right - x_left) * (y_bottom - y_top);
+  float a_area = a.width * a.height;
+  float b_area = b.width * b.height;
+
+  return intersection_area / (a_area + b_area - intersection_area);
 }
 
-float SensorFusion::updateAndEstimateVelocity(uint64_t object_id, float z_now,
-                                              uint64_t t_ns) {
-  auto &hist = track_history_[object_id];
+float SensorFusion::estimateDistance(float v_bottom, float fy_scaled,
+                                     float cy_scaled, float pitch_rad) const {
+  // α = atan((v - c_y) / f_y)  [vertical optical angle]
+  const float alpha = std::atan((v_bottom - cy_scaled) / fy_scaled);
+  const float angle = pitch_rad + alpha;
 
-  // Append current sample
-  hist.push_back({z_now, t_ns});
-
-  // Enforce history length cap
-  while (static_cast<int>(hist.size()) > config_.track_history_len) {
-    hist.pop_front();
+  if (angle <= 0.001f) {
+    return 150.0f; // Max Range / Horizon
   }
 
-  // Need at least 2 samples to estimate velocity
-  if (hist.size() < 2) {
-    return std::numeric_limits<float>::quiet_NaN();
-  }
-
-  // Finite-difference over the full available window for noise robustness.
-  // V_cam = (Z(t_latest) - Z(t_oldest)) / Δt
-  // Negative V_cam = range decreasing = approaching (matches spec).
-  const auto &oldest = hist.front();
-  const auto &latest = hist.back();
-
-  const float dt_s = static_cast<float>(latest.second - oldest.second) * 1e-9f;
-  if (dt_s < 1e-3f) {
-    return std::numeric_limits<float>::quiet_NaN(); // Too close in time
-  }
-
-  return (latest.first - oldest.first) / dt_s;
+  return config_.cam_height_m / std::tan(angle);
 }
 
 bool SensorFusion::inRadarROI(float u, float v, const cv::Rect2f &roi) const {
@@ -322,11 +276,9 @@ bool SensorFusion::inRadarROI(float u, float v, const cv::Rect2f &roi) const {
 }
 
 float SensorFusion::computeTTC(float z_rad,
-                               float v_rad_positive_approaching) const {
-  // OPS243-A: positive radial_vel_mps = approaching target.
-  // TTC only meaningful when target is closing at > 0.1 m/s.
-  if (v_rad_positive_approaching > 0.1f) {
-    return z_rad / v_rad_positive_approaching;
+                               float v_rad_doppler) const {
+  if (v_rad_doppler < 0.0f) {
+    return z_rad / std::abs(v_rad_doppler);
   }
   return std::numeric_limits<float>::infinity();
 }

@@ -79,7 +79,7 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     bool physics_triggered = false;
 
     // Check 1: TTC-based alert (original logic)
-    if (obj.ttc_s < config_.ttc_threshold_s) {
+    if (obj.ttc_s <= config_.ttc_threshold_s) {
       ttc_triggered = true;
     }
 

@@ -150,12 +150,9 @@ class SensorFusion {
     float estimateDistance(float v_bottom, float fy_scaled, float cy_scaled,
                            float pitch_rad) const;
 
-    // ── Phase 3 ─────────────────────────────────────────────────────────────
-    /// Append Z_now to the track history for object_id and return V_cam (m/s).
-    /// Negative V_cam = approaching (Z decreasing over time).
-    /// Returns NaN if fewer than 2 history points exist yet.
-    float updateAndEstimateVelocity(uint64_t object_id, float z_now,
-                                    uint64_t t_ns);
+    /// Helper to compute Intersection over Union of two bounding boxes (Phase 1)
+    float calculateIOU(const cv::Rect2f& a, const cv::Rect2f& b) const;
+
 
     // ── Phase 5 ─────────────────────────────────────────────────────────────
     /// Return true if the bottom-centre pixel (u, v) is inside the radar ROI.
@@ -170,11 +167,6 @@ class SensorFusion {
 
     /// Current camera pitch from ZMQ IMU pitch message (atomic for thread safety).
     std::atomic<float> pitch_rad_{0.0f};
-
-    /// Per-track Z_cam history: map<object_id, deque<(z_m, t_ns)>>.
-    /// Written and read only from the fuse() call (viz thread) — no lock needed.
-    std::unordered_map<uint64_t,
-                       std::deque<std::pair<float, uint64_t>>> track_history_;
 
     /// Cached ROI for the last seen frame resolution (lazy-updated in fuse()).
     mutable cv::Rect2f cached_roi_;
