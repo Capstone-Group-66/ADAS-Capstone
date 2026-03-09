@@ -123,7 +123,7 @@ void DeepStreamReceiver::dsThread() {
       }
 
       ds_queue_->try_push(std::move(batch));
-      std::cout << "[DeepStream] Received batch: " << header.num_detections 
+      std::cout << "[DeepStream] Received batch: " << header.num_detections
                 << " detections at " << header.timestamp_ns << " ns\n";
     }
   }
