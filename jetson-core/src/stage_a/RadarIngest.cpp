@@ -2,6 +2,7 @@
 // Serial radar reader implementation based on radar_freq_test.cpp
 #include "adas/stage_a/RadarIngest.hpp"
 #include "adas/recording/Recorder.hpp"
+#include <nlohmann/json.hpp>
 
 #include <cstring>
 #include <iostream>
@@ -78,12 +79,13 @@ void RadarIngest::run() {
     if (!buffer.empty()) {
       RadarTargets targets = parseFrame(buffer.data(), buffer.size(), t_ingest);
 
-      // Record before pushing to queue (if recording active)
-      if (recorder_) {
-        recorder_->recordRadar(targets);
+      if (!targets.targets.empty()) {
+        // Record before pushing to queue (if recording active)
+        if (recorder_) {
+          recorder_->recordRadar(targets);
+        }
+        queue_.try_push(std::move(targets));
       }
-
-      queue_.try_push(std::move(targets));
 
       frames_received_.fetch_add(1, std::memory_order_relaxed);
       bytes_received_.fetch_add(buffer.size(), std::memory_order_relaxed);
@@ -96,16 +98,28 @@ void RadarIngest::run() {
       double hz = static_cast<double>(frames_in_window_) / elapsed_sec;
       rate_hz_.store(hz, std::memory_order_relaxed);
 
-      // Parse latest frame to get target count for debug
-      RadarTargets latest =
-          parseFrame(buffer.data(), buffer.size(), Clock::now_ns());
+      uint64_t re = range_events_window_.exchange(0, std::memory_order_relaxed);
+      uint64_t se = speed_events_window_.exchange(0, std::memory_order_relaxed);
+      uint64_t ff = fused_fresh_window_.exchange(0, std::memory_order_relaxed);
+      uint64_t fs = fused_stale_window_.exchange(0, std::memory_order_relaxed);
+      uint64_t errs = parse_error_count_.load(std::memory_order_relaxed);
+      
+      range_hz_.store(re / elapsed_sec, std::memory_order_relaxed);
+      speed_event_hz_.store(se / elapsed_sec, std::memory_order_relaxed);
+      
+      uint64_t total_fused = ff + fs;
+      if (total_fused > 0) {
+          fused_with_fresh_speed_ratio_.store(static_cast<double>(ff) / total_fused, std::memory_order_relaxed);
+          stale_speed_ratio_.store(static_cast<double>(fs) / total_fused, std::memory_order_relaxed);
+      } else {
+          fused_with_fresh_speed_ratio_.store(0.0, std::memory_order_relaxed);
+          stale_speed_ratio_.store(0.0, std::memory_order_relaxed);
+      }
 
       std::cout << "[RadarIngest] " << mountToString(mount_) << " rate: " << hz
-                << " Hz" << " | Targets: " << latest.targets.size();
-      if (!latest.targets.empty()) {
-        std::cout << " | Closest: range=" << latest.targets[0].range_m
-                  << "m, vel=" << latest.targets[0].radial_vel_mps << "m/s";
-      }
+                << " Hz | RNG: " << (re/elapsed_sec) << " Hz | SPD: " << (se/elapsed_sec) << " Hz"
+                << " | Fresh Ratio: " << (total_fused > 0 ? (ff * 100.0 / total_fused) : 0) << "%"
+                << " | Errs: " << errs;
       std::cout << std::endl;
 
       // Only warn if below pipeline rate (20Hz)
@@ -201,6 +215,27 @@ bool RadarIngest::setupSerialPort() {
   // Flush buffers
   tcflush(fd_, TCIOFLUSH);
 
+  // Send config commands for OPS243-C
+  const char* init_cmds[] = {
+      "GX\r\n", "OS\r\n", "oD\r\n", "OJ\r\n", 
+      "UM\r\n", "uM\r\n", "SX\r\n", "S[\r\n", "s[\r\n"
+  };
+  for (const char* cmd : init_cmds) {
+      write(fd_, cmd, strlen(cmd));
+      usleep(50000); // 50ms wait
+  }
+  
+  // Custom threshold commands based on configuration
+  std::string mag_speed = "M>" + std::to_string(config_.speed_mag_threshold) + "\r\n";
+  std::string mag_range = "m>" + std::to_string(config_.range_mag_threshold) + "\r\n";
+  write(fd_, mag_speed.c_str(), mag_speed.length());
+  usleep(50000);
+  write(fd_, mag_range.c_str(), mag_range.length());
+  usleep(50000);
+  
+  // Flush again to clear config echoing
+  tcflush(fd_, TCIOFLUSH);
+
   std::cout << "[RadarIngest] Serial port configured: " << port_ << " @ "
             << config_.baud_rate << " baud\n";
   return true;
@@ -249,72 +284,60 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
   uint32_t s = seq_.fetch_add(1, std::memory_order_relaxed);
   targets.h = Header(t_ingest, mount_, s, true);
 
-  // OPS243-A ASCII output format:
-  // The radar sends ASCII text lines terminated by \r\n:
-  //   "m",2.4     -> range in meters
-  //   "mps",0.1   -> velocity in m/s
-  //
-  // Range and velocity come as separate lines, so we parse both
-  // and create a target when we have valid range data.
+  line_buffer_.append(reinterpret_cast<const char *>(data), len);
 
-  std::string str(reinterpret_cast<const char *>(data), len);
+  size_t pos;
+  while ((pos = line_buffer_.find("\r\n")) != std::string::npos) {
+    std::string line = line_buffer_.substr(0, pos);
+    line_buffer_.erase(0, pos + 2);
 
-  // Static variables to accumulate range/velocity across frames
-  // (since they come on separate lines)
-  static float last_range = 0.0f;
-  static float last_velocity = 0.0f;
-  static bool has_range = false;
+    if (line.empty()) continue;
 
-  // Look for range: "m",<value>
-  size_t range_pos = str.find("\"m\",");
-  if (range_pos != std::string::npos) {
-    range_pos += 4; // Skip "m",
-    size_t num_end = range_pos;
-    while (num_end < str.size() &&
-           (std::isdigit(str[num_end]) || str[num_end] == '.' ||
-            str[num_end] == '-')) {
-      ++num_end;
-    }
-    if (num_end > range_pos) {
-      try {
-        last_range = std::stof(str.substr(range_pos, num_end - range_pos));
-        has_range = true;
-      } catch (...) {
+    try {
+      auto j = nlohmann::json::parse(line);
+      if (j.contains("unit")) {
+        std::string unit = j["unit"];
+        if (unit == "mps" && j.contains("speed")) {
+          float speed = j["speed"];
+          last_speed_mps_ = speed;
+          last_speed_ts_monotonic_ = t_ingest;
+          speed_events_window_.fetch_add(1, std::memory_order_relaxed);
+        } else if (unit == "m" && j.contains("range")) {
+          float range = j["range"];
+          if (range > 0.1f && range <= 100.0f) { // Ignore anomalies
+            RadarTarget target;
+            target.range_m = range;
+            target.azimuth_rad = 0.0f;
+            target.rcs_db = 0.0f;
+            target.sigma_r = 0.1f;
+            target.sigma_v = 0.05f;
+            target.sigma_az = 0.5f;
+
+            range_events_window_.fetch_add(1, std::memory_order_relaxed);
+
+            // TTL Evaluation
+            uint64_t age_ns = t_ingest > last_speed_ts_monotonic_ ? (t_ingest - last_speed_ts_monotonic_) : 0;
+            uint32_t age_ms = static_cast<uint32_t>(age_ns / 1000000);
+
+            if (age_ms <= static_cast<uint32_t>(config_.speed_ttl_ms)) {
+                target.radial_vel_mps = last_speed_mps_;
+                target.speed_fresh = true;
+                target.speed_age_ms = age_ms;
+                fused_fresh_window_.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                target.radial_vel_mps = 0.0f;
+                target.speed_fresh = false;
+                target.speed_age_ms = age_ms;
+                fused_stale_window_.fetch_add(1, std::memory_order_relaxed);
+            }
+
+            targets.targets.push_back(target);
+          }
+        }
       }
+    } catch (...) {
+      parse_error_count_.fetch_add(1, std::memory_order_relaxed);
     }
-  }
-
-  // Look for velocity: "mps",<value>
-  size_t vel_pos = str.find("\"mps\",");
-  if (vel_pos != std::string::npos) {
-    vel_pos += 6; // Skip "mps",
-    size_t num_end = vel_pos;
-    while (num_end < str.size() &&
-           (std::isdigit(str[num_end]) || str[num_end] == '.' ||
-            str[num_end] == '-')) {
-      ++num_end;
-    }
-    if (num_end > vel_pos) {
-      try {
-        last_velocity = std::stof(str.substr(vel_pos, num_end - vel_pos));
-      } catch (...) {
-      }
-    }
-  }
-
-  // Create a target if we have valid range data
-  if (has_range && last_range > 0.1f) { // Ignore very close readings
-    RadarTarget target;
-    target.range_m = last_range;
-    target.radial_vel_mps =
-        last_velocity;         // Positive = closing, negative = opening
-    target.azimuth_rad = 0.0f; // OPS243-A doesn't provide azimuth
-    target.rcs_db = 0.0f;
-    target.sigma_r = 0.1f;
-    target.sigma_v = 0.05f;
-    target.sigma_az = 0.5f;
-
-    targets.targets.push_back(target);
   }
 
   return targets;
@@ -326,6 +349,11 @@ RadarIngest::Stats RadarIngest::getStats() const {
   s.bytes_received = bytes_received_.load(std::memory_order_relaxed);
   s.errors = errors_.load(std::memory_order_relaxed);
   s.rate_hz = rate_hz_.load(std::memory_order_relaxed);
+  s.range_hz = range_hz_.load(std::memory_order_relaxed);
+  s.speed_event_hz = speed_event_hz_.load(std::memory_order_relaxed);
+  s.fused_with_fresh_speed_ratio = fused_with_fresh_speed_ratio_.load(std::memory_order_relaxed);
+  s.stale_speed_ratio = stale_speed_ratio_.load(std::memory_order_relaxed);
+  s.parse_error_count = parse_error_count_.load(std::memory_order_relaxed);
   return s;
 }
 

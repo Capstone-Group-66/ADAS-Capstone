@@ -243,6 +243,7 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
       // Inherit radar velocity (keep spec convention where negative is
       // approaching out of FCW)
       obj.radial_vel_mps = tgt.radial_vel_mps;
+      obj.speed_fresh = tgt.speed_fresh;
       obj.sources |= SRC_RAD_F;
 
       // TTC authoritative from radar
@@ -255,6 +256,7 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
                   << "m V_fused=" << obj.radial_vel_mps << "m/s TTC="
                   << (obj.ttc_s < 999.f ? std::to_string((int)obj.ttc_s) + "s"
                                         : "inf")
+                  << " Fresh=" << (obj.speed_fresh ? "Y" : "N")
                   << "\n";
       }
     } else {
@@ -262,6 +264,7 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
       obj.has_radar = false;
       obj.range_m = 0.f;
       obj.radial_vel_mps = 0.f;
+      obj.speed_fresh = false;
       obj.ttc_s = std::numeric_limits<float>::infinity();
     }
 

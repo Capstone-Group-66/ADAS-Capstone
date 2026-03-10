@@ -50,11 +50,17 @@ struct NetworkConfig {
     int reconnect_timeout_ms = 5000;
 };
 
-/// Front radar configuration (OPS243-A)
+/// Front radar configuration (OPS243-A/C)
 struct RadarConfig {
     std::string port = "/dev/ttyACM0";
     int baud_rate = 921600;
     int poll_timeout_ms = 50;
+    
+    // Fusion holding parameters
+    int speed_ttl_ms = 400;
+    int speed_mag_threshold = 10;
+    int range_mag_threshold = 20;
+    std::string profile = "combined_hs";
 };
 
 /// IMU configuration (BNO085 on Pi, received via ZMQ)

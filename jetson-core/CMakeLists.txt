@@ -184,6 +184,15 @@ if(BUILD_TESTS)
     add_executable(test_config tests/test_config.cpp ${COMMON_SOURCES})
     target_link_libraries(test_config Threads::Threads)
     add_test(NAME test_config COMMAND test_config)
+
+    # Test Radar Ingest
+    add_executable(test_radar_ingest tests/test_radar_ingest.cpp src/stage_a/RadarIngest.cpp ${RECORDING_SOURCES} ${COMMON_SOURCES})
+    target_include_directories(test_radar_ingest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
+    target_link_libraries(test_radar_ingest Threads::Threads)
+    if(yaml-cpp_FOUND)
+        target_link_libraries(test_radar_ingest yaml-cpp)
+    endif()
+    add_test(NAME test_radar_ingest COMMAND test_radar_ingest)
 endif()
 
 # ══════════════════════════════════════════════════════════════════════════════

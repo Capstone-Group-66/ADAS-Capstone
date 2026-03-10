@@ -134,10 +134,15 @@ struct RadarTarget {
     float sigma_r;        // Measurement stdev for range
     float sigma_az;       // Measurement stdev for azimuth
     float sigma_v;        // Measurement stdev for velocity
+    
+    // Fusion metadata
+    bool is_fused;        // True if part of a fused frame
+    bool speed_fresh;     // True if speed within TTL
+    uint32_t speed_age_ms;// Age of speed measurement
 
     RadarTarget()
         : range_m(0), azimuth_rad(0), radial_vel_mps(0), rcs_db(0), sigma_r(0.5f), sigma_az(0.05f),
-          sigma_v(0.2f) {}
+          sigma_v(0.2f), is_fused(false), speed_fresh(false), speed_age_ms(0) {}
 };
 
 /// Batch of radar targets from a single sensor
