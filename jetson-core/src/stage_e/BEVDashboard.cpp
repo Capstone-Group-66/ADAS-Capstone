@@ -495,7 +495,8 @@ void BEVDashboard::renderLoop() {
                   cv::FONT_HERSHEY_SIMPLEX, 0.32, text_color, 1);
 
       if (hold_active && track.z_m > 0.1f && anchor_x >= 0 &&
-          anchor_x < kCanvasWidth && anchor_y >= 0 && anchor_y < kCanvasHeight) {
+          anchor_x < kCanvasWidth && anchor_y >= 0 &&
+          anchor_y < kCanvasHeight) {
         FcwRayOverlay overlay;
         overlay.target = cv::Point(anchor_x, anchor_y);
         overlay.has_trigger_speed = track.has_fcw_trigger_speed;
@@ -515,8 +516,8 @@ void BEVDashboard::renderLoop() {
            << overlay.trigger_speed_mps << "m/s";
         cv::putText(canvas, ss.str(),
                     cv::Point(overlay.target.x + 8, overlay.target.y - 12),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.34, cv::Scalar(235, 235, 255), 1,
-                    cv::LINE_AA);
+                    cv::FONT_HERSHEY_SIMPLEX, 0.34, cv::Scalar(235, 235, 255),
+                    1, cv::LINE_AA);
       }
     }
 
