@@ -171,6 +171,14 @@ void drawCrosshair(cv::Mat &canvas, int x, int y, const cv::Scalar &color,
            thickness);
 }
 
+void drawFcwDirectionRay(cv::Mat &canvas, const cv::Point &target) {
+  const cv::Point ego(kEgoX, kEgoY);
+  cv::line(canvas, ego, target, cv::Scalar(0, 0, 70), 12, cv::LINE_AA);
+  cv::line(canvas, ego, target, cv::Scalar(0, 0, 140), 8, cv::LINE_AA);
+  cv::line(canvas, ego, target, cv::Scalar(0, 0, 255), 3, cv::LINE_AA);
+  cv::circle(canvas, target, 5, cv::Scalar(0, 0, 255), cv::FILLED);
+}
+
 void drawBlindSpotZones(cv::Mat &canvas, bool left_bsd, bool right_bsd) {
   std::vector<cv::Point> left_poly = {
       cv::Point(kEgoX - kEgoW / 2 - 2, kEgoY + 15),
@@ -380,6 +388,8 @@ void BEVDashboard::renderLoop() {
       drawRadarRangeLine(canvas, target.range_m, cv::Scalar(190, 110, 30), 1);
     }
 
+    std::vector<cv::Point> fcw_ray_targets;
+
     for (auto it = tracks_.begin(); it != tracks_.end();) {
       Track &track = it->second;
 
@@ -468,7 +478,17 @@ void BEVDashboard::renderLoop() {
       cv::putText(canvas, track.label, cv::Point(anchor_x - 40, anchor_y - 28),
                   cv::FONT_HERSHEY_SIMPLEX, 0.32, text_color, 1);
 
+      if (hold_active && track.z_m > 0.1f && anchor_x >= 0 &&
+          anchor_x < kCanvasWidth && anchor_y >= 0 && anchor_y < kCanvasHeight) {
+        fcw_ray_targets.emplace_back(anchor_x, anchor_y);
+      }
+
       ++it;
+    }
+
+    // FCW directional rays are drawn last so they remain visible over overlays.
+    for (const auto &ray_target : fcw_ray_targets) {
+      drawFcwDirectionRay(canvas, ray_target);
     }
 
     cv::imshow("ADAS BEVDashboard", canvas);

@@ -4,6 +4,8 @@
 #include "adas/recording/Recorder.hpp"
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <iostream>
 
@@ -15,6 +17,35 @@
 #endif
 
 namespace adas {
+
+namespace {
+
+uint32_t computeDynamicSpeedTtlMs(int base_ttl_ms, float speed_mps) {
+  const float abs_speed_mps = std::abs(speed_mps);
+
+  // Slower motion keeps speed longer; faster motion expires sooner.
+  float ttl_scale = 1.0f;
+  if (abs_speed_mps < 0.5f) {
+    ttl_scale = 2.2f;
+  } else if (abs_speed_mps < 1.5f) {
+    ttl_scale = 1.8f;
+  } else if (abs_speed_mps < 3.0f) {
+    ttl_scale = 1.4f;
+  } else if (abs_speed_mps < 6.0f) {
+    ttl_scale = 1.0f;
+  } else if (abs_speed_mps < 10.0f) {
+    ttl_scale = 0.8f;
+  } else {
+    ttl_scale = 0.65f;
+  }
+
+  const int min_ttl_ms = std::max(450, base_ttl_ms / 2);
+  const int max_ttl_ms = std::max(base_ttl_ms, static_cast<int>(base_ttl_ms * 2.4f));
+  const int scaled_ttl_ms = static_cast<int>(std::round(base_ttl_ms * ttl_scale));
+  return static_cast<uint32_t>(std::clamp(scaled_ttl_ms, min_ttl_ms, max_ttl_ms));
+}
+
+} // namespace
 
 RadarIngest::RadarIngest(Mount mount, const std::string &port,
                          SPSCQueue<RadarTargets, 8> &queue,
@@ -361,8 +392,10 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
                                   ? (t_ingest - last_speed_ts_monotonic_)
                                   : 0;
             uint32_t age_ms = static_cast<uint32_t>(age_ns / 1000000);
+            const uint32_t dynamic_speed_ttl_ms =
+                computeDynamicSpeedTtlMs(config_.speed_ttl_ms, last_speed_mps_);
 
-            if (age_ms <= static_cast<uint32_t>(config_.speed_ttl_ms)) {
+            if (age_ms <= dynamic_speed_ttl_ms) {
               target.radial_vel_mps = last_speed_mps_;
               target.speed_fresh = true;
               target.speed_age_ms = age_ms;
