@@ -310,8 +310,8 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     if (obj.has_radar && obj.range_m > 0.1f) {
       track.last_range_update_ns = now_ns;
       track.z_m = obj.range_m;
-      // Keep existing lateral projection math unchanged.
-      track.x_offset_m = obj.range_m * ((obj.centroid_px.x - c_x_) / f_x_);
+      // Use pipeline-computed fused lateral position directly.
+      track.x_offset_m = obj.x_lateral_m;
       track.has_crosshair = true;
     }
 

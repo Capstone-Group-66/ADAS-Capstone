@@ -237,15 +237,7 @@ void visualizationThread() {
         fused = g_sensor_fusion->fuse(batch, radar);
       }
 
-      // Velocity Deadband: Clamp speeds < 1 m/s to 0 to prevent drift/noise.
-      // Convention: Positive = moving toward/inward, Negative = away/outward.
-      for (auto &obj : fused) {
-        if (std::abs(obj.radial_vel_mps) < 1.0f) {
-          obj.radial_vel_mps = 0.0f;
-        }
-      }
-
-      // Check for FCW alerts (TTC-based)
+      // Check for FCW alerts (fused-first risk model)
       std::optional<adas::FCWAlert> fcw_alert;
       if (g_fcw_monitor && !fused.empty()) {
         fcw_alert = g_fcw_monitor->check(fused, adas::Clock::now_ns());
@@ -500,14 +492,23 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   if (it != config.mounts.end()) {
     fusion_config.cam_height_m = it->second.xyz_m[2];
   }
+  // Aggressive camera-radar intake for FCW primary fusion path.
+  fusion_config.radar_half_fov_deg = 15.0f; // 30 degree cone
+  fusion_config.dist_gate_m = 5.5f;
   g_sensor_fusion = std::make_unique<adas::SensorFusion>(fusion_config);
 
   // Configure FCW with physics-based parameters
   adas::FCWMonitor::Config fcw_config;
   fcw_config.ttc_threshold_s = 3.0f;
-  fcw_config.use_physics_fcw = true;      // Enable physics-based FCW
-  fcw_config.friction_coefficient = 0.7f; // Dry asphalt
-  fcw_config.reaction_time_s = 2.5f;      // Driver reaction time
+  fcw_config.use_physics_fcw = true; // Keep stopping-distance term active.
+  fcw_config.friction_coefficient = 0.7f;
+  fcw_config.reaction_time_s = 2.5f;
+  fcw_config.min_fusion_quality = 0.2f;
+  fcw_config.path_half_width_m = 0.9f;
+  fcw_config.path_width_growth_per_m = 0.035f;
+  fcw_config.warn_risk_threshold = 0.56f;
+  fcw_config.critical_risk_threshold = 0.74f;
+  fcw_config.ttc_last_ditch_s = 0.85f;
   g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
 
   // Initialize EgoFrame for ego vehicle state from IMU
@@ -591,13 +592,22 @@ void startReplayPipeline(const std::string &replay_file, float speed,
   g_stage_b_manager->start();
 
   // Stage E: Fusion + FCW + EgoFrame
-  g_sensor_fusion = std::make_unique<adas::SensorFusion>();
+  adas::FusionConfig replay_fusion_config;
+  replay_fusion_config.radar_half_fov_deg = 15.0f;
+  replay_fusion_config.dist_gate_m = 5.5f;
+  g_sensor_fusion = std::make_unique<adas::SensorFusion>(replay_fusion_config);
 
   adas::FCWMonitor::Config fcw_config;
   fcw_config.ttc_threshold_s = 3.0f;
   fcw_config.use_physics_fcw = true;
   fcw_config.friction_coefficient = 0.7f;
   fcw_config.reaction_time_s = 2.5f;
+  fcw_config.min_fusion_quality = 0.2f;
+  fcw_config.path_half_width_m = 0.9f;
+  fcw_config.path_width_growth_per_m = 0.035f;
+  fcw_config.warn_risk_threshold = 0.56f;
+  fcw_config.critical_risk_threshold = 0.74f;
+  fcw_config.ttc_last_ditch_s = 0.85f;
   g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
 
   g_ego_frame = std::make_unique<adas::EgoFrame>();

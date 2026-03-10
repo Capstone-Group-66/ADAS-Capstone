@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <optional>
+#include <unordered_map>
 #include <vector>
 
 #include "adas/stage_e/SensorFusion.hpp"
@@ -28,10 +29,13 @@ struct FCWAlert {
 /// FCWMonitor: Checks fused objects for collision threats
 class FCWMonitor {
   public:
+    enum class RiskLevel : uint8_t { Safe = 0, Caution = 1, Warn = 2, Critical = 3 };
+
     struct Config {
         float ttc_threshold_s; // Alert if TTC below this (FR20)
         float min_range_m;     // Ignore if closer than this (already hit)
         float max_range_m;     // Ignore if too far
+        float min_closing_speed_mps; // Positive=toward/inward
 
         // Physics-based FCW parameters
         float friction_coefficient; // Road friction (0.7 = dry, 0.4 = wet, 0.2
@@ -39,9 +43,32 @@ class FCWMonitor {
         float reaction_time_s;      // Driver reaction time before braking
         bool use_physics_fcw;       // Enable physics-based calculation
 
+        // Fusion/path quality gates
+        float min_fusion_quality;      // Reject weak radar-camera pairings
+        float path_half_width_m;       // In-path lateral half-width at 0m
+        float path_width_growth_per_m; // In-path width growth vs range
+
+        // Risk thresholds
+        float caution_risk_threshold;
+        float warn_risk_threshold;
+        float critical_risk_threshold;
+        float ttc_last_ditch_s; // TTC escalation threshold, last-resort only
+
+        // Dwell / hysteresis timing
+        uint32_t caution_dwell_ms;
+        uint32_t warn_dwell_ms;
+        uint32_t critical_dwell_ms;
+        uint32_t clear_dwell_ms;
+
         Config()
             : ttc_threshold_s(3.0f), min_range_m(0.5f), max_range_m(50.0f),
-              friction_coefficient(0.7f), reaction_time_s(2.5f), use_physics_fcw(false) {}
+              min_closing_speed_mps(0.35f), friction_coefficient(0.7f),
+              reaction_time_s(2.5f), use_physics_fcw(false),
+              min_fusion_quality(0.22f), path_half_width_m(0.85f),
+              path_width_growth_per_m(0.035f), caution_risk_threshold(0.38f),
+              warn_risk_threshold(0.56f), critical_risk_threshold(0.74f),
+              ttc_last_ditch_s(0.85f), caution_dwell_ms(180),
+              warn_dwell_ms(140), critical_dwell_ms(80), clear_dwell_ms(220) {}
     };
 
     explicit FCWMonitor(const Config &config = Config());
@@ -72,8 +99,23 @@ class FCWMonitor {
     float calculateStoppingDistance() const;
 
   private:
+    struct TrackState {
+        RiskLevel level = RiskLevel::Safe;
+        RiskLevel pending_level = RiskLevel::Safe;
+        uint64_t pending_since_ns = 0;
+        uint64_t last_seen_ns = 0;
+        float last_risk = 0.0f;
+    };
+
+    float pathHalfWidth(float range_m) const;
+    RiskLevel classifyRisk(float risk_score) const;
+    RiskLevel applyDwell(TrackState &state, RiskLevel desired_level,
+                         uint64_t now_ns) const;
+    static uint32_t dwellForLevel(const Config &config, RiskLevel level);
+
     Config config_;
     float ego_velocity_mps_ = 0.0f;
+    std::unordered_map<uint64_t, TrackState> track_states_;
 };
 
 } // namespace adas

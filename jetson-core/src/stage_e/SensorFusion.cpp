@@ -28,10 +28,46 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <vector>
 
 #include "adas/common/Globals.hpp"
 
 namespace adas {
+
+namespace {
+
+constexpr float kRadarRangeTxM = 0.0127f;
+
+float dynamicDistanceGate(const FusionConfig &config, float z_cam_m) {
+  if (!(z_cam_m > 0.0f) || !std::isfinite(z_cam_m)) {
+    return config.dist_gate_m;
+  }
+
+  // Slightly widen the gate at longer ranges to improve fusion capture while
+  // still rejecting clearly unrelated radar returns.
+  const float extra = std::clamp(z_cam_m * 0.10f, 0.0f, 3.5f);
+  return config.dist_gate_m + extra;
+}
+
+float verticalAlignmentScore(float v_radar_px, const cv::Rect2f &box) {
+  const float center = box.y + box.height * 0.5f;
+  const float half_extent = std::max(6.0f, box.height * 0.5f);
+  const float norm = std::abs(v_radar_px - center) / half_extent;
+  // Smoothly decays as projected radar Y moves away from the camera box.
+  return std::exp(-0.5f * norm * norm);
+}
+
+float speedPreferenceScore(const RadarTarget &target) {
+  if (!target.speed_fresh) {
+    return 0.15f;
+  }
+
+  const float toward = std::max(0.0f, target.radial_vel_mps);
+  const float toward_score = std::clamp(toward / 8.0f, 0.0f, 1.0f);
+  return 0.55f + 0.45f * toward_score;
+}
+
+} // namespace
 
 SensorFusion::SensorFusion(const FusionConfig &config)
     : config_(config), cam_height_m_(config.cam_height_m) {}
@@ -137,6 +173,8 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
 
   const float fy_s = config_.f_y;
   const float cy_s = config_.c_y;
+  const float cx_s = config_.c_x;
+  const float fx_s = config_.f_x;
 
   if (g_verbose_mode.load()) {
     std::cout << "[Fusion] Frame " << camera.h.seq << ": "
@@ -146,6 +184,7 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
   }
 
   fused.reserve(deduped_dets.size());
+  std::vector<bool> radar_claimed(radar.targets.size(), false);
 
   for (const auto &det : deduped_dets) {
 
@@ -183,6 +222,8 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
       obj.has_radar = false;
       obj.range_m = 0.f;
       obj.radial_vel_mps = 0.f;
+      obj.x_lateral_m = 0.f;
+      obj.fusion_quality = 0.f;
       obj.speed_fresh = false;
       obj.speed_age_ms = 0;
       obj.ttc_s = std::numeric_limits<float>::infinity();
@@ -194,64 +235,79 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
     // Find the best-matching radar target that passes all distance and
     // spatial gates.  "Best" = minimises |Z_cam - Z_rad_adj|.
     int best_radar_idx = -1;
+    float best_score = 0.0f;
+    float best_z_rad_adj = 0.0f;
+    float best_v_proj = 0.0f;
     float best_dist_delta = std::numeric_limits<float>::max();
 
     if (z_valid) {
+      const float dz_gate_m = dynamicDistanceGate(config_, z_cam);
+
       for (size_t i = 0; i < radar.targets.size(); ++i) {
+        if (radar_claimed[i]) {
+          continue;
+        }
         const RadarTarget &tgt = radar.targets[i];
 
         // Step 3: Radar Extrinsic Translation
-        float z_rad_adj = tgt.range_m - 0.0127f;
+        const float z_rad_adj = tgt.range_m - kRadarRangeTxM;
         // Divide by zero protection on z_rad_adj
-        if (z_rad_adj < 0.1f)
+        if (z_rad_adj < 0.1f) {
           continue;
+        }
 
         // The radar physically sits below the camera; therefore its targets
         // appear lower in the camera's image space (i.e. positive Y pixel
         // offset from the principal point).
-        float v_rad_proj =
+        const float v_rad_proj =
             cy_s + fy_s * (config_.radar_below_cam_m / z_rad_adj);
 
-        std::string gate_result = "FUSED!";
-
-        // Step 4: Distance & Spatial Gating
         const float dz = std::abs(z_cam - z_rad_adj);
-        if (dz > config_.dist_gate_m) {
-          gate_result = "REJECTED (Distance dz > " +
-                        std::to_string(config_.dist_gate_m) + "m)";
-        } else if (v_rad_proj < det.box_px.y ||
-                   v_rad_proj > (det.box_px.y + det.box_px.height)) {
-          gate_result = "REJECTED (Spatial Bounds)";
-        }
-
-        std::cout << "[StageE: 3_Gate] ID " << det.object_id << " vs Radar | "
-                  << "Z_cam: " << z_cam << "m, Z_rad_adj: " << z_rad_adj
-                  << "m, dZ: " << dz << "m | " << "v_proj: " << v_rad_proj
-                  << " (Bounds: " << det.box_px.y << " to "
-                  << (det.box_px.y + det.box_px.height) << ") " << "-> "
-                  << gate_result << "\n";
-
-        if (gate_result != "FUSED!") {
+        if (dz > dz_gate_m) {
+          std::cout << "[StageE: 3_Gate] ID " << det.object_id << " vs Radar | "
+                    << "Z_cam: " << z_cam << "m, Z_rad_adj: " << z_rad_adj
+                    << "m, dZ: " << dz << "m -> REJECTED (Distance gate "
+                    << dz_gate_m << "m)\n";
           continue;
         }
 
-        // Prefer the closest distance-matched target
-        if (dz < best_dist_delta) {
+        const float dist_score = 1.0f - std::clamp(dz / dz_gate_m, 0.0f, 1.0f);
+        const float vertical_score = verticalAlignmentScore(v_rad_proj, det.box_px);
+        const float speed_score = speedPreferenceScore(tgt);
+        const float combined_score =
+            0.62f * dist_score + 0.28f * vertical_score + 0.10f * speed_score;
+
+        std::cout << "[StageE: 3_Gate] ID " << det.object_id << " vs Radar | "
+                  << "Z_cam: " << z_cam << "m, Z_rad_adj: " << z_rad_adj
+                  << "m, dZ: " << dz << "m | v_proj: " << v_rad_proj
+                  << " | score(d/v/s): " << dist_score << "/" << vertical_score
+                  << "/" << speed_score << " -> " << combined_score << "\n";
+
+        if (combined_score > best_score ||
+            (std::abs(combined_score - best_score) < 1e-4f &&
+             dz < best_dist_delta)) {
+          best_score = combined_score;
           best_dist_delta = dz;
           best_radar_idx = static_cast<int>(i);
+          best_z_rad_adj = z_rad_adj;
+          best_v_proj = v_rad_proj;
         }
       }
     }
 
     if (best_radar_idx >= 0) {
       const RadarTarget &tgt = radar.targets[best_radar_idx];
+      radar_claimed[best_radar_idx] = true;
 
       obj.has_radar = true;
-      obj.range_m = tgt.range_m - 0.0127f;
+      obj.range_m = best_z_rad_adj;
       // Inherit radar velocity (positive=toward/inward, negative=away/outward)
       obj.radial_vel_mps = tgt.radial_vel_mps;
       obj.speed_fresh = tgt.speed_fresh;
       obj.speed_age_ms = tgt.speed_age_ms;
+      obj.fusion_quality = std::clamp(best_score, 0.0f, 1.0f);
+      const float angle_cam_rad = std::atan((obj.centroid_px.x - cx_s) / fx_s);
+      obj.x_lateral_m = obj.range_m * std::tan(angle_cam_rad);
       obj.sources |= SRC_RAD_F;
 
       // TTC authoritative from radar
@@ -264,6 +320,8 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
                   << "m V_fused=" << obj.radial_vel_mps << "m/s TTC="
                   << (obj.ttc_s < 999.f ? std::to_string((int)obj.ttc_s) + "s"
                                         : "inf")
+                  << " Q=" << obj.fusion_quality
+                  << " dZ=" << best_dist_delta << " v_proj=" << best_v_proj
                   << " Fresh=" << (obj.speed_fresh ? "Y" : "N") << "\n";
       }
     } else {
@@ -271,6 +329,8 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
       obj.has_radar = false;
       obj.range_m = 0.f;
       obj.radial_vel_mps = 0.f;
+      obj.x_lateral_m = 0.f;
+      obj.fusion_quality = 0.f;
       obj.speed_fresh = false;
       obj.speed_age_ms = 0;
       obj.ttc_s = std::numeric_limits<float>::infinity();
@@ -318,7 +378,7 @@ float SensorFusion::estimateDistance(float v_bottom, float fy_scaled,
   return cam_height_m / std::tan(angle);
 }
 
-bool SensorFusion::inRadarROI(float x, float y, const cv::Rect2f &roi) const {
+bool SensorFusion::inRadarROI(float x, float /*y*/, const cv::Rect2f &roi) const {
   // Only gate on the horizontal bound (x)
   // Bounding boxes often extend well outside the vertical radar lobe,
   // especially for close pedestrians whose feet drop to the bottom of the

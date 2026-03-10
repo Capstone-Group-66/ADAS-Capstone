@@ -129,7 +129,7 @@ struct CameraFrameData {
 struct RadarTarget {
     float range_m;        // Radial distance to target
     float azimuth_rad;    // Angle in radar frame (+left)
-    float radial_vel_mps; // Toward-negative, away-positive
+    float radial_vel_mps; // Toward/inward-positive, away/outward-negative
     float rcs_db;         // Radar cross section (dBsm)
     float sigma_r;        // Measurement stdev for range
     float sigma_az;       // Measurement stdev for azimuth

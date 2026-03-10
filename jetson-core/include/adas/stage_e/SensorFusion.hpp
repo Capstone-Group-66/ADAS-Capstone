@@ -40,6 +40,8 @@ struct FusedObject {
     bool  has_radar;
     float range_m;           ///< Z_rad from radar (authoritative range)
     float radial_vel_mps;    ///< V_rad (positive=toward/inward, negative=away)
+    float x_lateral_m;       ///< Lateral offset in ego frame (meters)
+    float fusion_quality;    ///< Radar-camera association quality [0..1]
     bool  speed_fresh;       ///< True if speed is within TTL [NEW]
     uint32_t speed_age_ms;   ///< Age of speed sample (for dashboard freshness)
 
@@ -52,6 +54,7 @@ struct FusedObject {
           box_px(), centroid_px(),
           z_cam_m(0.f), v_cam_mps(0.f),
           has_radar(false), range_m(0.f), radial_vel_mps(0.f),
+          x_lateral_m(0.f), fusion_quality(0.f),
           speed_fresh(false), speed_age_ms(0),
           ttc_s(std::numeric_limits<float>::infinity()),
           sources(SRC_NONE) {}
