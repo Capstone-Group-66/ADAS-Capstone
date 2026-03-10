@@ -272,7 +272,8 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
         }
 
         const float dist_score = 1.0f - std::clamp(dz / dz_gate_m, 0.0f, 1.0f);
-        const float vertical_score = verticalAlignmentScore(v_rad_proj, det.box_px);
+        const float vertical_score =
+            verticalAlignmentScore(v_rad_proj, det.box_px);
         const float speed_score = speedPreferenceScore(tgt);
         const float combined_score =
             0.62f * dist_score + 0.28f * vertical_score + 0.10f * speed_score;
@@ -320,8 +321,8 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
                   << "m V_fused=" << obj.radial_vel_mps << "m/s TTC="
                   << (obj.ttc_s < 999.f ? std::to_string((int)obj.ttc_s) + "s"
                                         : "inf")
-                  << " Q=" << obj.fusion_quality
-                  << " dZ=" << best_dist_delta << " v_proj=" << best_v_proj
+                  << " Q=" << obj.fusion_quality << " dZ=" << best_dist_delta
+                  << " v_proj=" << best_v_proj
                   << " Fresh=" << (obj.speed_fresh ? "Y" : "N") << "\n";
       }
     } else {
@@ -378,7 +379,8 @@ float SensorFusion::estimateDistance(float v_bottom, float fy_scaled,
   return cam_height_m / std::tan(angle);
 }
 
-bool SensorFusion::inRadarROI(float x, float /*y*/, const cv::Rect2f &roi) const {
+bool SensorFusion::inRadarROI(float x, float /*y*/,
+                              const cv::Rect2f &roi) const {
   // Only gate on the horizontal bound (x)
   // Bounding boxes often extend well outside the vertical radar lobe,
   // especially for close pedestrians whose feet drop to the bottom of the
