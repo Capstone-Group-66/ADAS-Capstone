@@ -104,8 +104,7 @@ void drawRadarHeatmap(cv::Mat &canvas, cv::Mat &radar_heat_accumulator,
   if (radar_heat_accumulator.empty() ||
       radar_heat_accumulator.rows != canvas.rows ||
       radar_heat_accumulator.cols != canvas.cols) {
-    radar_heat_accumulator =
-        cv::Mat::zeros(canvas.rows, canvas.cols, CV_32FC1);
+    radar_heat_accumulator = cv::Mat::zeros(canvas.rows, canvas.cols, CV_32FC1);
   }
 
   radar_heat_accumulator *= kRadarHeatDecay;
