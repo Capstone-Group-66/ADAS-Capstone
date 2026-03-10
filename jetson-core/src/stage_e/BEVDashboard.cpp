@@ -23,6 +23,10 @@ constexpr int kEgoW = 20;
 constexpr int kEgoH = 40;
 constexpr float kRadarHalfFovDeg = 10.0f;  // 20 degree cone
 constexpr float kCameraHalfFovDeg = 12.5f; // 25 degree corridor span
+constexpr float kRadarHeatDecay = 0.90f;
+constexpr float kRadarHeatBlurSigma = 2.2f;
+constexpr float kRadarHeatOverlayAlpha = 0.35f;
+constexpr int kRadarHeatArcThicknessPx = 2;
 
 int toCanvasX(float x_m) {
   return static_cast<int>(kEgoX + x_m * kPixelsPerMeter);
@@ -76,6 +80,66 @@ void drawRadarRangeLine(cv::Mat &canvas, float range_m, const cv::Scalar &color,
            cv::Point(toCanvasX(x_right), toCanvasY(range_m)), color, thickness);
   cv::circle(canvas, cv::Point(kEgoX, toCanvasY(range_m)), 2, color,
              cv::FILLED);
+}
+
+void accumulateRadarArc(cv::Mat &accumulator, float range_m, float intensity) {
+  if (accumulator.empty() || range_m <= 0.1f || range_m > maxDisplayRangeM()) {
+    return;
+  }
+
+  const int radius_px = static_cast<int>(std::round(range_m * kPixelsPerMeter));
+  if (radius_px <= 0) {
+    return;
+  }
+
+  const double start_deg = -90.0 - static_cast<double>(kRadarHalfFovDeg);
+  const double end_deg = -90.0 + static_cast<double>(kRadarHalfFovDeg);
+  cv::ellipse(accumulator, cv::Point(kEgoX, kEgoY),
+              cv::Size(radius_px, radius_px), 0.0, start_deg, end_deg,
+              cv::Scalar(intensity), kRadarHeatArcThicknessPx, cv::LINE_AA);
+}
+
+void drawRadarHeatmap(cv::Mat &canvas, cv::Mat &radar_heat_accumulator,
+                      const adas::RadarTargets &targets) {
+  if (radar_heat_accumulator.empty() ||
+      radar_heat_accumulator.rows != canvas.rows ||
+      radar_heat_accumulator.cols != canvas.cols) {
+    radar_heat_accumulator =
+        cv::Mat::zeros(canvas.rows, canvas.cols, CV_32FC1);
+  }
+
+  radar_heat_accumulator *= kRadarHeatDecay;
+  for (const auto &target : targets.targets) {
+    accumulateRadarArc(radar_heat_accumulator, target.range_m, 1.0f);
+  }
+
+  cv::Mat blurred;
+  cv::GaussianBlur(radar_heat_accumulator, blurred, cv::Size(0, 0),
+                   kRadarHeatBlurSigma);
+
+  double max_value = 0.0;
+  cv::minMaxLoc(blurred, nullptr, &max_value);
+  if (max_value <= 1e-6) {
+    return;
+  }
+
+  cv::Mat heat_u8;
+  const double normalize_scale = 255.0 / std::max(1.0, max_value);
+  blurred.convertTo(heat_u8, CV_8UC1, normalize_scale);
+
+  cv::Mat mask;
+  cv::threshold(heat_u8, mask, 6, 255, cv::THRESH_BINARY);
+  if (cv::countNonZero(mask) == 0) {
+    return;
+  }
+
+  cv::Mat heat_color;
+  cv::applyColorMap(heat_u8, heat_color, cv::COLORMAP_JET);
+
+  cv::Mat blended;
+  cv::addWeighted(canvas, 1.0, heat_color, kRadarHeatOverlayAlpha, 0.0,
+                  blended);
+  blended.copyTo(canvas, mask);
 }
 
 void drawCorridor(cv::Mat &canvas, float angle_rad, const cv::Scalar &color,
@@ -261,6 +325,8 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
 
 void BEVDashboard::renderLoop() {
   cv::namedWindow("ADAS BEVDashboard", cv::WINDOW_AUTOSIZE);
+  cv::Mat radar_heat_accumulator =
+      cv::Mat::zeros(kCanvasHeight, kCanvasWidth, CV_32FC1);
 
   uint64_t last_processed_seq = 0;
 
@@ -293,6 +359,7 @@ void BEVDashboard::renderLoop() {
     drawBlindSpotZones(canvas, left_bsd, right_bsd);
     drawEgoVehicle(canvas);
     drawRadarCone(canvas);
+    drawRadarHeatmap(canvas, radar_heat_accumulator, frame.radar_targets);
 
     // Raw radar scan-lines (20 degree cone)
     for (const auto &target : frame.radar_targets.targets) {
