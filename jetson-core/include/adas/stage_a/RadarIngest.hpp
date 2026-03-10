@@ -8,10 +8,10 @@
 #include "adas/common/Types.hpp"
 #include "adas/queues/SPSCQueue.hpp"
 
-#include <atomic>
 #include <string>
 #include <thread>
 #include <vector>
+#include <fstream>
 
 namespace adas {
 
@@ -121,6 +121,9 @@ class RadarIngest {
     float last_speed_mps_{0.0f};
     uint64_t last_speed_ts_monotonic_{0};
     std::string line_buffer_; // For assembling JSON lines
+
+    // Raw CSV Logger
+    std::ofstream raw_csv_file_;
 
     // Optional recorder for data capture
     Recorder *recorder_ = nullptr;

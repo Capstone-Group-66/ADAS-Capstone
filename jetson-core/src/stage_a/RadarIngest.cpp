@@ -45,6 +45,10 @@ void RadarIngest::stop() {
   if (thread_.joinable()) {
     thread_.join();
   }
+
+  if (raw_csv_file_.is_open()) {
+    raw_csv_file_.close();
+  }
 }
 
 void RadarIngest::run() {
@@ -61,6 +65,15 @@ void RadarIngest::run() {
 
   healthy_.store(true, std::memory_order_relaxed);
   last_rate_time_ = Clock::now_ns();
+
+  // Open CSV file for raw data dump
+  std::string log_name = "ops243c_raw_" + std::to_string(Clock::now_ms()) + ".csv";
+  raw_csv_file_.open(log_name);
+  if (raw_csv_file_.is_open()) {
+      raw_csv_file_ << "t_ingest_ns,range_m,speed_mps,magnitude,time,direction\n";
+  } else {
+      std::cerr << "[RadarIngest] Failed to open raw CSV log: " << log_name << "\n";
+  }
 
   std::vector<uint8_t> buffer;
   buffer.reserve(4096);
@@ -301,13 +314,20 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
     try {
       auto j = nlohmann::json::parse(line);
       
-      std::cout << "[RADAR RAW] t=" << t_ingest;
-      if (j.contains("range")) std::cout << " | Range: " << j["range"];
-      if (j.contains("speed")) std::cout << " | Speed: " << j["speed"];
-      if (j.contains("magnitude")) std::cout << " | Mag: " << j["magnitude"];
-      if (j.contains("time")) std::cout << " | Time: " << j["time"];
-      if (j.contains("direction")) std::cout << " | Dir: " << j["direction"];
-      std::cout << "\n";
+      if (raw_csv_file_.is_open()) {
+          raw_csv_file_ << t_ingest << ",";
+          if (j.contains("range")) raw_csv_file_ << j["range"];
+          raw_csv_file_ << ",";
+          if (j.contains("speed")) raw_csv_file_ << j["speed"];
+          raw_csv_file_ << ",";
+          if (j.contains("magnitude")) raw_csv_file_ << j["magnitude"];
+          raw_csv_file_ << ",";
+          if (j.contains("time")) raw_csv_file_ << j["time"];
+          raw_csv_file_ << ",";
+          if (j.contains("direction")) raw_csv_file_ << j["direction"];
+          raw_csv_file_ << "\n";
+          raw_csv_file_.flush();
+      }
 
       if (j.contains("unit")) {
         std::string unit = j["unit"];
