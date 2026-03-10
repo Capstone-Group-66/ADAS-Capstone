@@ -274,6 +274,8 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     track.object_id = det.object_id;
     track.corridor_angle_rad = angle_rad;
     track.last_cam_update_ns = now_ns;
+    track.has_cam_est_range = false;
+    track.cam_est_range_m = 0.0f;
     track.has_crosshair = false;
 
     const int conf_pct = static_cast<int>(std::round(det.score * 100.0f));
@@ -302,6 +304,8 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     track.speed_fresh = obj.speed_fresh;
     track.speed_age_ms = obj.speed_age_ms;
     track.radial_vel_mps = obj.radial_vel_mps;
+    track.has_cam_est_range = obj.z_cam_m > 0.1f;
+    track.cam_est_range_m = obj.z_cam_m;
 
     if (obj.has_radar && obj.range_m > 0.1f) {
       track.last_range_update_ns = now_ns;
@@ -312,12 +316,19 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     }
 
     std::stringstream ss;
-    ss << "[" << obj.object_id << "] Z:" << std::fixed << std::setprecision(1)
-       << obj.range_m << "m";
-    if (track.speed_fresh) {
-      ss << " V:" << static_cast<int>(std::round(obj.radial_vel_mps)) << "m/s";
+    ss << "[" << obj.object_id << "] ";
+    if (obj.has_radar && obj.range_m > 0.1f) {
+      ss << "Z:" << std::fixed << std::setprecision(1) << obj.range_m << "m";
+      if (track.speed_fresh) {
+        ss << " V:" << static_cast<int>(std::round(obj.radial_vel_mps)) << "m/s";
+      } else {
+        ss << " V:stale";
+      }
+    } else if (track.has_cam_est_range) {
+      ss << "Zcam:" << std::fixed << std::setprecision(1) << track.cam_est_range_m
+         << "m";
     } else {
-      ss << " V:stale";
+      ss << "Zcam:unknown";
     }
     track.label = ss.str();
 
@@ -463,11 +474,24 @@ void BEVDashboard::renderLoop() {
 
           if (track.speed_fresh && std::abs(track.radial_vel_mps) > 0.1f) {
             const int arrow_len = 12;
-            const int dir = (track.radial_vel_mps < 0.0f) ? 1 : -1;
+            const int dir = (track.radial_vel_mps > 0.0f) ? 1 : -1;
             cv::arrowedLine(canvas, cv::Point(anchor_x, anchor_y),
                             cv::Point(anchor_x, anchor_y + dir * arrow_len),
                             cv::Scalar(0, 255, 0), 2, cv::LINE_AA, 0, 0.35);
           }
+        }
+      } else if (!crosshair_active && cam_alive && track.has_cam_est_range &&
+                 track.cam_est_range_m > 0.1f &&
+                 track.cam_est_range_m <= maxDisplayRangeM()) {
+        // Camera-only estimated distance from pipeline (z_cam_m).
+        const float x_cam = adas::bev::lateralFromRangeAndAngle(
+            track.cam_est_range_m, track.corridor_angle_rad);
+        anchor_x = toCanvasX(x_cam);
+        anchor_y = toCanvasY(track.cam_est_range_m);
+        if (anchor_x >= 0 && anchor_x < kCanvasWidth && anchor_y >= 0 &&
+            anchor_y < kCanvasHeight) {
+          cv::circle(canvas, cv::Point(anchor_x, anchor_y), 4,
+                     cv::Scalar(255, 210, 120), cv::FILLED);
         }
       } else if (range_alive && !cam_alive && track.z_m > 0.1f) {
         // Range-only track visualization fallback.

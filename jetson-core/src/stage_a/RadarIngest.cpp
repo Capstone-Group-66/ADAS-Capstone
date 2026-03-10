@@ -5,6 +5,7 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstring>
 #include <iostream>
@@ -19,6 +20,46 @@
 namespace adas {
 
 namespace {
+
+std::string toLowerAscii(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return value;
+}
+
+float normalizeTowardPositiveSpeed(float raw_speed_mps,
+                                   const nlohmann::json &packet) {
+  // Project convention: positive = toward/inward, negative = away/outward.
+  if (!packet.contains("direction")) {
+    return raw_speed_mps;
+  }
+
+  std::string direction_text;
+  if (packet["direction"].is_string()) {
+    direction_text = packet["direction"].get<std::string>();
+  } else {
+    direction_text = packet["direction"].dump();
+  }
+  direction_text = toLowerAscii(direction_text);
+
+  const float magnitude = std::abs(raw_speed_mps);
+  if (direction_text.find("toward") != std::string::npos ||
+      direction_text.find("inward") != std::string::npos ||
+      direction_text.find("approach") != std::string::npos ||
+      direction_text == "in" || direction_text == "+") {
+    return magnitude;
+  }
+
+  if (direction_text.find("away") != std::string::npos ||
+      direction_text.find("outward") != std::string::npos ||
+      direction_text.find("recede") != std::string::npos ||
+      direction_text.find("depart") != std::string::npos ||
+      direction_text == "out" || direction_text == "-") {
+    return -magnitude;
+  }
+
+  return raw_speed_mps;
+}
 
 uint32_t computeDynamicSpeedTtlMs(int base_ttl_ms, float speed_mps) {
   const float abs_speed_mps = std::abs(speed_mps);
@@ -374,7 +415,7 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
         std::string unit = j["unit"];
         if (unit == "mps" && j.contains("speed")) {
           float speed = j["speed"];
-          last_speed_mps_ = speed;
+          last_speed_mps_ = normalizeTowardPositiveSpeed(speed, j);
           last_speed_ts_monotonic_ = t_ingest;
           speed_events_window_.fetch_add(1, std::memory_order_relaxed);
         } else if (unit == "m" && j.contains("range")) {

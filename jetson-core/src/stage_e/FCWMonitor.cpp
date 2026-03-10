@@ -119,7 +119,7 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
       if (urgency < most_urgent.ttc_s) {
         most_urgent.ttc_s = obj.ttc_s;
         most_urgent.range_m = obj.range_m;
-        most_urgent.velocity_mps = -obj.radial_vel_mps; // Make positive
+        most_urgent.velocity_mps = obj.radial_vel_mps;
         most_urgent.object_class = obj.object_class;
         most_urgent.object_id = obj.object_id;
         most_urgent.timestamp_ns = current_time_ns;

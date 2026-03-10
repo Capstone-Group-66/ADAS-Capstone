@@ -39,7 +39,7 @@ struct FusedObject {
     // Radar data (populated only when all 3 gates pass)
     bool  has_radar;
     float range_m;           ///< Z_rad from radar (authoritative range)
-    float radial_vel_mps;    ///< V_rad (negative = approaching, per OPS243-A sign)
+    float radial_vel_mps;    ///< V_rad (positive=toward/inward, negative=away)
     bool  speed_fresh;       ///< True if speed is within TTL [NEW]
     uint32_t speed_age_ms;   ///< Age of speed sample (for dashboard freshness)
 
@@ -168,7 +168,7 @@ class SensorFusion {
     bool inRadarROI(float u, float v, const cv::Rect2f& roi) const;
 
     /// Given Z_rad and V_rad, compute TTC.
-    /// Convention: V_rad < 0 means approaching → TTC = Z_rad / |V_rad|.
+    /// Convention: V_rad > 0 means approaching → TTC = Z_rad / V_rad.
     float computeTTC(float z_rad, float v_rad_approaching) const;
 
     // ── State ────────────────────────────────────────────────────────────────

@@ -14,15 +14,14 @@
 //   Negative V_cam = approaching (Z decreasing)
 //
 // Phase 4 — Radar: Z_rad = target.range_m
-//           V_rad = target.radial_vel_mps  (OPS243-A: positive = approaching)
+//           V_rad = target.radial_vel_mps  (positive=toward/inward)
 //
 // Phase 5 — Gating (all 3 must pass):
 //   1. (u, v)  inside radar ROI bounding box
 //   2. |Z_cam - Z_rad|  < dist_gate_m
-//   3. |V_cam - V_rad|  < vel_gate_mps    (both normalised to
-//   negative=approaching)
+//   3. |V_cam - V_rad|  < vel_gate_mps
 //
-// TTC = Z_rad / |V_rad|   (radar range is authoritative)
+// TTC = Z_rad / V_rad for V_rad > 0 (radar range is authoritative)
 #include "adas/stage_e/SensorFusion.hpp"
 
 #include <algorithm>
@@ -163,14 +162,6 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
               << " | v_bottom: " << v << " | Z_cam: " << z_cam << "m\n";
 
     // ── Phase 5, Gate 1: Spatial ROI ────────────────────────────────────
-    if (!inRadarROI(u, v, roi)) {
-      if (g_verbose_mode.load()) {
-        std::cout << "  [Fusion] obj " << det.object_id
-                  << " DROPPED: outside radar ROI\n";
-      }
-      continue; // spec: discard
-    }
-
     // Build the FusedObject with camera data regardless of radar match
     FusedObject obj;
     obj.object_id = det.object_id;
@@ -178,9 +169,26 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
     obj.score = det.score;
     obj.box_px = det.box_px;
     obj.centroid_px = det.centroid;
-    obj.z_cam_m = z_valid ? z_cam : 0.f;
+    // Preserve pipeline-estimated camera depth for BEV debugging, even when
+    // the value is out-of-gate for radar association.
+    obj.z_cam_m = z_cam;
     obj.v_cam_mps = 0.f; // Removed historical V_cam
     obj.sources = SRC_CAM_F;
+
+    if (!inRadarROI(u, v, roi)) {
+      if (g_verbose_mode.load()) {
+        std::cout << "  [Fusion] obj " << det.object_id
+                  << " outside radar ROI -> camera-only\n";
+      }
+      obj.has_radar = false;
+      obj.range_m = 0.f;
+      obj.radial_vel_mps = 0.f;
+      obj.speed_fresh = false;
+      obj.speed_age_ms = 0;
+      obj.ttc_s = std::numeric_limits<float>::infinity();
+      fused.push_back(obj);
+      continue;
+    }
 
     // ── Phase 3 & 4: Radar Extrinsic Translation & Gating ───────────────
     // Find the best-matching radar target that passes all distance and
@@ -240,8 +248,7 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
 
       obj.has_radar = true;
       obj.range_m = tgt.range_m - 0.0127f;
-      // Inherit radar velocity (keep spec convention where negative is
-      // approaching out of FCW)
+      // Inherit radar velocity (positive=toward/inward, negative=away/outward)
       obj.radial_vel_mps = tgt.radial_vel_mps;
       obj.speed_fresh = tgt.speed_fresh;
       obj.speed_age_ms = tgt.speed_age_ms;
@@ -321,8 +328,8 @@ bool SensorFusion::inRadarROI(float x, float y, const cv::Rect2f &roi) const {
 }
 
 float SensorFusion::computeTTC(float z_rad, float v_rad_doppler) const {
-  if (v_rad_doppler < 0.0f) {
-    return z_rad / std::abs(v_rad_doppler);
+  if (v_rad_doppler > 0.0f) {
+    return z_rad / v_rad_doppler;
   }
   return std::numeric_limits<float>::infinity();
 }

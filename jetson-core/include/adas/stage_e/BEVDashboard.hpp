@@ -63,6 +63,8 @@ private:
     float x_offset_m = 0.0f;
     float z_m = 0.0f;
     float radial_vel_mps = 0.0f;
+    bool has_cam_est_range = false;
+    float cam_est_range_m = 0.0f;
     bool speed_fresh = false;
     uint32_t speed_age_ms = 0;
     uint64_t last_cam_update_ns = 0;

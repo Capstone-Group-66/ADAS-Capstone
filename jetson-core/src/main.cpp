@@ -240,9 +240,8 @@ void visualizationThread() {
         fused = g_sensor_fusion->fuse(batch, radar);
       }
 
-      // Velocity Deadband: Clamp speeds < 1 m/s to 0 to prevent
-      // drift/noise Logic Assumption: Positive = Moving Away, Negative =
-      // Moving Towards
+      // Velocity Deadband: Clamp speeds < 1 m/s to 0 to prevent drift/noise.
+      // Convention: Positive = moving toward/inward, Negative = away/outward.
       for (auto &obj : fused) {
         if (std::abs(obj.radial_vel_mps) < 1.0f) {
           obj.radial_vel_mps = 0.0f;
