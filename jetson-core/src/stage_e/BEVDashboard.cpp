@@ -21,8 +21,8 @@ constexpr int kEgoX = 150;
 constexpr int kEgoY = 240;
 constexpr int kEgoW = 20;
 constexpr int kEgoH = 40;
-constexpr float kRadarHalfFovDeg = 10.0f;   // 20 degree cone
-constexpr float kCameraHalfFovDeg = 12.5f;  // 25 degree corridor span
+constexpr float kRadarHalfFovDeg = 10.0f;  // 20 degree cone
+constexpr float kCameraHalfFovDeg = 12.5f; // 25 degree corridor span
 
 int toCanvasX(float x_m) {
   return static_cast<int>(kEgoX + x_m * kPixelsPerMeter);
@@ -43,18 +43,19 @@ void drawProgressBar(cv::Mat &canvas, int x, int y, int width, int height,
   cv::rectangle(canvas, cv::Rect(x, y, width, height), bg, cv::FILLED);
   cv::rectangle(canvas, cv::Rect(x, y, static_cast<int>(width * ratio), height),
                 fg, cv::FILLED);
-  cv::rectangle(canvas, cv::Rect(x, y, width, height), cv::Scalar(120, 120, 120),
-                1);
+  cv::rectangle(canvas, cv::Rect(x, y, width, height),
+                cv::Scalar(120, 120, 120), 1);
 }
 
 void drawRadarCone(cv::Mat &canvas) {
   const float z_far = maxDisplayRangeM();
-  const float x_left = bev::lateralFromRangeAndAngle(
-      z_far, -bev::degToRad(kRadarHalfFovDeg));
-  const float x_right = bev::lateralFromRangeAndAngle(
-      z_far, bev::degToRad(kRadarHalfFovDeg));
+  const float x_left =
+      bev::lateralFromRangeAndAngle(z_far, -bev::degToRad(kRadarHalfFovDeg));
+  const float x_right =
+      bev::lateralFromRangeAndAngle(z_far, bev::degToRad(kRadarHalfFovDeg));
 
-  cv::line(canvas, cv::Point(kEgoX, kEgoY), cv::Point(toCanvasX(x_left), toCanvasY(z_far)),
+  cv::line(canvas, cv::Point(kEgoX, kEgoY),
+           cv::Point(toCanvasX(x_left), toCanvasY(z_far)),
            cv::Scalar(65, 85, 100), 1);
   cv::line(canvas, cv::Point(kEgoX, kEgoY),
            cv::Point(toCanvasX(x_right), toCanvasY(z_far)),
@@ -66,14 +67,15 @@ void drawRadarRangeLine(cv::Mat &canvas, float range_m, const cv::Scalar &color,
   if (range_m <= 0.1f || range_m > maxDisplayRangeM()) {
     return;
   }
-  const float x_left = bev::lateralFromRangeAndAngle(
-      range_m, -bev::degToRad(kRadarHalfFovDeg));
-  const float x_right = bev::lateralFromRangeAndAngle(
-      range_m, bev::degToRad(kRadarHalfFovDeg));
+  const float x_left =
+      bev::lateralFromRangeAndAngle(range_m, -bev::degToRad(kRadarHalfFovDeg));
+  const float x_right =
+      bev::lateralFromRangeAndAngle(range_m, bev::degToRad(kRadarHalfFovDeg));
 
   cv::line(canvas, cv::Point(toCanvasX(x_left), toCanvasY(range_m)),
            cv::Point(toCanvasX(x_right), toCanvasY(range_m)), color, thickness);
-  cv::circle(canvas, cv::Point(kEgoX, toCanvasY(range_m)), 2, color, cv::FILLED);
+  cv::circle(canvas, cv::Point(kEgoX, toCanvasY(range_m)), 2, color,
+             cv::FILLED);
 }
 
 void drawCorridor(cv::Mat &canvas, float angle_rad, const cv::Scalar &color,
@@ -143,7 +145,8 @@ namespace adas {
 BEVDashboard::BEVDashboard(BSDReceiver *bsd_receiver, float c_x, float f_x,
                            uint32_t dead_track_cleanup_ms, uint32_t ttc_hold_ms)
     : bsd_receiver_(bsd_receiver), c_x_(c_x), f_x_(f_x),
-      dead_track_cleanup_ms_(dead_track_cleanup_ms), ttc_hold_ms_(ttc_hold_ms) {}
+      dead_track_cleanup_ms_(dead_track_cleanup_ms), ttc_hold_ms_(ttc_hold_ms) {
+}
 
 BEVDashboard::~BEVDashboard() { stop(); }
 
@@ -204,8 +207,7 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     Track &track = tracks_[obj.object_id];
     track.object_id = obj.object_id;
 
-    const float angle_rad =
-        bev::angleFromPixel(obj.centroid_px.x, c_x_, f_x_);
+    const float angle_rad = bev::angleFromPixel(obj.centroid_px.x, c_x_, f_x_);
     if (bev::inAngleSpan(angle_rad, kCameraHalfFovDeg)) {
       track.corridor_angle_rad = angle_rad;
     }
@@ -245,7 +247,8 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     }
   }
 
-  // Any camera-touched track not fused this frame should stay as ghost corridor.
+  // Any camera-touched track not fused this frame should stay as ghost
+  // corridor.
   for (uint64_t id : touched_by_camera) {
     auto it = tracks_.find(id);
     if (it != tracks_.end() && it->second.last_range_update_ns != now_ns) {
@@ -260,7 +263,8 @@ void BEVDashboard::renderLoop() {
   uint64_t last_processed_seq = 0;
 
   while (running_.load()) {
-    cv::Mat canvas(kCanvasHeight, kCanvasWidth, CV_8UC3, cv::Scalar(28, 28, 28));
+    cv::Mat canvas(kCanvasHeight, kCanvasWidth, CV_8UC3,
+                   cv::Scalar(28, 28, 28));
 
     BEVInputFrame frame;
     uint64_t frame_seq = 0;
@@ -296,36 +300,36 @@ void BEVDashboard::renderLoop() {
     for (auto it = tracks_.begin(); it != tracks_.end();) {
       Track &track = it->second;
 
-      if (!bev::shouldKeepTrack(now_ns, track.last_cam_update_ns,
-                                track.last_range_update_ns,
-                                track.ttc_hold_until_ns,
-                                dead_track_cleanup_ms_)) {
+      if (!bev::shouldKeepTrack(
+              now_ns, track.last_cam_update_ns, track.last_range_update_ns,
+              track.ttc_hold_until_ns, dead_track_cleanup_ms_)) {
         it = tracks_.erase(it);
         continue;
       }
 
-      const float cam_remain =
-          bev::ttlRemaining01(now_ns, track.last_cam_update_ns,
-                              dead_track_cleanup_ms_);
-      const float range_remain =
-          bev::ttlRemaining01(now_ns, track.last_range_update_ns,
-                              dead_track_cleanup_ms_);
+      const float cam_remain = bev::ttlRemaining01(
+          now_ns, track.last_cam_update_ns, dead_track_cleanup_ms_);
+      const float range_remain = bev::ttlRemaining01(
+          now_ns, track.last_range_update_ns, dead_track_cleanup_ms_);
       const bool cam_alive = cam_remain > 0.0f;
       const bool range_alive = range_remain > 0.0f;
 
-      const float hold_remain = track.ttc_hold_until_ns > now_ns
-                                    ? static_cast<float>(track.ttc_hold_until_ns - now_ns) /
-                                          static_cast<float>(ttc_hold_ms_) / 1000000.0f
-                                    : 0.0f;
+      const float hold_remain =
+          track.ttc_hold_until_ns > now_ns
+              ? static_cast<float>(track.ttc_hold_until_ns - now_ns) /
+                    static_cast<float>(ttc_hold_ms_) / 1000000.0f
+              : 0.0f;
 
       const bool hold_active = hold_remain > 0.0f;
-      const bool crosshair_active = cam_alive && range_alive && track.has_crosshair;
+      const bool crosshair_active =
+          cam_alive && range_alive && track.has_crosshair;
 
       // Camera corridor layer (25 degree span)
-      if (cam_alive && bev::inAngleSpan(track.corridor_angle_rad, kCameraHalfFovDeg)) {
-        const cv::Scalar corridor_color = crosshair_active
-                                              ? cv::Scalar(120, 220, 120)
-                                              : cv::Scalar(90, 90, 170); // ghost
+      if (cam_alive &&
+          bev::inAngleSpan(track.corridor_angle_rad, kCameraHalfFovDeg)) {
+        const cv::Scalar corridor_color =
+            crosshair_active ? cv::Scalar(120, 220, 120)
+                             : cv::Scalar(90, 90, 170); // ghost
         drawCorridor(canvas, track.corridor_angle_rad, corridor_color,
                      crosshair_active ? 2 : 1);
       }
@@ -339,8 +343,8 @@ void BEVDashboard::renderLoop() {
 
         if (anchor_x >= 0 && anchor_x < kCanvasWidth && anchor_y >= 0 &&
             anchor_y < kCanvasHeight) {
-          const cv::Scalar marker_color = hold_active ? cv::Scalar(0, 0, 255)
-                                                      : cv::Scalar(0, 255, 255);
+          const cv::Scalar marker_color =
+              hold_active ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 255);
           drawCrosshair(canvas, anchor_x, anchor_y, marker_color, 6, 2);
 
           if (hold_active) {
@@ -353,8 +357,7 @@ void BEVDashboard::renderLoop() {
             const int dir = (track.radial_vel_mps < 0.0f) ? 1 : -1;
             cv::arrowedLine(canvas, cv::Point(anchor_x, anchor_y),
                             cv::Point(anchor_x, anchor_y + dir * arrow_len),
-                            cv::Scalar(0, 255, 0), 2, cv::LINE_AA, 0,
-                            0.35);
+                            cv::Scalar(0, 255, 0), 2, cv::LINE_AA, 0, 0.35);
           }
         }
       } else if (range_alive && !cam_alive && track.z_m > 0.1f) {
@@ -376,8 +379,9 @@ void BEVDashboard::renderLoop() {
       }
 
       // Text label and speed freshness note.
-      const cv::Scalar text_color = track.speed_fresh ? cv::Scalar(230, 230, 230)
-                                                      : cv::Scalar(160, 160, 160);
+      const cv::Scalar text_color = track.speed_fresh
+                                        ? cv::Scalar(230, 230, 230)
+                                        : cv::Scalar(160, 160, 160);
       cv::putText(canvas, track.label, cv::Point(anchor_x - 40, anchor_y - 28),
                   cv::FONT_HERSHEY_SIMPLEX, 0.32, text_color, 1);
 
