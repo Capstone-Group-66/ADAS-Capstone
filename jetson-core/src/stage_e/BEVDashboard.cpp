@@ -13,6 +13,7 @@
 #include <unordered_set>
 
 namespace {
+namespace bev = adas::bev;
 
 constexpr int kCanvasWidth = 300;
 constexpr int kCanvasHeight = 300;
