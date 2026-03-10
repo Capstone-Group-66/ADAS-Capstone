@@ -49,12 +49,10 @@ void drawProgressBar(cv::Mat &canvas, int x, int y, int width, int height,
 
 void drawRadarCone(cv::Mat &canvas) {
   const float z_far = maxDisplayRangeM();
-  const float x_left =
-      adas::bev::lateralFromRangeAndAngle(
-          z_far, -adas::bev::degToRad(kRadarHalfFovDeg));
-  const float x_right =
-      adas::bev::lateralFromRangeAndAngle(
-          z_far, adas::bev::degToRad(kRadarHalfFovDeg));
+  const float x_left = adas::bev::lateralFromRangeAndAngle(
+      z_far, -adas::bev::degToRad(kRadarHalfFovDeg));
+  const float x_right = adas::bev::lateralFromRangeAndAngle(
+      z_far, adas::bev::degToRad(kRadarHalfFovDeg));
 
   cv::line(canvas, cv::Point(kEgoX, kEgoY),
            cv::Point(toCanvasX(x_left), toCanvasY(z_far)),
@@ -69,12 +67,10 @@ void drawRadarRangeLine(cv::Mat &canvas, float range_m, const cv::Scalar &color,
   if (range_m <= 0.1f || range_m > maxDisplayRangeM()) {
     return;
   }
-  const float x_left =
-      adas::bev::lateralFromRangeAndAngle(
-          range_m, -adas::bev::degToRad(kRadarHalfFovDeg));
-  const float x_right =
-      adas::bev::lateralFromRangeAndAngle(
-          range_m, adas::bev::degToRad(kRadarHalfFovDeg));
+  const float x_left = adas::bev::lateralFromRangeAndAngle(
+      range_m, -adas::bev::degToRad(kRadarHalfFovDeg));
+  const float x_right = adas::bev::lateralFromRangeAndAngle(
+      range_m, adas::bev::degToRad(kRadarHalfFovDeg));
 
   cv::line(canvas, cv::Point(toCanvasX(x_left), toCanvasY(range_m)),
            cv::Point(toCanvasX(x_right), toCanvasY(range_m)), color, thickness);
@@ -331,8 +327,8 @@ void BEVDashboard::renderLoop() {
           cam_alive && range_alive && track.has_crosshair;
 
       // Camera corridor layer (25 degree span)
-      if (cam_alive && adas::bev::inAngleSpan(track.corridor_angle_rad,
-                                              kCameraHalfFovDeg)) {
+      if (cam_alive &&
+          adas::bev::inAngleSpan(track.corridor_angle_rad, kCameraHalfFovDeg)) {
         const cv::Scalar corridor_color =
             crosshair_active ? cv::Scalar(120, 220, 120)
                              : cv::Scalar(90, 90, 170); // ghost
