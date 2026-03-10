@@ -173,9 +173,6 @@ void visualizationThread() {
   std::cout << "[StageE] Thread started (display "
             << (display_enabled ? "enabled" : "disabled") << ")\n";
 
-  const float fcw_proximity_threshold_m =
-      1.5f; // Trigger FCW if object within this range
-
   while (g_visualizer_running.load() && !g_shutdown_requested.load()) {
     bool got_frame = false;
     adas::DetBatch batch;
@@ -254,22 +251,8 @@ void visualizationThread() {
         fcw_alert = g_fcw_monitor->check(fused, adas::Clock::now_ns());
       }
 
-      // Also check for proximity-based FCW (any object within 1.5m)
-      bool proximity_alert = false;
-      float closest_range = 999.0f;
-
-      for (const auto &obj : fused) {
-        if (obj.has_radar && obj.range_m < fcw_proximity_threshold_m &&
-            obj.range_m > 0.1f) {
-          proximity_alert = true;
-          if (obj.range_m < closest_range) {
-            closest_range = obj.range_m;
-          }
-        }
-      }
-
       // Update FCW alert active status
-      if (fcw_alert.has_value() || proximity_alert) {
+      if (fcw_alert.has_value()) {
         // Radar alerts handled by BLE, we can keep g_fcw_alert_active for
         // potential dashboard UI later.
         g_fcw_alert_active.store(true);
@@ -281,9 +264,7 @@ void visualizationThread() {
       if (g_ble_server && g_ble_server->isConnected()) {
         static auto last_ble_send = std::chrono::steady_clock::time_point();
 
-        // Fix: Include proximity_alert in alerting condition so
-        // Radar-only alerts are sent
-        bool is_alerting = fcw_alert.has_value() || proximity_alert;
+        bool is_alerting = fcw_alert.has_value();
 
         auto now_time = std::chrono::steady_clock::now();
         auto time_since = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -301,15 +282,6 @@ void visualizationThread() {
           if (fcw_alert.has_value()) {
             auto alert = adas::FCWAlertAdapter::convert(*fcw_alert,
                                                         adas::Clock::now_ns());
-            alerts_to_send.push_back(alert);
-          } else if (proximity_alert) {
-            // Synthetic Alert from Proximity Logic
-            adas::Alert alert;
-            alert.id = "prox_" + std::to_string(adas::Clock::now_ns());
-            alert.type = adas::AlertType::FCW; // Map to FCW for Mobile App
-                                               // (turns red)
-            alert.severity = adas::Severity::Critical;
-            alert.rationale = "Proximity Warning (< 1.5m)";
             alerts_to_send.push_back(alert);
           } else {
             // Heartbeat: No alerts
@@ -341,7 +313,7 @@ void visualizationThread() {
         // Capture TTC and range from FCW alert if present
         float ttc = fcw_alert.has_value() ? fcw_alert->ttc_s : -1.0f;
         float range = fcw_alert.has_value() ? fcw_alert->range_m : -1.0f;
-        bool triggered = fcw_alert.has_value() || proximity_alert;
+        bool triggered = fcw_alert.has_value();
 
         g_metrics_logger->logFrame(now_ns / 1e6, // timestamp_ms
                                    batch.h.seq,
