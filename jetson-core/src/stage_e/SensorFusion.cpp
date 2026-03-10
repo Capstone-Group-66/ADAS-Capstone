@@ -256,8 +256,7 @@ std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
                   << "m V_fused=" << obj.radial_vel_mps << "m/s TTC="
                   << (obj.ttc_s < 999.f ? std::to_string((int)obj.ttc_s) + "s"
                                         : "inf")
-                  << " Fresh=" << (obj.speed_fresh ? "Y" : "N")
-                  << "\n";
+                  << " Fresh=" << (obj.speed_fresh ? "Y" : "N") << "\n";
       }
     } else {
       // Camera-only object: no valid radar association

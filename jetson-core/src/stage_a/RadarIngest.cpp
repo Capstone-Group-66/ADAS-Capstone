@@ -103,22 +103,26 @@ void RadarIngest::run() {
       uint64_t ff = fused_fresh_window_.exchange(0, std::memory_order_relaxed);
       uint64_t fs = fused_stale_window_.exchange(0, std::memory_order_relaxed);
       uint64_t errs = parse_error_count_.load(std::memory_order_relaxed);
-      
+
       range_hz_.store(re / elapsed_sec, std::memory_order_relaxed);
       speed_event_hz_.store(se / elapsed_sec, std::memory_order_relaxed);
-      
+
       uint64_t total_fused = ff + fs;
       if (total_fused > 0) {
-          fused_with_fresh_speed_ratio_.store(static_cast<double>(ff) / total_fused, std::memory_order_relaxed);
-          stale_speed_ratio_.store(static_cast<double>(fs) / total_fused, std::memory_order_relaxed);
+        fused_with_fresh_speed_ratio_.store(
+            static_cast<double>(ff) / total_fused, std::memory_order_relaxed);
+        stale_speed_ratio_.store(static_cast<double>(fs) / total_fused,
+                                 std::memory_order_relaxed);
       } else {
-          fused_with_fresh_speed_ratio_.store(0.0, std::memory_order_relaxed);
-          stale_speed_ratio_.store(0.0, std::memory_order_relaxed);
+        fused_with_fresh_speed_ratio_.store(0.0, std::memory_order_relaxed);
+        stale_speed_ratio_.store(0.0, std::memory_order_relaxed);
       }
 
       std::cout << "[RadarIngest] " << mountToString(mount_) << " rate: " << hz
-                << " Hz | RNG: " << (re/elapsed_sec) << " Hz | SPD: " << (se/elapsed_sec) << " Hz"
-                << " | Fresh Ratio: " << (total_fused > 0 ? (ff * 100.0 / total_fused) : 0) << "%"
+                << " Hz | RNG: " << (re / elapsed_sec)
+                << " Hz | SPD: " << (se / elapsed_sec) << " Hz"
+                << " | Fresh Ratio: "
+                << (total_fused > 0 ? (ff * 100.0 / total_fused) : 0) << "%"
                 << " | Errs: " << errs;
       std::cout << std::endl;
 
@@ -216,23 +220,23 @@ bool RadarIngest::setupSerialPort() {
   tcflush(fd_, TCIOFLUSH);
 
   // Send config commands for OPS243-C
-  const char* init_cmds[] = {
-      "GX\r\n", "OS\r\n", "oD\r\n", "OJ\r\n", 
-      "UM\r\n", "uM\r\n", "SX\r\n", "S[\r\n", "s[\r\n"
-  };
-  for (const char* cmd : init_cmds) {
-      write(fd_, cmd, strlen(cmd));
-      usleep(50000); // 50ms wait
+  const char *init_cmds[] = {"GX\r\n", "OS\r\n", "oD\r\n", "OJ\r\n", "UM\r\n",
+                             "uM\r\n", "SX\r\n", "S[\r\n", "s[\r\n"};
+  for (const char *cmd : init_cmds) {
+    write(fd_, cmd, strlen(cmd));
+    usleep(50000); // 50ms wait
   }
-  
+
   // Custom threshold commands based on configuration
-  std::string mag_speed = "M>" + std::to_string(config_.speed_mag_threshold) + "\r\n";
-  std::string mag_range = "m>" + std::to_string(config_.range_mag_threshold) + "\r\n";
+  std::string mag_speed =
+      "M>" + std::to_string(config_.speed_mag_threshold) + "\r\n";
+  std::string mag_range =
+      "m>" + std::to_string(config_.range_mag_threshold) + "\r\n";
   write(fd_, mag_speed.c_str(), mag_speed.length());
   usleep(50000);
   write(fd_, mag_range.c_str(), mag_range.length());
   usleep(50000);
-  
+
   // Flush again to clear config echoing
   tcflush(fd_, TCIOFLUSH);
 
@@ -291,7 +295,8 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
     std::string line = line_buffer_.substr(0, pos);
     line_buffer_.erase(0, pos + 2);
 
-    if (line.empty()) continue;
+    if (line.empty())
+      continue;
 
     try {
       auto j = nlohmann::json::parse(line);
@@ -316,19 +321,21 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
             range_events_window_.fetch_add(1, std::memory_order_relaxed);
 
             // TTL Evaluation
-            uint64_t age_ns = t_ingest > last_speed_ts_monotonic_ ? (t_ingest - last_speed_ts_monotonic_) : 0;
+            uint64_t age_ns = t_ingest > last_speed_ts_monotonic_
+                                  ? (t_ingest - last_speed_ts_monotonic_)
+                                  : 0;
             uint32_t age_ms = static_cast<uint32_t>(age_ns / 1000000);
 
             if (age_ms <= static_cast<uint32_t>(config_.speed_ttl_ms)) {
-                target.radial_vel_mps = last_speed_mps_;
-                target.speed_fresh = true;
-                target.speed_age_ms = age_ms;
-                fused_fresh_window_.fetch_add(1, std::memory_order_relaxed);
+              target.radial_vel_mps = last_speed_mps_;
+              target.speed_fresh = true;
+              target.speed_age_ms = age_ms;
+              fused_fresh_window_.fetch_add(1, std::memory_order_relaxed);
             } else {
-                target.radial_vel_mps = 0.0f;
-                target.speed_fresh = false;
-                target.speed_age_ms = age_ms;
-                fused_stale_window_.fetch_add(1, std::memory_order_relaxed);
+              target.radial_vel_mps = 0.0f;
+              target.speed_fresh = false;
+              target.speed_age_ms = age_ms;
+              fused_stale_window_.fetch_add(1, std::memory_order_relaxed);
             }
 
             targets.targets.push_back(target);
@@ -351,7 +358,8 @@ RadarIngest::Stats RadarIngest::getStats() const {
   s.rate_hz = rate_hz_.load(std::memory_order_relaxed);
   s.range_hz = range_hz_.load(std::memory_order_relaxed);
   s.speed_event_hz = speed_event_hz_.load(std::memory_order_relaxed);
-  s.fused_with_fresh_speed_ratio = fused_with_fresh_speed_ratio_.load(std::memory_order_relaxed);
+  s.fused_with_fresh_speed_ratio =
+      fused_with_fresh_speed_ratio_.load(std::memory_order_relaxed);
   s.stale_speed_ratio = stale_speed_ratio_.load(std::memory_order_relaxed);
   s.parse_error_count = parse_error_count_.load(std::memory_order_relaxed);
   return s;

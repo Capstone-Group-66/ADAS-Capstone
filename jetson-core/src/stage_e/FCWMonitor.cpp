@@ -84,7 +84,8 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     }
 
     // Check 2: Physics-based alert (can't stop in time)
-    if (config_.use_physics_fcw && ego_velocity_mps_ > 0.5f && obj.speed_fresh) {
+    if (config_.use_physics_fcw && ego_velocity_mps_ > 0.5f &&
+        obj.speed_fresh) {
       if (obj.range_m < stopping_distance_m) {
         physics_triggered = true;
 
@@ -98,9 +99,9 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     std::string alert_status =
         (ttc_triggered || physics_triggered) ? "ALERT TRIGGERED" : "SAFE";
     if (!obj.speed_fresh) {
-        alert_status += " (STALE SPEED)";
+      alert_status += " (STALE SPEED)";
     }
-        
+
     std::cout << "[StageE: 4_FCW] ID " << obj.object_id
               << " | Z: " << obj.range_m << "m | V: " << obj.radial_vel_mps
               << "m/s | TTC: " << obj.ttc_s << "s -> " << alert_status << "\n";
