@@ -357,8 +357,11 @@ void visualizationThread() {
         bev_frame.camera_batch = batch;
         bev_frame.radar_targets = radar;
         bev_frame.fused_objects = fused;
-        if (fcw_alert.has_value() && fcw_alert->object_id != UINT64_MAX) {
-          bev_frame.fcw_focus_object_id = fcw_alert->object_id;
+        if (fcw_alert.has_value()) {
+          bev_frame.fcw_alert_context = *fcw_alert;
+          if (fcw_alert->object_id != UINT64_MAX) {
+            bev_frame.fcw_focus_object_id = fcw_alert->object_id;
+          }
         }
         bev_frame.now_ns = adas::Clock::now_ns();
         g_bev_dashboard->update(bev_frame);

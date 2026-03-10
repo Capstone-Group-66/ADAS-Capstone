@@ -3,6 +3,7 @@
 #pragma once
 
 #include "adas/stage_a/BSDReceiver.hpp"
+#include "adas/stage_e/FCWMonitor.hpp"
 #include "adas/stage_e/SensorFusion.hpp"
 
 #include <opencv2/core.hpp>
@@ -25,6 +26,7 @@ struct BEVInputFrame {
   RadarTargets radar_targets;
   std::vector<FusedObject> fused_objects;
   std::optional<uint64_t> fcw_focus_object_id;
+  std::optional<FCWAlert> fcw_alert_context;
   uint64_t now_ns = 0;
 };
 
@@ -66,6 +68,8 @@ private:
     uint64_t last_cam_update_ns = 0;
     uint64_t last_range_update_ns = 0;
     uint64_t ttc_hold_until_ns = 0;
+    bool has_fcw_trigger_speed = false;
+    float fcw_trigger_speed_mps = 0.0f;
     bool has_crosshair = false;
     std::string label;
   };

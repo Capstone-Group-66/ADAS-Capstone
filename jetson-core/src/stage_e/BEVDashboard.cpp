@@ -324,7 +324,18 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     touched_by_camera.insert(obj.object_id);
   }
 
-  if (frame.fcw_focus_object_id.has_value()) {
+  if (frame.fcw_alert_context.has_value() &&
+      frame.fcw_alert_context->object_id != UINT64_MAX) {
+    auto it = tracks_.find(frame.fcw_alert_context->object_id);
+    if (it != tracks_.end()) {
+      const uint64_t hold_ns = static_cast<uint64_t>(ttc_hold_ms_) * 1000000ULL;
+      it->second.ttc_hold_until_ns =
+          std::max(it->second.ttc_hold_until_ns, now_ns + hold_ns);
+      // Copy trigger speed directly from FCW pipeline output.
+      it->second.has_fcw_trigger_speed = true;
+      it->second.fcw_trigger_speed_mps = frame.fcw_alert_context->velocity_mps;
+    }
+  } else if (frame.fcw_focus_object_id.has_value()) {
     auto it = tracks_.find(*frame.fcw_focus_object_id);
     if (it != tracks_.end()) {
       const uint64_t hold_ns = static_cast<uint64_t>(ttc_hold_ms_) * 1000000ULL;
@@ -388,7 +399,12 @@ void BEVDashboard::renderLoop() {
       drawRadarRangeLine(canvas, target.range_m, cv::Scalar(190, 110, 30), 1);
     }
 
-    std::vector<cv::Point> fcw_ray_targets;
+    struct FcwRayOverlay {
+      cv::Point target;
+      bool has_trigger_speed = false;
+      float trigger_speed_mps = 0.0f;
+    };
+    std::vector<FcwRayOverlay> fcw_ray_overlays;
 
     for (auto it = tracks_.begin(); it != tracks_.end();) {
       Track &track = it->second;
@@ -479,17 +495,29 @@ void BEVDashboard::renderLoop() {
                   cv::FONT_HERSHEY_SIMPLEX, 0.32, text_color, 1);
 
       if (hold_active && track.z_m > 0.1f && anchor_x >= 0 &&
-          anchor_x < kCanvasWidth && anchor_y >= 0 &&
-          anchor_y < kCanvasHeight) {
-        fcw_ray_targets.emplace_back(anchor_x, anchor_y);
+          anchor_x < kCanvasWidth && anchor_y >= 0 && anchor_y < kCanvasHeight) {
+        FcwRayOverlay overlay;
+        overlay.target = cv::Point(anchor_x, anchor_y);
+        overlay.has_trigger_speed = track.has_fcw_trigger_speed;
+        overlay.trigger_speed_mps = track.fcw_trigger_speed_mps;
+        fcw_ray_overlays.push_back(overlay);
       }
 
       ++it;
     }
 
     // FCW directional rays are drawn last so they remain visible over overlays.
-    for (const auto &ray_target : fcw_ray_targets) {
-      drawFcwDirectionRay(canvas, ray_target);
+    for (const auto &overlay : fcw_ray_overlays) {
+      drawFcwDirectionRay(canvas, overlay.target);
+      if (overlay.has_trigger_speed) {
+        std::stringstream ss;
+        ss << "FCW v=" << std::fixed << std::setprecision(1)
+           << overlay.trigger_speed_mps << "m/s";
+        cv::putText(canvas, ss.str(),
+                    cv::Point(overlay.target.x + 8, overlay.target.y - 12),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.34, cv::Scalar(235, 235, 255), 1,
+                    cv::LINE_AA);
+      }
     }
 
     cv::imshow("ADAS BEVDashboard", canvas);
