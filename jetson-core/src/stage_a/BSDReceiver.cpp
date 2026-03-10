@@ -141,7 +141,7 @@ void BSDReceiver::receiveLoop() {
                 left_state_.store(state == 1, std::memory_order_relaxed);
                 left_last_rx_ms_ = Clock::now_ms();
 
-                std::cout << "[BSD] Left: " << (int)state << "\n";
+                // std::cout << "[BSD] Left: " << (int)state << "\n";
 
                 // Sequence gap tracking
                 if (left_last_seq_ > 0 &&
@@ -150,17 +150,17 @@ void BSDReceiver::receiveLoop() {
                 }
                 left_last_seq_ = header->sequence;
               } else {
-                std::cout << "[BSD] Left invalid state byte: " << (int)state
-                          << "\n";
+                // std::cout << "[BSD] Left invalid state byte: " << (int)state
+                //          << "\n";
               }
             } else {
-              std::cout << "[BSD] Left invalid length. msg_len=" << msg_len
-                        << "\n";
+              // std::cout << "[BSD] Left invalid length. msg_len=" << msg_len
+              //          << "\n";
             }
           } else {
-            std::cout << "[BSD] Left mismatch. Magic=" << std::hex
-                      << header->magic << " v=" << header->version
-                      << " type=" << header->msg_type << std::dec << "\n";
+            // std::cout << "[BSD] Left mismatch. Magic=" << std::hex
+            //          << header->magic << " v=" << header->version
+            //          << " type=" << header->msg_type << std::dec << "\n";
           }
         }
       }
@@ -183,7 +183,7 @@ void BSDReceiver::receiveLoop() {
                 right_state_.store(state == 1, std::memory_order_relaxed);
                 right_last_rx_ms_ = Clock::now_ms();
 
-                std::cout << "[BSD] Right: " << (int)state << "\n";
+                // std::cout << "[BSD] Right: " << (int)state << "\n";
 
                 // Sequence gap tracking
                 if (right_last_seq_ > 0 &&
@@ -192,17 +192,17 @@ void BSDReceiver::receiveLoop() {
                 }
                 right_last_seq_ = header->sequence;
               } else {
-                std::cout << "[BSD] Right invalid state byte: " << (int)state
-                          << "\n";
+                // std::cout << "[BSD] Right invalid state byte: " << (int)state
+                //          << "\n";
               }
             } else {
-              std::cout << "[BSD] Right invalid length. msg_len=" << msg_len
-                        << "\n";
+              // std::cout << "[BSD] Right invalid length. msg_len=" << msg_len
+              //          << "\n";
             }
           } else {
-            std::cout << "[BSD] Right mismatch. Magic=" << std::hex
-                      << header->magic << " v=" << header->version
-                      << " type=" << header->msg_type << std::dec << "\n";
+            // std::cout << "[BSD] Right mismatch. Magic=" << std::hex
+            //          << header->magic << " v=" << header->version
+            //          << " type=" << header->msg_type << std::dec << "\n";
           }
         }
       }

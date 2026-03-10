@@ -300,6 +300,15 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
 
     try {
       auto j = nlohmann::json::parse(line);
+      
+      std::cout << "[RADAR RAW] t=" << t_ingest;
+      if (j.contains("range")) std::cout << " | Range: " << j["range"];
+      if (j.contains("speed")) std::cout << " | Speed: " << j["speed"];
+      if (j.contains("magnitude")) std::cout << " | Mag: " << j["magnitude"];
+      if (j.contains("time")) std::cout << " | Time: " << j["time"];
+      if (j.contains("direction")) std::cout << " | Dir: " << j["direction"];
+      std::cout << "\n";
+
       if (j.contains("unit")) {
         std::string unit = j["unit"];
         if (unit == "mps" && j.contains("speed")) {
