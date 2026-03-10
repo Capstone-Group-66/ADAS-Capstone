@@ -320,13 +320,14 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     if (obj.has_radar && obj.range_m > 0.1f) {
       ss << "Z:" << std::fixed << std::setprecision(1) << obj.range_m << "m";
       if (track.speed_fresh) {
-        ss << " V:" << static_cast<int>(std::round(obj.radial_vel_mps)) << "m/s";
+        ss << " V:" << static_cast<int>(std::round(obj.radial_vel_mps))
+           << "m/s";
       } else {
         ss << " V:stale";
       }
     } else if (track.has_cam_est_range) {
-      ss << "Zcam:" << std::fixed << std::setprecision(1) << track.cam_est_range_m
-         << "m";
+      ss << "Zcam:" << std::fixed << std::setprecision(1)
+         << track.cam_est_range_m << "m";
     } else {
       ss << "Zcam:unknown";
     }
