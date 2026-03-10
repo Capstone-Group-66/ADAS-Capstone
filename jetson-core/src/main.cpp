@@ -191,12 +191,14 @@ void visualizationThread() {
 
     // Get latest radar data from IngestManager
     adas::RadarTargets radar;
+    bool got_radar_update = false;
     if (g_ingest_manager) {
       try {
         auto &radar_queue =
             g_ingest_manager->getRadarQueue(adas::Mount::FrontRadar);
         while (radar_queue.try_pop(radar)) {
           // Keep draining to get latest
+          got_radar_update = true;
         }
       } catch (...) {
         // FrontRadar not configured, radar.targets will be empty
@@ -361,6 +363,12 @@ void visualizationThread() {
         bev_frame.now_ns = adas::Clock::now_ns();
         g_bev_dashboard->update(bev_frame);
       }
+    } else if (g_bev_dashboard && got_radar_update) {
+      // Feed raw front radar ticks to BEV even when camera has no new frame.
+      adas::BEVInputFrame bev_frame;
+      bev_frame.radar_targets = radar;
+      bev_frame.now_ns = adas::Clock::now_ns();
+      g_bev_dashboard->update(bev_frame);
     }
 
     if (!got_frame) {
