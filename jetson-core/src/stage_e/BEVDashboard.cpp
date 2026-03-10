@@ -23,6 +23,7 @@ constexpr int kEgoW = 20;
 constexpr int kEgoH = 40;
 constexpr float kRadarHalfFovDeg = 10.0f;  // 20 degree cone
 constexpr float kCameraHalfFovDeg = 12.5f; // 25 degree corridor span
+constexpr float kRadarRangeTxM = 0.0127f;  // Keep same t_x used in fusion.
 constexpr float kRadarHeatDecay = 0.94f;
 constexpr float kRadarHeatBlurSigma = 2.2f;
 constexpr float kRadarHeatOverlayAlpha = 0.55f;
@@ -38,6 +39,11 @@ int toCanvasY(float z_m) {
 
 float maxDisplayRangeM() {
   return static_cast<float>(kEgoY - 8) / kPixelsPerMeter;
+}
+
+float adjustedRadarRangeM(float raw_range_m) {
+  const float adjusted = raw_range_m - kRadarRangeTxM;
+  return adjusted > 0.0f ? adjusted : 0.0f;
 }
 
 void drawProgressBar(cv::Mat &canvas, int x, int y, int width, int height,
@@ -68,35 +74,38 @@ void drawRadarCone(cv::Mat &canvas) {
 
 void drawRadarRangeLine(cv::Mat &canvas, float range_m, const cv::Scalar &color,
                         int thickness) {
-  if (range_m <= 0.1f || range_m > maxDisplayRangeM()) {
+  const float adjusted_range_m = adjustedRadarRangeM(range_m);
+  if (adjusted_range_m <= 0.1f || adjusted_range_m > maxDisplayRangeM()) {
     return;
   }
   const float x_left = adas::bev::lateralFromRangeAndAngle(
-      range_m, -adas::bev::degToRad(kRadarHalfFovDeg));
+      adjusted_range_m, -adas::bev::degToRad(kRadarHalfFovDeg));
   const float x_right = adas::bev::lateralFromRangeAndAngle(
-      range_m, adas::bev::degToRad(kRadarHalfFovDeg));
+      adjusted_range_m, adas::bev::degToRad(kRadarHalfFovDeg));
 
-  cv::line(canvas, cv::Point(toCanvasX(x_left), toCanvasY(range_m)),
-           cv::Point(toCanvasX(x_right), toCanvasY(range_m)), color, thickness);
-  cv::circle(canvas, cv::Point(kEgoX, toCanvasY(range_m)), 2, color,
+  cv::line(canvas, cv::Point(toCanvasX(x_left), toCanvasY(adjusted_range_m)),
+           cv::Point(toCanvasX(x_right), toCanvasY(adjusted_range_m)), color,
+           thickness);
+  cv::circle(canvas, cv::Point(kEgoX, toCanvasY(adjusted_range_m)), 2, color,
              cv::FILLED);
 }
 
 void accumulateRadarArc(cv::Mat &accumulator, float range_m, float intensity) {
-  if (accumulator.empty() || range_m <= 0.1f || range_m > maxDisplayRangeM()) {
+  const float adjusted_range_m = adjustedRadarRangeM(range_m);
+  if (accumulator.empty() || adjusted_range_m <= 0.1f ||
+      adjusted_range_m > maxDisplayRangeM()) {
     return;
   }
 
-  const int radius_px = static_cast<int>(std::round(range_m * kPixelsPerMeter));
-  if (radius_px <= 0) {
-    return;
-  }
-
-  const double start_deg = -90.0 - static_cast<double>(kRadarHalfFovDeg);
-  const double end_deg = -90.0 + static_cast<double>(kRadarHalfFovDeg);
-  cv::ellipse(accumulator, cv::Point(kEgoX, kEgoY),
-              cv::Size(radius_px, radius_px), 0.0, start_deg, end_deg,
-              cv::Scalar(intensity), kRadarHeatArcThicknessPx, cv::LINE_8);
+  // Draw range band in longitudinal-Z space to match fused target placement.
+  const float x_left = adas::bev::lateralFromRangeAndAngle(
+      adjusted_range_m, -adas::bev::degToRad(kRadarHalfFovDeg));
+  const float x_right = adas::bev::lateralFromRangeAndAngle(
+      adjusted_range_m, adas::bev::degToRad(kRadarHalfFovDeg));
+  const int y_px = toCanvasY(adjusted_range_m);
+  cv::line(accumulator, cv::Point(toCanvasX(x_left), y_px),
+           cv::Point(toCanvasX(x_right), y_px), cv::Scalar(intensity),
+           kRadarHeatArcThicknessPx, cv::LINE_8);
 }
 
 void drawRadarHeatmap(cv::Mat &canvas, cv::Mat &radar_heat_accumulator,
