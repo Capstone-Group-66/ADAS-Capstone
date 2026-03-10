@@ -13,7 +13,7 @@ int main() {
     SPSCQueue<RadarTargets, 8> queue;
     
     RadarConfig config;
-    config.speed_ttl_ms = 400; // 400ms TTL
+    config.speed_ttl_ms = 900; // 900ms TTL
     config.speed_mag_threshold = 10;
     config.range_mag_threshold = 20;
     
@@ -35,15 +35,15 @@ int main() {
     assert(t1.targets[0].speed_fresh == true);
     std::cout << "  Passed Phase 1 (speed applied within TTL)\n";
 
-    std::cout << "Test 2: Range update at TTL boundary (399ms) (should be fresh)\n";
-    RadarTargets t2 = ingest.parseFrame(reinterpret_cast<const uint8_t*>(range_msg1.data()), range_msg1.length(), t_base + 399000000ULL); // +399ms
+    std::cout << "Test 2: Range update at TTL boundary (899ms) (should be fresh)\n";
+    RadarTargets t2 = ingest.parseFrame(reinterpret_cast<const uint8_t*>(range_msg1.data()), range_msg1.length(), t_base + 899000000ULL); // +899ms
     assert(!t2.targets.empty());
     assert(t2.targets[0].radial_vel_mps == -15.0f);
     assert(t2.targets[0].speed_fresh == true);
     std::cout << "  Passed Phase 2 (speed applied exactly within TTL)\n";
 
-    std::cout << "Test 3: Range update AFTER TTL boundary (401ms) (should be STALE)\n";
-    RadarTargets t3 = ingest.parseFrame(reinterpret_cast<const uint8_t*>(range_msg1.data()), range_msg1.length(), t_base + 401000000ULL); // +401ms
+    std::cout << "Test 3: Range update AFTER TTL boundary (901ms) (should be STALE)\n";
+    RadarTargets t3 = ingest.parseFrame(reinterpret_cast<const uint8_t*>(range_msg1.data()), range_msg1.length(), t_base + 901000000ULL); // +901ms
     assert(!t3.targets.empty());
     assert(t3.targets[0].radial_vel_mps == 0.0f);
     assert(t3.targets[0].speed_fresh == false);
@@ -56,10 +56,10 @@ int main() {
     RadarTargets f1 = ingest.parseFrame(reinterpret_cast<const uint8_t*>(frag1.data()), frag1.length(), t_base + 500000000ULL);
     assert(f1.targets.empty()); // Should not trigger target yet
     
-    RadarTargets f2 = ingest.parseFrame(reinterpret_cast<const uint8_t*>(frag2.data()), frag2.length(), t_base + 500000000ULL);
+    RadarTargets f2 = ingest.parseFrame(reinterpret_cast<const uint8_t*>(frag2.data()), frag2.length(), t_base + 1000000000ULL); // +1000ms
     assert(!f2.targets.empty());
     assert(f2.targets[0].range_m == 12.0f);
-    assert(f2.targets[0].speed_fresh == false); // Still stale
+    assert(f2.targets[0].speed_fresh == false); // Still stale (1000ms > 900ms)
     std::cout << "  Passed Phase 4 (fragmented buffering logic works)\n";
 
     std::cout << "\nAll test_radar_ingest assertions passed!\n";

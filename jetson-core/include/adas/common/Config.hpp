@@ -57,7 +57,7 @@ struct RadarConfig {
     int poll_timeout_ms = 50;
     
     // Fusion holding parameters
-    int speed_ttl_ms = 400;
+    int speed_ttl_ms = 900;
     int speed_mag_threshold = 10;
     int range_mag_threshold = 20;
     std::string profile = "combined_hs";
