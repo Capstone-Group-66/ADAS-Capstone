@@ -40,9 +40,12 @@ uint32_t computeDynamicSpeedTtlMs(int base_ttl_ms, float speed_mps) {
   }
 
   const int min_ttl_ms = std::max(450, base_ttl_ms / 2);
-  const int max_ttl_ms = std::max(base_ttl_ms, static_cast<int>(base_ttl_ms * 2.4f));
-  const int scaled_ttl_ms = static_cast<int>(std::round(base_ttl_ms * ttl_scale));
-  return static_cast<uint32_t>(std::clamp(scaled_ttl_ms, min_ttl_ms, max_ttl_ms));
+  const int max_ttl_ms =
+      std::max(base_ttl_ms, static_cast<int>(base_ttl_ms * 2.4f));
+  const int scaled_ttl_ms =
+      static_cast<int>(std::round(base_ttl_ms * ttl_scale));
+  return static_cast<uint32_t>(
+      std::clamp(scaled_ttl_ms, min_ttl_ms, max_ttl_ms));
 }
 
 } // namespace

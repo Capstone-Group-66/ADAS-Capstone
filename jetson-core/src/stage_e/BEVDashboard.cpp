@@ -479,7 +479,8 @@ void BEVDashboard::renderLoop() {
                   cv::FONT_HERSHEY_SIMPLEX, 0.32, text_color, 1);
 
       if (hold_active && track.z_m > 0.1f && anchor_x >= 0 &&
-          anchor_x < kCanvasWidth && anchor_y >= 0 && anchor_y < kCanvasHeight) {
+          anchor_x < kCanvasWidth && anchor_y >= 0 &&
+          anchor_y < kCanvasHeight) {
         fcw_ray_targets.emplace_back(anchor_x, anchor_y);
       }
 
