@@ -1,66 +1,91 @@
 // File: include/adas/stage_e/BEVDashboard.hpp
-// Dedicated Bird's-Eye View dashboard for BSD and Fused Targets
+// Dedicated Bird's-Eye View dashboard for Stage E raw+fused debug rendering.
 #pragma once
 
-#include "adas/stage_e/SensorFusion.hpp"
 #include "adas/stage_a/BSDReceiver.hpp"
+#include "adas/stage_e/SensorFusion.hpp"
 
 #include <opencv2/core.hpp>
 
 #include <atomic>
+#include <chrono>
+#include <cstdint>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <thread>
-#include <vector>
 #include <unordered_map>
-#include <chrono>
+#include <vector>
 
 namespace adas {
 
+/// Full payload for one BEV update tick.
+struct BEVInputFrame {
+  DetBatch camera_batch;
+  RadarTargets radar_targets;
+  std::vector<FusedObject> fused_objects;
+  std::optional<uint64_t> fcw_focus_object_id;
+  uint64_t now_ns = 0;
+};
+
 class BEVDashboard {
-  public:
-    /// Constructor
-    /// @param bsd_receiver Pointer to the running BSD receiver for presence state
-    /// @param c_x Principal point X (from camera intrinsics)
-    /// @param f_x Horizontal focal length (from camera intrinsics)
-    BEVDashboard(BSDReceiver* bsd_receiver, float c_x, float f_x);
-    ~BEVDashboard();
+public:
+  /// Constructor
+  /// @param bsd_receiver Pointer to BSD receiver for presence-state polygons
+  /// @param c_x Principal point X (camera intrinsics)
+  /// @param f_x Horizontal focal length (camera intrinsics)
+  /// @param dead_track_cleanup_ms Remove tracks after this long with no cam/range
+  /// @param ttc_hold_ms Hold highlighted FCW-trigger object for this duration
+  BEVDashboard(BSDReceiver *bsd_receiver, float c_x, float f_x,
+               uint32_t dead_track_cleanup_ms = 500,
+               uint32_t ttc_hold_ms = 5000);
+  ~BEVDashboard();
 
-    // Non-copyable
-    BEVDashboard(const BEVDashboard &) = delete;
-    BEVDashboard &operator=(const BEVDashboard &) = delete;
+  // Non-copyable
+  BEVDashboard(const BEVDashboard &) = delete;
+  BEVDashboard &operator=(const BEVDashboard &) = delete;
 
-    /// Starts the dedicated dashboard rendering thread
-    void start();
+  /// Starts the dedicated dashboard rendering thread
+  void start();
 
-    /// Stops the dashboard and closes the window
-    void stop();
+  /// Stops the dashboard and closes the window
+  void stop();
 
-    /// Safely updates the data payload used by the rendering thread
-    void update(const std::vector<FusedObject>& fused_objects);
+  /// Safely updates the data payload used by the rendering thread
+  void update(const BEVInputFrame &frame);
 
-  private:
-    void renderLoop();
+private:
+  struct Track {
+    uint64_t object_id = UINT64_MAX;
+    float corridor_angle_rad = 0.0f;
+    float x_offset_m = 0.0f;
+    float z_m = 0.0f;
+    float radial_vel_mps = 0.0f;
+    bool speed_fresh = false;
+    uint32_t speed_age_ms = 0;
+    uint64_t last_cam_update_ns = 0;
+    uint64_t last_range_update_ns = 0;
+    uint64_t ttc_hold_until_ns = 0;
+    bool has_crosshair = false;
+    std::string label;
+  };
 
-    BSDReceiver* bsd_receiver_;
-    float c_x_;
-    float f_x_;
+  void renderLoop();
+  void applyFrameUpdate(const BEVInputFrame &frame);
 
-    struct Track {
-      float x_offset_m;
-      float z_m;
-      bool is_threat;
-      std::string label;
-      float radial_vel_mps;
-      std::chrono::steady_clock::time_point last_seen;
-    };
+  BSDReceiver *bsd_receiver_;
+  float c_x_;
+  float f_x_;
+  uint32_t dead_track_cleanup_ms_;
+  uint32_t ttc_hold_ms_;
 
-    std::vector<FusedObject> latest_fused_;
-    std::mutex data_mutex_;
-    std::unordered_map<uint64_t, Track> tracks_;
+  BEVInputFrame latest_frame_;
+  uint64_t latest_frame_seq_ = 0;
+  std::mutex data_mutex_;
+  std::unordered_map<uint64_t, Track> tracks_;
 
-    std::thread thread_;
-    std::atomic<bool> running_{false};
+  std::thread thread_;
+  std::atomic<bool> running_{false};
 };
 
 } // namespace adas

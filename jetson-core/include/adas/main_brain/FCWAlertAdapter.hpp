@@ -8,6 +8,7 @@
 
 #include <iomanip>
 #include <sstream>
+#include <cstdint>
 
 namespace adas {
 
@@ -23,9 +24,14 @@ class FCWAlertAdapter {
         // Timestamp in milliseconds
         alert.t_ms = timestamp_ns / 1'000'000;
 
-        // Unique ID (tick based, no track_id in FCWAlert)
+        // Unique ID (prefer track ID when available)
         std::ostringstream id;
-        id << "fcw-" << (timestamp_ns / 50'000'000) << "-" << fcw.object_class;
+        id << "fcw-" << (timestamp_ns / 50'000'000) << "-";
+        if (fcw.object_id != UINT64_MAX) {
+            id << fcw.object_id;
+        } else {
+            id << "cls-" << fcw.object_class;
+        }
         alert.id = id.str();
 
         // Type is always FCW
@@ -53,8 +59,10 @@ class FCWAlertAdapter {
                   << fcw.object_class << "\"}";
         alert.rationale = rationale.str();
 
-        // Object ID (use object_class since track_id not available)
-        alert.object_id = fcw.object_class;
+        // Object ID
+        if (fcw.object_id != UINT64_MAX && fcw.object_id <= UINT32_MAX) {
+            alert.object_id = static_cast<uint32_t>(fcw.object_id);
+        }
 
         // Sources
         alert.sources = {"FrontCam", "FrontRadar"};

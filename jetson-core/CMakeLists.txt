@@ -66,7 +66,7 @@ set(STAGE_B_SOURCES
     src/stage_b/ObjectDetector.cpp
     src/stage_b/ObjectTracker.cpp
     src/stage_b/CameraPipeline.cpp
-    # FrontCamDeepStream.cpp removed — pipeline now runs in Python (deepstream_fusion.py)
+    # Front camera detections are received through DeepStream IPC.
 )
 
 set(STAGE_E_SOURCES
@@ -124,8 +124,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
         message(WARNING "TensorRT not found - ObjectDetector will be disabled")
     endif()
 
-    # DeepStream / GStreamer — now handled entirely in Python (deepstream_fusion.py).
-    # No C++ linkage needed.
+    # DeepStream rendering/running is external; no extra C++ linkage needed here.
 endif()
 
 if(MSVC)
@@ -193,6 +192,11 @@ if(BUILD_TESTS)
         target_link_libraries(test_radar_ingest yaml-cpp)
     endif()
     add_test(NAME test_radar_ingest COMMAND test_radar_ingest)
+
+    # Test BEV dashboard math/lifecycle helpers
+    add_executable(test_bev_dashboard tests/test_bev_dashboard.cpp)
+    target_link_libraries(test_bev_dashboard Threads::Threads)
+    add_test(NAME test_bev_dashboard COMMAND test_bev_dashboard)
 endif()
 
 # ══════════════════════════════════════════════════════════════════════════════

@@ -9,9 +9,7 @@
 #include "adas/stage_a/NetworkIngest.hpp"
 #include "adas/stage_a/RadarIngest.hpp"
 #include "adas/recording/ReplayEngine.hpp"
-// Front Camera: DeepStream pipeline now runs as standalone Python script
-// (scripts/deepstream_fusion.py). The det_front_ds_queue_ below still acts
-// as the handoff point; a future ZMQ bridge will feed into it from Python.
+// Front Camera detections come from local DeepStream IPC.
 #ifdef HAS_ZMQ
 #include "adas/stage_a/NetworkReceiver.hpp"
 #include "adas/stage_a/DeepStreamReceiver.hpp"
@@ -169,8 +167,7 @@ class IngestManager {
     //                           INGEST INSTANCES
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // Front Camera: plain CameraIngest for live preview + Stage B inference.
-    // deepstream_fusion.py runs separately for the pyds-annotated view.
+    // Front camera handle retained for replay compatibility.
     std::unique_ptr<CameraIngest> cam_front_;
 
 

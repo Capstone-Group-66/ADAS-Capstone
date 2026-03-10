@@ -1,22 +1,156 @@
 // File: src/stage_e/BEVDashboard.cpp
 #include "adas/stage_e/BEVDashboard.hpp"
-#include <chrono>
+
+#include "adas/common/Clock.hpp"
+#include "adas/stage_e/BEVDashboardMath.hpp"
+
+#include <algorithm>
+#include <cmath>
 #include <iomanip>
-#include <iostream>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include <sstream>
+#include <unordered_set>
+
+namespace {
+
+constexpr int kCanvasWidth = 300;
+constexpr int kCanvasHeight = 300;
+constexpr float kPixelsPerMeter = 7.0f;
+constexpr int kEgoX = 150;
+constexpr int kEgoY = 240;
+constexpr int kEgoW = 20;
+constexpr int kEgoH = 40;
+constexpr float kRadarHalfFovDeg = 10.0f;   // 20 degree cone
+constexpr float kCameraHalfFovDeg = 12.5f;  // 25 degree corridor span
+
+int toCanvasX(float x_m) {
+  return static_cast<int>(kEgoX + x_m * kPixelsPerMeter);
+}
+
+int toCanvasY(float z_m) {
+  return static_cast<int>(kEgoY - z_m * kPixelsPerMeter);
+}
+
+float maxDisplayRangeM() {
+  return static_cast<float>(kEgoY - 8) / kPixelsPerMeter;
+}
+
+void drawProgressBar(cv::Mat &canvas, int x, int y, int width, int height,
+                     float ratio, const cv::Scalar &fg,
+                     const cv::Scalar &bg = cv::Scalar(40, 40, 40)) {
+  ratio = std::clamp(ratio, 0.0f, 1.0f);
+  cv::rectangle(canvas, cv::Rect(x, y, width, height), bg, cv::FILLED);
+  cv::rectangle(canvas, cv::Rect(x, y, static_cast<int>(width * ratio), height),
+                fg, cv::FILLED);
+  cv::rectangle(canvas, cv::Rect(x, y, width, height), cv::Scalar(120, 120, 120),
+                1);
+}
+
+void drawRadarCone(cv::Mat &canvas) {
+  const float z_far = maxDisplayRangeM();
+  const float x_left = bev::lateralFromRangeAndAngle(
+      z_far, -bev::degToRad(kRadarHalfFovDeg));
+  const float x_right = bev::lateralFromRangeAndAngle(
+      z_far, bev::degToRad(kRadarHalfFovDeg));
+
+  cv::line(canvas, cv::Point(kEgoX, kEgoY), cv::Point(toCanvasX(x_left), toCanvasY(z_far)),
+           cv::Scalar(65, 85, 100), 1);
+  cv::line(canvas, cv::Point(kEgoX, kEgoY),
+           cv::Point(toCanvasX(x_right), toCanvasY(z_far)),
+           cv::Scalar(65, 85, 100), 1);
+}
+
+void drawRadarRangeLine(cv::Mat &canvas, float range_m, const cv::Scalar &color,
+                        int thickness) {
+  if (range_m <= 0.1f || range_m > maxDisplayRangeM()) {
+    return;
+  }
+  const float x_left = bev::lateralFromRangeAndAngle(
+      range_m, -bev::degToRad(kRadarHalfFovDeg));
+  const float x_right = bev::lateralFromRangeAndAngle(
+      range_m, bev::degToRad(kRadarHalfFovDeg));
+
+  cv::line(canvas, cv::Point(toCanvasX(x_left), toCanvasY(range_m)),
+           cv::Point(toCanvasX(x_right), toCanvasY(range_m)), color, thickness);
+  cv::circle(canvas, cv::Point(kEgoX, toCanvasY(range_m)), 2, color, cv::FILLED);
+}
+
+void drawCorridor(cv::Mat &canvas, float angle_rad, const cv::Scalar &color,
+                  int thickness) {
+  const float z_far = maxDisplayRangeM();
+  const float x_far = bev::lateralFromRangeAndAngle(z_far, angle_rad);
+  cv::line(canvas, cv::Point(kEgoX, kEgoY),
+           cv::Point(toCanvasX(x_far), toCanvasY(z_far)), color, thickness,
+           cv::LINE_AA);
+}
+
+void drawCrosshair(cv::Mat &canvas, int x, int y, const cv::Scalar &color,
+                   int size_px = 5, int thickness = 2) {
+  cv::line(canvas, cv::Point(x - size_px, y), cv::Point(x + size_px, y), color,
+           thickness);
+  cv::line(canvas, cv::Point(x, y - size_px), cv::Point(x, y + size_px), color,
+           thickness);
+}
+
+void drawBlindSpotZones(cv::Mat &canvas, bool left_bsd, bool right_bsd) {
+  std::vector<cv::Point> left_poly = {
+      cv::Point(kEgoX - kEgoW / 2 - 2, kEgoY + 15),
+      cv::Point(kEgoX - kEgoW / 2 - 2, kEgoY + kEgoH + 5),
+      cv::Point(kEgoX - kEgoW / 2 - 35, kEgoY + kEgoH + 25),
+      cv::Point(kEgoX - kEgoW / 2 - 30, kEgoY + 10)};
+
+  if (left_bsd) {
+    cv::Mat overlay;
+    canvas.copyTo(overlay);
+    cv::fillPoly(overlay, std::vector<std::vector<cv::Point>>{left_poly},
+                 cv::Scalar(0, 0, 255));
+    cv::addWeighted(overlay, 0.6, canvas, 0.4, 0, canvas);
+  } else {
+    cv::polylines(canvas, std::vector<std::vector<cv::Point>>{left_poly}, true,
+                  cv::Scalar(100, 100, 100), 2);
+  }
+
+  std::vector<cv::Point> right_poly = {
+      cv::Point(kEgoX + kEgoW / 2 + 2, kEgoY + 15),
+      cv::Point(kEgoX + kEgoW / 2 + 2, kEgoY + kEgoH + 5),
+      cv::Point(kEgoX + kEgoW / 2 + 35, kEgoY + kEgoH + 25),
+      cv::Point(kEgoX + kEgoW / 2 + 30, kEgoY + 10)};
+
+  if (right_bsd) {
+    cv::Mat overlay;
+    canvas.copyTo(overlay);
+    cv::fillPoly(overlay, std::vector<std::vector<cv::Point>>{right_poly},
+                 cv::Scalar(0, 0, 255));
+    cv::addWeighted(overlay, 0.6, canvas, 0.4, 0, canvas);
+  } else {
+    cv::polylines(canvas, std::vector<std::vector<cv::Point>>{right_poly}, true,
+                  cv::Scalar(100, 100, 100), 2);
+  }
+}
+
+void drawEgoVehicle(cv::Mat &canvas) {
+  cv::rectangle(canvas, cv::Rect(kEgoX - kEgoW / 2, kEgoY, kEgoW, kEgoH),
+                cv::Scalar(200, 200, 200), cv::FILLED);
+  cv::putText(canvas, "EGO", cv::Point(kEgoX - 12, kEgoY + kEgoH / 2 + 4),
+              cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(0, 0, 0), 1);
+}
+
+} // namespace
 
 namespace adas {
 
-BEVDashboard::BEVDashboard(BSDReceiver *bsd_receiver, float c_x, float f_x)
-    : bsd_receiver_(bsd_receiver), c_x_(c_x), f_x_(f_x) {}
+BEVDashboard::BEVDashboard(BSDReceiver *bsd_receiver, float c_x, float f_x,
+                           uint32_t dead_track_cleanup_ms, uint32_t ttc_hold_ms)
+    : bsd_receiver_(bsd_receiver), c_x_(c_x), f_x_(f_x),
+      dead_track_cleanup_ms_(dead_track_cleanup_ms), ttc_hold_ms_(ttc_hold_ms) {}
 
 BEVDashboard::~BEVDashboard() { stop(); }
 
 void BEVDashboard::start() {
-  if (running_.load())
+  if (running_.load()) {
     return;
+  }
   running_.store(true);
   thread_ = std::thread(&BEVDashboard::renderLoop, this);
 }
@@ -28,27 +162,121 @@ void BEVDashboard::stop() {
   }
 }
 
-void BEVDashboard::update(const std::vector<FusedObject> &fused_objects) {
+void BEVDashboard::update(const BEVInputFrame &frame) {
   std::lock_guard<std::mutex> lock(data_mutex_);
-  latest_fused_ = fused_objects;
+  latest_frame_ = frame;
+  ++latest_frame_seq_;
+}
+
+void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
+  const uint64_t now_ns = frame.now_ns == 0 ? Clock::now_ns() : frame.now_ns;
+  std::unordered_set<uint64_t> touched_by_camera;
+
+  for (const auto &det : frame.camera_batch.dets) {
+    if (det.object_id == UINT64_MAX) {
+      continue;
+    }
+
+    const float angle_rad = bev::angleFromPixel(det.centroid.x, c_x_, f_x_);
+    if (!bev::inAngleSpan(angle_rad, kCameraHalfFovDeg)) {
+      continue;
+    }
+
+    Track &track = tracks_[det.object_id];
+    track.object_id = det.object_id;
+    track.corridor_angle_rad = angle_rad;
+    track.last_cam_update_ns = now_ns;
+    track.has_crosshair = false;
+
+    const int conf_pct = static_cast<int>(std::round(det.score * 100.0f));
+    std::stringstream ss;
+    ss << "[" << det.object_id << "] C:" << std::clamp(conf_pct, 0, 100) << "%";
+    track.label = ss.str();
+
+    touched_by_camera.insert(det.object_id);
+  }
+
+  for (const auto &obj : frame.fused_objects) {
+    if (obj.object_id == UINT64_MAX) {
+      continue;
+    }
+
+    Track &track = tracks_[obj.object_id];
+    track.object_id = obj.object_id;
+
+    const float angle_rad =
+        bev::angleFromPixel(obj.centroid_px.x, c_x_, f_x_);
+    if (bev::inAngleSpan(angle_rad, kCameraHalfFovDeg)) {
+      track.corridor_angle_rad = angle_rad;
+    }
+
+    track.last_cam_update_ns = now_ns;
+    track.speed_fresh = obj.speed_fresh;
+    track.speed_age_ms = obj.speed_age_ms;
+    track.radial_vel_mps = obj.radial_vel_mps;
+
+    if (obj.has_radar && obj.range_m > 0.1f) {
+      track.last_range_update_ns = now_ns;
+      track.z_m = obj.range_m;
+      // Keep existing lateral projection math unchanged.
+      track.x_offset_m = obj.range_m * ((obj.centroid_px.x - c_x_) / f_x_);
+      track.has_crosshair = true;
+    }
+
+    std::stringstream ss;
+    ss << "[" << obj.object_id << "] Z:" << std::fixed << std::setprecision(1)
+       << obj.range_m << "m";
+    if (track.speed_fresh) {
+      ss << " V:" << static_cast<int>(std::round(obj.radial_vel_mps)) << "m/s";
+    } else {
+      ss << " V:stale";
+    }
+    track.label = ss.str();
+
+    touched_by_camera.insert(obj.object_id);
+  }
+
+  if (frame.fcw_focus_object_id.has_value()) {
+    auto it = tracks_.find(*frame.fcw_focus_object_id);
+    if (it != tracks_.end()) {
+      const uint64_t hold_ns = static_cast<uint64_t>(ttc_hold_ms_) * 1000000ULL;
+      it->second.ttc_hold_until_ns =
+          std::max(it->second.ttc_hold_until_ns, now_ns + hold_ns);
+    }
+  }
+
+  // Any camera-touched track not fused this frame should stay as ghost corridor.
+  for (uint64_t id : touched_by_camera) {
+    auto it = tracks_.find(id);
+    if (it != tracks_.end() && it->second.last_range_update_ns != now_ns) {
+      it->second.has_crosshair = false;
+    }
+  }
 }
 
 void BEVDashboard::renderLoop() {
-  const int canvas_width = 300;
-  const int canvas_height = 300;
-  const float pixels_per_meter = 7.0f;
-  const int ego_x = 150;
-  const int ego_y = 240;
-  const int ego_w = 20;
-  const int ego_h = 40;
-
   cv::namedWindow("ADAS BEVDashboard", cv::WINDOW_AUTOSIZE);
 
-  while (running_.load()) {
-    cv::Mat canvas(canvas_height, canvas_width, CV_8UC3,
-                   cv::Scalar(30, 30, 30));
+  uint64_t last_processed_seq = 0;
 
-    // Get BSD States safely
+  while (running_.load()) {
+    cv::Mat canvas(kCanvasHeight, kCanvasWidth, CV_8UC3, cv::Scalar(28, 28, 28));
+
+    BEVInputFrame frame;
+    uint64_t frame_seq = 0;
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      frame = latest_frame_;
+      frame_seq = latest_frame_seq_;
+    }
+
+    if (frame_seq != last_processed_seq) {
+      applyFrameUpdate(frame);
+      last_processed_seq = frame_seq;
+    }
+
+    const uint64_t now_ns = Clock::now_ns();
+
     bool left_bsd = false;
     bool right_bsd = false;
     if (bsd_receiver_) {
@@ -56,158 +284,107 @@ void BEVDashboard::renderLoop() {
       right_bsd = bsd_receiver_->getRightBSDState();
     }
 
-    // ── Left Blind Spot Zone ──
-    std::vector<cv::Point> left_poly = {
-        cv::Point(ego_x - ego_w / 2 - 2, ego_y + 15),        // Near side mirror
-        cv::Point(ego_x - ego_w / 2 - 2, ego_y + ego_h + 5), // Near rear bumper
-        cv::Point(ego_x - ego_w / 2 - 35,
-                  ego_y + ego_h + 25), // Wide left, extending behind
-        cv::Point(ego_x - ego_w / 2 - 30,
-                  ego_y + 10) // Wide left, near mirror front
-    };
+    drawBlindSpotZones(canvas, left_bsd, right_bsd);
+    drawEgoVehicle(canvas);
+    drawRadarCone(canvas);
 
-    if (left_bsd) {
-      cv::Mat overlay;
-      canvas.copyTo(overlay);
-      cv::fillPoly(overlay, std::vector<std::vector<cv::Point>>{left_poly},
-                   cv::Scalar(0, 0, 255));
-      cv::addWeighted(overlay, 0.6, canvas, 0.4, 0, canvas);
-    } else {
-      cv::polylines(canvas, std::vector<std::vector<cv::Point>>{left_poly},
-                    true, cv::Scalar(100, 100, 100), 2);
+    // Raw radar scan-lines (20 degree cone)
+    for (const auto &target : frame.radar_targets.targets) {
+      drawRadarRangeLine(canvas, target.range_m, cv::Scalar(190, 110, 30), 1);
     }
 
-    // ── Right Blind Spot Zone ──
-    std::vector<cv::Point> right_poly = {
-        cv::Point(ego_x + ego_w / 2 + 2, ego_y + 15),        // Near side mirror
-        cv::Point(ego_x + ego_w / 2 + 2, ego_y + ego_h + 5), // Near rear bumper
-        cv::Point(ego_x + ego_w / 2 + 35,
-                  ego_y + ego_h + 25), // Wide right, extending behind
-        cv::Point(ego_x + ego_w / 2 + 30,
-                  ego_y + 10) // Wide right, near mirror front
-    };
-
-    if (right_bsd) {
-      cv::Mat overlay;
-      canvas.copyTo(overlay);
-      cv::fillPoly(overlay, std::vector<std::vector<cv::Point>>{right_poly},
-                   cv::Scalar(0, 0, 255));
-      cv::addWeighted(overlay, 0.6, canvas, 0.4, 0, canvas);
-    } else {
-      cv::polylines(canvas, std::vector<std::vector<cv::Point>>{right_poly},
-                    true, cv::Scalar(100, 100, 100), 2);
-    }
-
-    // ── Ego Vehicle ──
-    cv::rectangle(canvas, cv::Rect(ego_x - ego_w / 2, ego_y, ego_w, ego_h),
-                  cv::Scalar(200, 200, 200), -1);
-    cv::putText(canvas, "EGO", cv::Point(ego_x - 12, ego_y + ego_h / 2 + 4),
-                cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(0, 0, 0), 1);
-
-    // ── Fused Targets (Stage E) ──
-    std::vector<FusedObject> current_fused;
-    {
-      std::lock_guard<std::mutex> lock(data_mutex_);
-      current_fused = latest_fused_;
-    }
-
-    auto now = std::chrono::steady_clock::now();
-
-    // 1. Update tracks with current detections
-    for (const auto &obj : current_fused) {
-      if (!obj.has_radar)
-        continue; // Only plot radar-fused objects for true depth
-
-      float z_m = obj.range_m;
-      float x_offset_m = z_m * ((obj.centroid_px.x - c_x_) / f_x_);
-      bool is_threat = (obj.ttc_s <= 3.0f);
-
-      std::stringstream ss;
-      ss << "[" << (obj.object_id == UINT64_MAX ? 0 : obj.object_id)
-         << "] Z: " << std::fixed << std::setprecision(1) << obj.range_m
-         << "m | V: " << static_cast<int>(obj.radial_vel_mps) << "m/s";
-
-      auto it = tracks_.find(obj.object_id);
-      if (it != tracks_.end()) {
-        it->second.x_offset_m = x_offset_m;
-        it->second.z_m = z_m;
-        // Keep threat status active to force 5s hold if it was a threat before,
-        // or upgrade to threat if newly a threat.
-        if (is_threat)
-          it->second.is_threat = true;
-        it->second.label = ss.str();
-        it->second.radial_vel_mps = obj.radial_vel_mps;
-        it->second.last_seen = now;
-      } else {
-        Track t = {x_offset_m,         z_m, is_threat, ss.str(),
-                   obj.radial_vel_mps, now};
-        tracks_[obj.object_id] = t;
-      }
-    }
-
-    // 2. Render all internal tracks and fade them out based on age
     for (auto it = tracks_.begin(); it != tracks_.end();) {
-      float age_s = std::chrono::duration_cast<std::chrono::milliseconds>(
-                        now - it->second.last_seen)
-                        .count() /
-                    1000.0f;
+      Track &track = it->second;
 
-      float max_age_s = it->second.is_threat
-                            ? 5.0f
-                            : 1.5f; // Threat holds 5s, normal holds 1.5s
-
-      if (age_s > max_age_s) {
+      if (!bev::shouldKeepTrack(now_ns, track.last_cam_update_ns,
+                                track.last_range_update_ns,
+                                track.ttc_hold_until_ns,
+                                dead_track_cleanup_ms_)) {
         it = tracks_.erase(it);
         continue;
       }
 
-      // Calculate fade (alpha) where 1.0 is fully opaque, 0.0 is transparent
-      // Fade out more aggressively in the last half of its lifespan
-      float alpha = 1.0f - (age_s / max_age_s);
-      alpha = std::max(0.0f, std::min(1.0f, alpha));
+      const float cam_remain =
+          bev::ttlRemaining01(now_ns, track.last_cam_update_ns,
+                              dead_track_cleanup_ms_);
+      const float range_remain =
+          bev::ttlRemaining01(now_ns, track.last_range_update_ns,
+                              dead_track_cleanup_ms_);
+      const bool cam_alive = cam_remain > 0.0f;
+      const bool range_alive = range_remain > 0.0f;
 
-      int x_canvas =
-          static_cast<int>(ego_x + (it->second.x_offset_m * pixels_per_meter));
-      int y_canvas =
-          static_cast<int>(ego_y - (it->second.z_m * pixels_per_meter));
+      const float hold_remain = track.ttc_hold_until_ns > now_ns
+                                    ? static_cast<float>(track.ttc_hold_until_ns - now_ns) /
+                                          static_cast<float>(ttc_hold_ms_) / 1000000.0f
+                                    : 0.0f;
 
-      if (x_canvas < -100 || x_canvas > canvas_width + 100 || y_canvas < -100 ||
-          y_canvas > canvas_height + 100) {
-        ++it;
-        continue;
+      const bool hold_active = hold_remain > 0.0f;
+      const bool crosshair_active = cam_alive && range_alive && track.has_crosshair;
+
+      // Camera corridor layer (25 degree span)
+      if (cam_alive && bev::inAngleSpan(track.corridor_angle_rad, kCameraHalfFovDeg)) {
+        const cv::Scalar corridor_color = crosshair_active
+                                              ? cv::Scalar(120, 220, 120)
+                                              : cv::Scalar(90, 90, 170); // ghost
+        drawCorridor(canvas, track.corridor_angle_rad, corridor_color,
+                     crosshair_active ? 2 : 1);
       }
 
-      int radius = it->second.is_threat ? 6 : 4;
-      cv::Scalar base_color = it->second.is_threat
-                                  ? cv::Scalar(0, 0, 255)
-                                  : cv::Scalar(255, 255, 0); // Red or Cyan
-      cv::Scalar color =
-          base_color * alpha; // Multiply by alpha to get darker/faded color
+      int anchor_x = kEgoX;
+      int anchor_y = kEgoY - 40;
 
-      if (it->second.is_threat) {
-        // Warning glow ring
-        cv::Scalar glow_color = cv::Scalar(0, 0, 150) * alpha;
-        cv::circle(canvas, cv::Point(x_canvas, y_canvas), radius + 4,
-                   glow_color, -1);
+      if (crosshair_active && track.z_m > 0.1f) {
+        anchor_x = toCanvasX(track.x_offset_m);
+        anchor_y = toCanvasY(track.z_m);
+
+        if (anchor_x >= 0 && anchor_x < kCanvasWidth && anchor_y >= 0 &&
+            anchor_y < kCanvasHeight) {
+          const cv::Scalar marker_color = hold_active ? cv::Scalar(0, 0, 255)
+                                                      : cv::Scalar(0, 255, 255);
+          drawCrosshair(canvas, anchor_x, anchor_y, marker_color, 6, 2);
+
+          if (hold_active) {
+            cv::circle(canvas, cv::Point(anchor_x, anchor_y), 10,
+                       cv::Scalar(0, 0, 180), 2);
+          }
+
+          if (track.speed_fresh && std::abs(track.radial_vel_mps) > 0.1f) {
+            const int arrow_len = 12;
+            const int dir = (track.radial_vel_mps < 0.0f) ? 1 : -1;
+            cv::arrowedLine(canvas, cv::Point(anchor_x, anchor_y),
+                            cv::Point(anchor_x, anchor_y + dir * arrow_len),
+                            cv::Scalar(0, 255, 0), 2, cv::LINE_AA, 0,
+                            0.35);
+          }
+        }
+      } else if (range_alive && !cam_alive && track.z_m > 0.1f) {
+        // Range-only track visualization fallback.
+        anchor_x = toCanvasX(track.x_offset_m);
+        anchor_y = toCanvasY(track.z_m);
+        cv::circle(canvas, cv::Point(anchor_x, anchor_y), 4,
+                   cv::Scalar(200, 110, 30), cv::FILLED);
       }
-      cv::circle(canvas, cv::Point(x_canvas, y_canvas), radius, color, -1);
 
-      // Telemetry Text (also fading)
-      int baseline = 0;
-      cv::Size text_size = cv::getTextSize(
-          it->second.label, cv::FONT_HERSHEY_SIMPLEX, 0.3, 1, &baseline);
-      cv::putText(
-          canvas, it->second.label,
-          cv::Point(x_canvas - text_size.width / 2, y_canvas - radius - 3),
-          cv::FONT_HERSHEY_SIMPLEX, 0.3,
-          cv::Scalar(255 * alpha, 255 * alpha, 255 * alpha), 1);
+      // TTL bars: stale cleanup + TTC hold timer.
+      drawProgressBar(canvas, anchor_x - 18, anchor_y - 18, 36, 4,
+                      std::max(cam_remain, range_remain),
+                      cv::Scalar(0, 180, 230));
+      if (hold_active) {
+        drawProgressBar(canvas, anchor_x - 18, anchor_y - 24, 36, 4,
+                        std::clamp(hold_remain, 0.0f, 1.0f),
+                        cv::Scalar(0, 0, 255));
+      }
+
+      // Text label and speed freshness note.
+      const cv::Scalar text_color = track.speed_fresh ? cv::Scalar(230, 230, 230)
+                                                      : cv::Scalar(160, 160, 160);
+      cv::putText(canvas, track.label, cv::Point(anchor_x - 40, anchor_y - 28),
+                  cv::FONT_HERSHEY_SIMPLEX, 0.32, text_color, 1);
 
       ++it;
     }
 
     cv::imshow("ADAS BEVDashboard", canvas);
-
-    // CRITICAL FIX: Pump X11 event queue and maintain ~30Hz render loop
     cv::waitKey(33);
   }
 

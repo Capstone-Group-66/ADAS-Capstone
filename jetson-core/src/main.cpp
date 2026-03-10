@@ -2,6 +2,7 @@
 // ADAS Pipeline Entry Point - Interactive CLI with Stages A, B, E
 #include <chrono>
 #include <csignal>
+#include <cstdint>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
@@ -12,7 +13,7 @@
 #include <string>
 #include <thread>
 #include <vector>
-// POSIX process management (fork/exec/kill) for deepstream_fusion.py
+// POSIX process management (fork/exec/kill) for deepstream-app
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -30,8 +31,7 @@
 #include "adas/stage_a/DeviceWizard.hpp"
 #include "adas/stage_a/IngestManager.hpp"
 #include "adas/stage_b/CameraPipeline.hpp"
-// FrontCamDeepStream.hpp removed — pipeline runs as deepstream_fusion.py
-// (Python pyds)
+// Front camera detections are provided by external DeepStream IPC.
 
 #include "adas/stage_a/BSDReceiver.hpp"
 #include "adas/stage_b/ObjectDetector.hpp" // For class name lookup
@@ -109,10 +109,8 @@ std::thread g_visualizer_thread;
 std::atomic<bool> g_visualizer_running{false};
 
 // Detection output queues (Stage B -> Stage E)
-// NOTE: g_det_front_queue is now fed directly by the FrontCamDeepStream pad
-// probe (via IngestManager::getFrontCamDetQueue() backed by the same object).
-// The visualisation thread reads from this queue exactly as before — no
-// changes needed in Stage E. Side queues remain available for future BSD/LCW.
+// Front detection queue is fed by DeepStream IPC receiver.
+// Side queues remain available for future BSD/LCW.
 adas::SPSCQueue<adas::DetBatch, 8> g_det_front_queue; // Fed by DeepStream probe
 adas::SPSCQueue<adas::DetBatch, 8> g_det_side_l_queue;
 adas::SPSCQueue<adas::DetBatch, 8> g_det_side_r_queue;
@@ -351,9 +349,17 @@ void visualizationThread() {
                                    ttc, range, triggered, e2e_latency_ms);
       }
 
-      // ── Step 10: Update standalone BEV Dashboard ──
+      // Stage E -> BEV payload update
       if (g_bev_dashboard) {
-        g_bev_dashboard->update(fused);
+        adas::BEVInputFrame bev_frame;
+        bev_frame.camera_batch = batch;
+        bev_frame.radar_targets = radar;
+        bev_frame.fused_objects = fused;
+        if (fcw_alert.has_value() && fcw_alert->object_id != UINT64_MAX) {
+          bev_frame.fcw_focus_object_id = fcw_alert->object_id;
+        }
+        bev_frame.now_ns = adas::Clock::now_ns();
+        g_bev_dashboard->update(bev_frame);
       }
     }
 

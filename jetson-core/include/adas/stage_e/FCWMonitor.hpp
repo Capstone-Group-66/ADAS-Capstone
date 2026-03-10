@@ -2,6 +2,7 @@
 // Forward Collision Warning monitor
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <vector>
 
@@ -15,12 +16,13 @@ struct FCWAlert {
     float range_m;          // Distance to threat
     float velocity_mps;     // Closing velocity
     int object_class;       // Object type (person, car, etc.)
+    uint64_t object_id;     // Track ID for the triggering object
     uint64_t timestamp_ns;  // When alert was generated
     bool physics_triggered; // True if physics-based FCW triggered this alert
 
     FCWAlert()
-        : ttc_s(0), range_m(0), velocity_mps(0), object_class(0), timestamp_ns(0),
-          physics_triggered(false) {}
+        : ttc_s(0), range_m(0), velocity_mps(0), object_class(0),
+          object_id(UINT64_MAX), timestamp_ns(0), physics_triggered(false) {}
 };
 
 /// FCWMonitor: Checks fused objects for collision threats

@@ -41,6 +41,7 @@ struct FusedObject {
     float range_m;           ///< Z_rad from radar (authoritative range)
     float radial_vel_mps;    ///< V_rad (negative = approaching, per OPS243-A sign)
     bool  speed_fresh;       ///< True if speed is within TTL [NEW]
+    uint32_t speed_age_ms;   ///< Age of speed sample (for dashboard freshness)
 
     // Output
     float    ttc_s;    ///< Time-to-collision (s). INFINITY if not approaching.
@@ -50,7 +51,8 @@ struct FusedObject {
         : object_id(UINT64_MAX), object_class(0), score(0.f),
           box_px(), centroid_px(),
           z_cam_m(0.f), v_cam_mps(0.f),
-          has_radar(false), range_m(0.f), radial_vel_mps(0.f), speed_fresh(false),
+          has_radar(false), range_m(0.f), radial_vel_mps(0.f),
+          speed_fresh(false), speed_age_ms(0),
           ttc_s(std::numeric_limits<float>::infinity()),
           sources(SRC_NONE) {}
 };

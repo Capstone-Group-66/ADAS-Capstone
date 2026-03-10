@@ -123,11 +123,11 @@ void IngestManager::stop() {
 void IngestManager::launchDirectCameras() {
   std::cout << "[IngestManager] Launching cameras...\n";
 
-  // ── Front Camera: owned by deepstream_fusion.py (v4l2src in GStreamer)
-  // ────── Do NOT open a CameraIngest here — the Python child process holds
+  // Front camera is owned by the external DeepStream process.
+  // Do not open a CameraIngest here while DeepStream holds /dev/video0.
   // /dev/video0. cam_front_queue_ is still used in replay mode (ReplayEngine
   // feeds it).
-  std::cout << "[IngestManager] FrontCam: managed by deepstream_fusion.py\n";
+  std::cout << "[IngestManager] FrontCam: managed by external DeepStream\n";
 
   // SideCamL
   auto it = hw_map_.mappings.find(Mount::SideCamL);
@@ -274,10 +274,10 @@ IngestManager::HealthStatus IngestManager::getHealth() const {
     return status;
   }
 
-  // FrontCam health: managed by deepstream_fusion.py (Python).
+  // FrontCam health is managed by external DeepStream.
   // We still report queue drop count to surface backpressure issues.
   status.sensor_health[Mount::FrontCam] =
-      true; // assume OK; Python script logs its own health
+      true; // assume OK; DeepStream process logs its own health
   status.total_drops += det_front_ds_queue_.drops();
   if (cam_side_l_) {
     bool h = cam_side_l_->isHealthy();
@@ -376,7 +376,7 @@ void IngestManager::printStatus() const {
 
 void IngestManager::setRecorder(Recorder *recorder) {
   // Propagate to side cameras.
-  // FrontCam (Python deepstream_fusion.py) — no recorder hook needed here
+  // FrontCam is external DeepStream in live mode; no recorder hook needed here.
   if (cam_front_)
     cam_front_->setRecorder(recorder);
   if (cam_side_l_)
