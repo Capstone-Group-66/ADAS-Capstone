@@ -13,7 +13,6 @@
 #include <unordered_set>
 
 namespace {
-namespace bev = adas::bev;
 
 constexpr int kCanvasWidth = 300;
 constexpr int kCanvasHeight = 300;
@@ -51,9 +50,11 @@ void drawProgressBar(cv::Mat &canvas, int x, int y, int width, int height,
 void drawRadarCone(cv::Mat &canvas) {
   const float z_far = maxDisplayRangeM();
   const float x_left =
-      bev::lateralFromRangeAndAngle(z_far, -bev::degToRad(kRadarHalfFovDeg));
+      adas::bev::lateralFromRangeAndAngle(
+          z_far, -adas::bev::degToRad(kRadarHalfFovDeg));
   const float x_right =
-      bev::lateralFromRangeAndAngle(z_far, bev::degToRad(kRadarHalfFovDeg));
+      adas::bev::lateralFromRangeAndAngle(
+          z_far, adas::bev::degToRad(kRadarHalfFovDeg));
 
   cv::line(canvas, cv::Point(kEgoX, kEgoY),
            cv::Point(toCanvasX(x_left), toCanvasY(z_far)),
@@ -69,9 +70,11 @@ void drawRadarRangeLine(cv::Mat &canvas, float range_m, const cv::Scalar &color,
     return;
   }
   const float x_left =
-      bev::lateralFromRangeAndAngle(range_m, -bev::degToRad(kRadarHalfFovDeg));
+      adas::bev::lateralFromRangeAndAngle(
+          range_m, -adas::bev::degToRad(kRadarHalfFovDeg));
   const float x_right =
-      bev::lateralFromRangeAndAngle(range_m, bev::degToRad(kRadarHalfFovDeg));
+      adas::bev::lateralFromRangeAndAngle(
+          range_m, adas::bev::degToRad(kRadarHalfFovDeg));
 
   cv::line(canvas, cv::Point(toCanvasX(x_left), toCanvasY(range_m)),
            cv::Point(toCanvasX(x_right), toCanvasY(range_m)), color, thickness);
@@ -82,7 +85,7 @@ void drawRadarRangeLine(cv::Mat &canvas, float range_m, const cv::Scalar &color,
 void drawCorridor(cv::Mat &canvas, float angle_rad, const cv::Scalar &color,
                   int thickness) {
   const float z_far = maxDisplayRangeM();
-  const float x_far = bev::lateralFromRangeAndAngle(z_far, angle_rad);
+  const float x_far = adas::bev::lateralFromRangeAndAngle(z_far, angle_rad);
   cv::line(canvas, cv::Point(kEgoX, kEgoY),
            cv::Point(toCanvasX(x_far), toCanvasY(z_far)), color, thickness,
            cv::LINE_AA);
@@ -181,8 +184,9 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
       continue;
     }
 
-    const float angle_rad = bev::angleFromPixel(det.centroid.x, c_x_, f_x_);
-    if (!bev::inAngleSpan(angle_rad, kCameraHalfFovDeg)) {
+    const float angle_rad =
+        adas::bev::angleFromPixel(det.centroid.x, c_x_, f_x_);
+    if (!adas::bev::inAngleSpan(angle_rad, kCameraHalfFovDeg)) {
       continue;
     }
 
@@ -208,8 +212,9 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     Track &track = tracks_[obj.object_id];
     track.object_id = obj.object_id;
 
-    const float angle_rad = bev::angleFromPixel(obj.centroid_px.x, c_x_, f_x_);
-    if (bev::inAngleSpan(angle_rad, kCameraHalfFovDeg)) {
+    const float angle_rad =
+        adas::bev::angleFromPixel(obj.centroid_px.x, c_x_, f_x_);
+    if (adas::bev::inAngleSpan(angle_rad, kCameraHalfFovDeg)) {
       track.corridor_angle_rad = angle_rad;
     }
 
@@ -301,16 +306,16 @@ void BEVDashboard::renderLoop() {
     for (auto it = tracks_.begin(); it != tracks_.end();) {
       Track &track = it->second;
 
-      if (!bev::shouldKeepTrack(
+      if (!adas::bev::shouldKeepTrack(
               now_ns, track.last_cam_update_ns, track.last_range_update_ns,
               track.ttc_hold_until_ns, dead_track_cleanup_ms_)) {
         it = tracks_.erase(it);
         continue;
       }
 
-      const float cam_remain = bev::ttlRemaining01(
+      const float cam_remain = adas::bev::ttlRemaining01(
           now_ns, track.last_cam_update_ns, dead_track_cleanup_ms_);
-      const float range_remain = bev::ttlRemaining01(
+      const float range_remain = adas::bev::ttlRemaining01(
           now_ns, track.last_range_update_ns, dead_track_cleanup_ms_);
       const bool cam_alive = cam_remain > 0.0f;
       const bool range_alive = range_remain > 0.0f;
@@ -326,8 +331,8 @@ void BEVDashboard::renderLoop() {
           cam_alive && range_alive && track.has_crosshair;
 
       // Camera corridor layer (25 degree span)
-      if (cam_alive &&
-          bev::inAngleSpan(track.corridor_angle_rad, kCameraHalfFovDeg)) {
+      if (cam_alive && adas::bev::inAngleSpan(track.corridor_angle_rad,
+                                              kCameraHalfFovDeg)) {
         const cv::Scalar corridor_color =
             crosshair_active ? cv::Scalar(120, 220, 120)
                              : cv::Scalar(90, 90, 170); // ghost
