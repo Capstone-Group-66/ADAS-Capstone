@@ -1,10 +1,10 @@
 // File: src/main.cpp
 // ADAS Pipeline Entry Point - Interactive CLI with Stages A, B, E
+#include <algorithm>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <cstdlib>
-#include <algorithm>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -195,9 +195,9 @@ void visualizationThread() {
         while (radar_queue.try_pop(radar)) {
           got_radar_update = true;
           if (g_sensor_fusion) {
-            const uint64_t radar_now_ns =
-                (radar.h.t_ingest_ns > 0) ? radar.h.t_ingest_ns
-                                          : adas::Clock::now_ns();
+            const uint64_t radar_now_ns = (radar.h.t_ingest_ns > 0)
+                                              ? radar.h.t_ingest_ns
+                                              : adas::Clock::now_ns();
             g_sensor_fusion->ingestRadar(radar, radar_now_ns);
           }
         }
@@ -231,8 +231,9 @@ void visualizationThread() {
         g_sensor_fusion->setPitch(g_ingest_manager->getLatestPitch());
       }
       if (got_camera_update) {
-        const uint64_t cam_now_ns =
-            (batch.h.t_ingest_ns > 0) ? batch.h.t_ingest_ns : adas::Clock::now_ns();
+        const uint64_t cam_now_ns = (batch.h.t_ingest_ns > 0)
+                                        ? batch.h.t_ingest_ns
+                                        : adas::Clock::now_ns();
         g_sensor_fusion->ingestCamera(batch, cam_now_ns);
       }
     }
@@ -261,8 +262,9 @@ void visualizationThread() {
 
       const bool is_alerting = fcw_alert.has_value();
       const auto now_time = std::chrono::steady_clock::now();
-      const auto time_since = std::chrono::duration_cast<std::chrono::milliseconds>(
-          now_time - last_ble_send);
+      const auto time_since =
+          std::chrono::duration_cast<std::chrono::milliseconds>(now_time -
+                                                                last_ble_send);
 
       if (is_alerting || time_since.count() > 1000) {
         std::vector<adas::Alert> alerts_to_send;
@@ -283,8 +285,8 @@ void visualizationThread() {
         uint16_t tickId =
             static_cast<uint16_t>(adas::Clock::now_ns() / 50'000'000);
 
-        auto payload =
-            adas::encodeTickPayloadToCbor(tickId, speed_kmh, 0, 0, alerts_to_send);
+        auto payload = adas::encodeTickPayloadToCbor(tickId, speed_kmh, 0, 0,
+                                                     alerts_to_send);
 
         auto frames = adas::fragmentPayload(tickId, payload, 185);
         for (const auto &frame : frames) {
@@ -297,7 +299,8 @@ void visualizationThread() {
     }
 
     // Log metrics when camera frame data advanced Stage E.
-    if (got_camera_update && g_metrics_logger && g_metrics_logger->isEnabled()) {
+    if (got_camera_update && g_metrics_logger &&
+        g_metrics_logger->isEnabled()) {
       const uint64_t now_ns = adas::Clock::now_ns();
       const double e2e_latency_ms = (now_ns - batch.h.t_ingest_ns) / 1e6;
 
@@ -493,7 +496,8 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   fusion_config.ttc_aggressive_s = config.stage_e_fusion.ttc_aggressive_s;
   fusion_config.camera_hold_ms =
       static_cast<uint32_t>(std::max(0, config.stage_e_fusion.camera_hold_ms));
-  fusion_config.normal_angle_gate_deg = config.stage_e_fusion.normal_angle_gate_deg;
+  fusion_config.normal_angle_gate_deg =
+      config.stage_e_fusion.normal_angle_gate_deg;
   fusion_config.aggressive_angle_gate_deg =
       config.stage_e_fusion.aggressive_angle_gate_deg;
   fusion_config.aggressive_range_scale =
@@ -506,8 +510,8 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   fusion_config.ekf_r_radar_vz = config.stage_e_fusion.ekf_r_radar_vz;
   fusion_config.ekf_r_cam_theta = config.stage_e_fusion.ekf_r_cam_theta;
   fusion_config.ekf_r_cam_z_weak = config.stage_e_fusion.ekf_r_cam_z_weak;
-  fusion_config.radar_hold_ms =
-      static_cast<uint32_t>(std::max(500, config.front_radar.speed_ttl_ms + 200));
+  fusion_config.radar_hold_ms = static_cast<uint32_t>(
+      std::max(500, config.front_radar.speed_ttl_ms + 200));
   g_sensor_fusion = std::make_unique<adas::SensorFusion>(fusion_config);
 
   // Configure FCW with physics-based parameters
@@ -613,7 +617,8 @@ void startReplayPipeline(const std::string &replay_file, float speed,
   replay_fusion_config.radar_half_fov_deg = 15.0f;
   replay_fusion_config.dist_gate_m = 5.5f;
   replay_fusion_config.normal_range_gate_m = replay_fusion_config.dist_gate_m;
-  replay_fusion_config.ttc_aggressive_s = config.stage_e_fusion.ttc_aggressive_s;
+  replay_fusion_config.ttc_aggressive_s =
+      config.stage_e_fusion.ttc_aggressive_s;
   replay_fusion_config.camera_hold_ms =
       static_cast<uint32_t>(std::max(0, config.stage_e_fusion.camera_hold_ms));
   replay_fusion_config.normal_angle_gate_deg =
@@ -629,9 +634,10 @@ void startReplayPipeline(const std::string &replay_file, float speed,
   replay_fusion_config.ekf_r_radar_z = config.stage_e_fusion.ekf_r_radar_z;
   replay_fusion_config.ekf_r_radar_vz = config.stage_e_fusion.ekf_r_radar_vz;
   replay_fusion_config.ekf_r_cam_theta = config.stage_e_fusion.ekf_r_cam_theta;
-  replay_fusion_config.ekf_r_cam_z_weak = config.stage_e_fusion.ekf_r_cam_z_weak;
-  replay_fusion_config.radar_hold_ms =
-      static_cast<uint32_t>(std::max(500, config.front_radar.speed_ttl_ms + 200));
+  replay_fusion_config.ekf_r_cam_z_weak =
+      config.stage_e_fusion.ekf_r_cam_z_weak;
+  replay_fusion_config.radar_hold_ms = static_cast<uint32_t>(
+      std::max(500, config.front_radar.speed_ttl_ms + 200));
   g_sensor_fusion = std::make_unique<adas::SensorFusion>(replay_fusion_config);
 
   adas::FCWMonitor::Config fcw_config;

@@ -281,7 +281,6 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     std::stringstream ss;
     ss << "[" << det.object_id << "] C:" << std::clamp(conf_pct, 0, 100) << "%";
     track.label = ss.str();
-
   }
 
   for (const auto &obj : frame.fused_objects) {
@@ -300,8 +299,8 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     if (obj.camera_age_ms < (std::numeric_limits<uint32_t>::max() / 2)) {
       const uint64_t cam_age_ns =
           static_cast<uint64_t>(obj.camera_age_ms) * 1000000ULL;
-      track.last_cam_update_ns = (now_ns > cam_age_ns) ? (now_ns - cam_age_ns)
-                                                       : now_ns;
+      track.last_cam_update_ns =
+          (now_ns > cam_age_ns) ? (now_ns - cam_age_ns) : now_ns;
     }
     track.camera_age_ms = obj.camera_age_ms;
     track.radar_age_ms = obj.radar_age_ms;
@@ -357,7 +356,6 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
       ss << "Zcam:unknown";
     }
     track.label = ss.str();
-
   }
 
   if (frame.fcw_alert_context.has_value() &&
@@ -392,7 +390,6 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
       it->second.fcw_eval_until_ns = now_ns + 600000000ULL; // 600 ms
     }
   }
-
 }
 
 void BEVDashboard::renderLoop() {
@@ -516,8 +513,8 @@ void BEVDashboard::renderLoop() {
             cv::circle(canvas, cv::Point(anchor_x, anchor_y), 14,
                        cv::Scalar(0, 165, 255), 2);
             cv::putText(canvas, "AGG", cv::Point(anchor_x + 8, anchor_y + 10),
-                        cv::FONT_HERSHEY_SIMPLEX, 0.30,
-                        cv::Scalar(0, 165, 255), 1, cv::LINE_AA);
+                        cv::FONT_HERSHEY_SIMPLEX, 0.30, cv::Scalar(0, 165, 255),
+                        1, cv::LINE_AA);
           }
 
           if (track.speed_fresh && std::abs(track.radial_vel_mps) > 0.1f) {
@@ -577,15 +574,15 @@ void BEVDashboard::renderLoop() {
         }
 
         std::stringstream eval_ss;
-        eval_ss << "FCW L" << static_cast<int>(track.fcw_eval_level) << " r="
-                << std::fixed << std::setprecision(2) << track.fcw_eval_risk;
+        eval_ss << "FCW L" << static_cast<int>(track.fcw_eval_level)
+                << " r=" << std::fixed << std::setprecision(2)
+                << track.fcw_eval_risk;
         if (track.fcw_eval_used_camera_drop_grace) {
           eval_ss << " RG";
         }
         cv::putText(canvas, eval_ss.str(),
                     cv::Point(anchor_x - 40, anchor_y - 29),
-                    cv::FONT_HERSHEY_SIMPLEX, 0.30, eval_color, 1,
-                    cv::LINE_AA);
+                    cv::FONT_HERSHEY_SIMPLEX, 0.30, eval_color, 1, cv::LINE_AA);
       }
 
       std::stringstream dbg1;
@@ -595,8 +592,8 @@ void BEVDashboard::renderLoop() {
       } else {
         dbg1 << "--";
       }
-      dbg1 << " Q:" << std::fixed << std::setprecision(2) << track.fusion_quality
-           << " dZ:";
+      dbg1 << " Q:" << std::fixed << std::setprecision(2)
+           << track.fusion_quality << " dZ:";
       if (track.dz_cam_radar_m >= 0.0f) {
         dbg1 << std::fixed << std::setprecision(2) << track.dz_cam_radar_m;
       } else {
@@ -615,9 +612,9 @@ void BEVDashboard::renderLoop() {
       std::stringstream dbg2;
       dbg2 << "age c:" << ageToText(track.camera_age_ms)
            << " r:" << ageToText(track.radar_age_ms)
-           << " sp:" << ageToText(track.speed_age_ms) << " P:"
-           << (track.is_predicted_camera ? "1" : "0") << " AG:"
-           << (track.is_aggressive_mode ? "1" : "0");
+           << " sp:" << ageToText(track.speed_age_ms)
+           << " P:" << (track.is_predicted_camera ? "1" : "0")
+           << " AG:" << (track.is_aggressive_mode ? "1" : "0");
       cv::putText(canvas, dbg2.str(), cv::Point(anchor_x - 40, anchor_y - 7),
                   cv::FONT_HERSHEY_SIMPLEX, 0.27, cv::Scalar(170, 170, 170), 1,
                   cv::LINE_AA);
@@ -638,8 +635,9 @@ void BEVDashboard::renderLoop() {
     cv::rectangle(canvas, cv::Rect(6, 6, 195, 52), cv::Scalar(35, 35, 35),
                   cv::FILLED);
     cv::rectangle(canvas, cv::Rect(6, 6, 195, 52), cv::Scalar(90, 90, 90), 1);
-    cv::putText(canvas, "FusionDbg", cv::Point(10, 18), cv::FONT_HERSHEY_SIMPLEX,
-                0.34, cv::Scalar(230, 230, 230), 1, cv::LINE_AA);
+    cv::putText(canvas, "FusionDbg", cv::Point(10, 18),
+                cv::FONT_HERSHEY_SIMPLEX, 0.34, cv::Scalar(230, 230, 230), 1,
+                cv::LINE_AA);
 
     std::stringstream summary_1;
     summary_1 << "AG tracks: " << aggressive_tracks_visible << "  Best TTC: ";
@@ -653,7 +651,8 @@ void BEVDashboard::renderLoop() {
                 cv::FONT_HERSHEY_SIMPLEX, 0.30, cv::Scalar(0, 200, 255), 1,
                 cv::LINE_AA);
 
-    if (frame.fcw_eval_context.has_value() && frame.fcw_eval_context->has_candidate) {
+    if (frame.fcw_eval_context.has_value() &&
+        frame.fcw_eval_context->has_candidate) {
       std::stringstream summary_2;
       summary_2 << "FCW cand ID:" << frame.fcw_eval_context->object_id
                 << " L:" << static_cast<int>(frame.fcw_eval_context->level)

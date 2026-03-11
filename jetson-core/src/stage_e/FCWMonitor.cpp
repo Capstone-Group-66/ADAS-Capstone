@@ -18,7 +18,8 @@ constexpr float kGravityMps2 = 9.81f;
 constexpr uint64_t kNsPerMs = 1000000ULL;
 constexpr uint64_t kTrackForgetNs = 2000000000ULL;
 
-float normalizedRangeScore(float range_m, float min_range_m, float max_range_m) {
+float normalizedRangeScore(float range_m, float min_range_m,
+                           float max_range_m) {
   const float span = std::max(max_range_m - min_range_m, 0.1f);
   return std::clamp((max_range_m - range_m) / span, 0.0f, 1.0f);
 }
@@ -125,8 +126,9 @@ FCWMonitor::RiskLevel FCWMonitor::applyDwell(TrackState &state,
     return state.level;
   }
 
-  const uint64_t elapsed_ms =
-      (now_ns > state.pending_since_ns) ? (now_ns - state.pending_since_ns) / kNsPerMs : 0ULL;
+  const uint64_t elapsed_ms = (now_ns > state.pending_since_ns)
+                                  ? (now_ns - state.pending_since_ns) / kNsPerMs
+                                  : 0ULL;
   const uint32_t dwell_ms = dwellForLevel(config_, desired_level);
   if (elapsed_ms >= dwell_ms) {
     state.level = desired_level;
@@ -197,7 +199,8 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
       demote_to_safe();
       continue;
     }
-    if (obj.range_m < config_.min_range_m || obj.range_m > config_.max_range_m) {
+    if (obj.range_m < config_.min_range_m ||
+        obj.range_m > config_.max_range_m) {
       demote_to_safe();
       continue;
     }
@@ -220,13 +223,14 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
       continue;
     }
 
-    const float range_score =
-        normalizedRangeScore(obj.range_m, config_.min_range_m, config_.max_range_m);
+    const float range_score = normalizedRangeScore(
+        obj.range_m, config_.min_range_m, config_.max_range_m);
     const float closing_score =
         normalizedClosingScore(closing_mps, config_.min_closing_speed_mps);
     const float quality_score =
         normalizedQualityScore(obj.fusion_quality, config_.min_fusion_quality);
-    const float ttc_score = normalizedTtcScore(obj.ttc_s, config_.ttc_threshold_s);
+    const float ttc_score =
+        normalizedTtcScore(obj.ttc_s, config_.ttc_threshold_s);
 
     float physics_score = 0.0f;
     bool physics_contrib = false;
@@ -252,13 +256,14 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
 
     const RiskLevel desired_level = classifyRisk(risk_score);
     state.last_risk = risk_score;
-    const RiskLevel active_level = applyDwell(state, desired_level, current_time_ns);
+    const RiskLevel active_level =
+        applyDwell(state, desired_level, current_time_ns);
 
-    std::cout << "[StageE: 4_FCW] ID " << obj.object_id << " | Z: " << obj.range_m
-              << "m | V: " << obj.radial_vel_mps << "m/s | TTC: " << obj.ttc_s
-              << "s | Q: " << obj.fusion_quality << " | X: " << obj.x_lateral_m
-              << "m -> risk " << risk_score << " level "
-              << static_cast<int>(active_level)
+    std::cout << "[StageE: 4_FCW] ID " << obj.object_id
+              << " | Z: " << obj.range_m << "m | V: " << obj.radial_vel_mps
+              << "m/s | TTC: " << obj.ttc_s << "s | Q: " << obj.fusion_quality
+              << " | X: " << obj.x_lateral_m << "m -> risk " << risk_score
+              << " level " << static_cast<int>(active_level)
               << (camera_drop_grace ? " [CAM_DROP_GRACE]" : "")
               << (ttc_last_ditch ? " [TTC_LAST_DITCH]" : "") << "\n";
 
@@ -282,7 +287,8 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
 
     if (best.obj == nullptr || active_level > best.level ||
         (active_level == best.level && risk_score > best.risk) ||
-        (active_level == best.level && std::abs(risk_score - best.risk) < 1e-4f &&
+        (active_level == best.level &&
+         std::abs(risk_score - best.risk) < 1e-4f &&
          obj.ttc_s < best.obj->ttc_s)) {
       best.obj = &obj;
       best.level = active_level;
@@ -335,8 +341,7 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
               << "s range=" << alert.range_m << "m v=" << alert.velocity_mps
               << "m/s level=" << static_cast<int>(best.level)
               << (best.camera_drop_grace ? " [CAM_DROP_GRACE]" : "")
-              << (best.ttc_last_ditch ? " [TTC_LAST_DITCH]" : "")
-              << "\n";
+              << (best.ttc_last_ditch ? " [TTC_LAST_DITCH]" : "") << "\n";
   }
 
   return alert;

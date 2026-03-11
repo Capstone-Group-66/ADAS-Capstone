@@ -248,8 +248,9 @@ void ConfigLoader::saveConfig(const std::string &path, const Config &config) {
       }
       if (key == "camera_hold_ms") {
         std::stringstream ss;
-        ss << std::string(indent, ' ') << "camera_hold_ms: "
-           << config.stage_e_fusion.camera_hold_ms << "\n";
+        ss << std::string(indent, ' ')
+           << "camera_hold_ms: " << config.stage_e_fusion.camera_hold_ms
+           << "\n";
         new_content += ss.str();
         continue;
       }

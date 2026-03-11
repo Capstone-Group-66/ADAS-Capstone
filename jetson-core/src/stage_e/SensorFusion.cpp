@@ -68,7 +68,8 @@ void SensorFusion::ingestCamera(const DetBatch &camera, uint64_t now_ns) {
   }
 
   if (now_ns == 0) {
-    now_ns = (camera.h.t_ingest_ns > 0) ? camera.h.t_ingest_ns : Clock::now_ns();
+    now_ns =
+        (camera.h.t_ingest_ns > 0) ? camera.h.t_ingest_ns : Clock::now_ns();
   }
 
   std::lock_guard<std::mutex> lock(mutex_);
@@ -129,8 +130,8 @@ void SensorFusion::ingestCamera(const DetBatch &camera, uint64_t now_ns) {
     }
 
     const float theta = std::atan((det.centroid.x - config_.c_x) / config_.f_x);
-    const float z_cam = estimateDistance(v, config_.f_y, config_.c_y,
-                                         theta_pitch, cam_height);
+    const float z_cam =
+        estimateDistance(v, config_.f_y, config_.c_y, theta_pitch, cam_height);
 
     if (g_verbose_mode.load()) {
       std::cout << "[StageE: 2_Depth] ID " << det.object_id
@@ -210,22 +211,21 @@ void SensorFusion::ingestRadar(const RadarTargets &radar, uint64_t now_ns) {
     predictTrackTo(track, now_ns);
 
     const float ttc_pred = computeTTC(track.x[0], track.x[1]);
-    const bool aggressive = std::isfinite(ttc_pred) &&
-                            ttc_pred < config_.ttc_aggressive_s;
+    const bool aggressive =
+        std::isfinite(ttc_pred) && ttc_pred < config_.ttc_aggressive_s;
     track.is_aggressive_mode = aggressive;
 
-    const float angle_gate_deg =
-        aggressive ? config_.aggressive_angle_gate_deg
-                   : config_.normal_angle_gate_deg;
+    const float angle_gate_deg = aggressive ? config_.aggressive_angle_gate_deg
+                                            : config_.normal_angle_gate_deg;
     const float angle_gate_rad = degToRad(angle_gate_deg);
 
     if (std::abs(track.x[2]) > angle_gate_rad) {
       continue;
     }
 
-    const float range_gate_m = config_.normal_range_gate_m *
-                               (aggressive ? config_.aggressive_range_scale
-                                           : 1.0f);
+    const float range_gate_m =
+        config_.normal_range_gate_m *
+        (aggressive ? config_.aggressive_range_scale : 1.0f);
 
     int best_idx = -1;
     float best_nis = std::numeric_limits<float>::max();
@@ -248,9 +248,8 @@ void SensorFusion::ingestRadar(const RadarTargets &radar, uint64_t now_ns) {
           dz > config_.max_backward_jump_m) {
         if (g_verbose_mode.load()) {
           std::cout << "[StageE: 3_GateReject] ID " << track.object_id
-                    << " | reason: backward_jump"
-                    << " | Z_pred: " << track.x[0] << "m"
-                    << " | Z_rad: " << obs.range_m << "m"
+                    << " | reason: backward_jump" << " | Z_pred: " << track.x[0]
+                    << "m" << " | Z_rad: " << obs.range_m << "m"
                     << " | dZ: " << dz << "m"
                     << " | max_backtrack: " << config_.max_backward_jump_m
                     << "m\n";
@@ -268,7 +267,8 @@ void SensorFusion::ingestRadar(const RadarTargets &radar, uint64_t now_ns) {
       }
 
       const float theta_res = normalizeAngle(track.cam_theta_rad - track.x[2]);
-      const float stheta = std::max(track.P[10] + config_.ekf_r_cam_theta, 1e-4f);
+      const float stheta =
+          std::max(track.P[10] + config_.ekf_r_cam_theta, 1e-4f);
       nis += 0.25f * (theta_res * theta_res) / stheta;
 
       const bool cam_recent_for_consistency =
@@ -301,7 +301,8 @@ void SensorFusion::ingestRadar(const RadarTargets &radar, uint64_t now_ns) {
     const RadarObs &best = radar_obs[best_idx];
     const float z_pred_before_update = track.x[0];
 
-    updateTrackRadar(track, best.range_m, best.speed_fresh, best.radial_vel_mps);
+    updateTrackRadar(track, best.range_m, best.speed_fresh,
+                     best.radial_vel_mps);
 
     track.last_radar_ns = now_ns;
     track.last_fused_ns = now_ns;
@@ -348,7 +349,8 @@ std::vector<FusedObject> SensorFusion::getFusedObjects(uint64_t now_ns) {
 
     const uint32_t cam_age_ms =
         (track.last_camera_ns > 0 && now_ns >= track.last_camera_ns)
-            ? static_cast<uint32_t>((now_ns - track.last_camera_ns) / 1000000ULL)
+            ? static_cast<uint32_t>((now_ns - track.last_camera_ns) /
+                                    1000000ULL)
             : std::numeric_limits<uint32_t>::max();
 
     const uint32_t radar_age_ms =
@@ -395,8 +397,8 @@ std::vector<FusedObject> SensorFusion::getFusedObjects(uint64_t now_ns) {
           (radar_age_ms == std::numeric_limits<uint32_t>::max())
               ? track.speed_age_ms
               : static_cast<uint32_t>(track.speed_age_ms + radar_age_ms);
-      obj.speed_fresh = track.speed_fresh &&
-                        (obj.speed_age_ms <= config_.radar_hold_ms);
+      obj.speed_fresh =
+          track.speed_fresh && (obj.speed_age_ms <= config_.radar_hold_ms);
       obj.ttc_s = computeTTC(obj.range_m, obj.radial_vel_mps);
       obj.sources |= SRC_RAD_F;
     } else {
@@ -441,7 +443,8 @@ void SensorFusion::initializeTrack(TrackState &track, const Det &det,
   track.has_camera_obs = true;
 
   const float z_init =
-      (z_cam_m >= config_.z_min_m && z_cam_m <= config_.z_max_m) ? z_cam_m : 20.0f;
+      (z_cam_m >= config_.z_min_m && z_cam_m <= config_.z_max_m) ? z_cam_m
+                                                                 : 20.0f;
 
   track.x = {z_init, 0.0f, theta_rad, 0.0f};
 
@@ -469,7 +472,8 @@ void SensorFusion::predictTrackTo(TrackState &track, uint64_t now_ns) {
     return;
   }
 
-  float dt = static_cast<float>(Clock::ns_to_sec(now_ns - track.last_predict_ns));
+  float dt =
+      static_cast<float>(Clock::ns_to_sec(now_ns - track.last_predict_ns));
   dt = std::clamp(dt, 0.0f, 0.25f);
   if (dt <= 0.0f) {
     track.last_predict_ns = now_ns;
@@ -529,8 +533,8 @@ void SensorFusion::updateTrackCamera(TrackState &track, float theta_rad,
   {
     const int idx = 2;
     const float y = normalizeAngle(theta_rad - track.x[idx]);
-    const float s = std::max(track.P[idx * 4 + idx] + config_.ekf_r_cam_theta,
-                             1e-5f);
+    const float s =
+        std::max(track.P[idx * 4 + idx] + config_.ekf_r_cam_theta, 1e-5f);
 
     float K[4] = {0.0f};
     for (int r = 0; r < 4; ++r) {
@@ -555,8 +559,8 @@ void SensorFusion::updateTrackCamera(TrackState &track, float theta_rad,
   if (z_cam_m >= config_.z_min_m && z_cam_m <= config_.z_max_m) {
     const int idx = 0;
     const float y = z_cam_m - track.x[idx];
-    const float s = std::max(track.P[idx * 4 + idx] + config_.ekf_r_cam_z_weak,
-                             1e-5f);
+    const float s =
+        std::max(track.P[idx * 4 + idx] + config_.ekf_r_cam_z_weak, 1e-5f);
 
     float K[4] = {0.0f};
     for (int r = 0; r < 4; ++r) {
@@ -586,8 +590,8 @@ void SensorFusion::updateTrackRadar(TrackState &track, float z_rad_m,
   if (!has_speed) {
     const int idx = 0;
     const float y = z_rad_m - track.x[idx];
-    const float s = std::max(track.P[idx * 4 + idx] + config_.ekf_r_radar_z,
-                             1e-5f);
+    const float s =
+        std::max(track.P[idx * 4 + idx] + config_.ekf_r_radar_z, 1e-5f);
 
     float K[4] = {0.0f};
     for (int r = 0; r < 4; ++r) {
@@ -649,8 +653,8 @@ void SensorFusion::updateTrackRadar(TrackState &track, float z_rad_m,
 
   for (int r = 0; r < 4; ++r) {
     for (int c = 0; c < 4; ++c) {
-      track.P[r * 4 + c] =
-          P_old[r * 4 + c] - K0[r] * P_old[0 * 4 + c] - K1[r] * P_old[1 * 4 + c];
+      track.P[r * 4 + c] = P_old[r * 4 + c] - K0[r] * P_old[0 * 4 + c] -
+                           K1[r] * P_old[1 * 4 + c];
     }
   }
 }
@@ -707,7 +711,8 @@ float SensorFusion::estimateDistance(float v_bottom, float fy_scaled,
   return cam_height_m / std::tan(angle);
 }
 
-bool SensorFusion::inRadarROI(float u, float /*v*/, const cv::Rect2f &roi) const {
+bool SensorFusion::inRadarROI(float u, float /*v*/,
+                              const cv::Rect2f &roi) const {
   return (u >= roi.x && u <= (roi.x + roi.width));
 }
 
