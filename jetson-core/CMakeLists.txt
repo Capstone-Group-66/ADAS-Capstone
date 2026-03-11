@@ -197,6 +197,24 @@ if(BUILD_TESTS)
     add_executable(test_bev_dashboard tests/test_bev_dashboard.cpp)
     target_link_libraries(test_bev_dashboard Threads::Threads)
     add_test(NAME test_bev_dashboard COMMAND test_bev_dashboard)
+
+    # Test asynchronous SensorFusion EKF + aggressive association
+    add_executable(test_sensor_fusion_async
+        tests/test_sensor_fusion_async.cpp
+        src/stage_e/SensorFusion.cpp
+        ${COMMON_SOURCES}
+    )
+    target_link_libraries(test_sensor_fusion_async Threads::Threads ${OpenCV_LIBS})
+    add_test(NAME test_sensor_fusion_async COMMAND test_sensor_fusion_async)
+
+    # Test FCW v3 camera-hold suppression behavior
+    add_executable(test_fcw_monitor_v3
+        tests/test_fcw_monitor_v3.cpp
+        src/stage_e/FCWMonitor.cpp
+        ${COMMON_SOURCES}
+    )
+    target_link_libraries(test_fcw_monitor_v3 Threads::Threads)
+    add_test(NAME test_fcw_monitor_v3 COMMAND test_fcw_monitor_v3)
 endif()
 
 # ══════════════════════════════════════════════════════════════════════════════

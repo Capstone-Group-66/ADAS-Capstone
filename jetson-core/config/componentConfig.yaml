@@ -37,6 +37,26 @@ front_radar:
   port: "/dev/ttyACM0"
   baud_rate: 921600
   poll_timeout_ms: 50
+  speed_ttl_ms: 900
+  speed_mag_threshold: 10
+  range_mag_threshold: 20
+  profile: "combined_hs"
+
+# Stage E front fusion / FCW v3 tuning
+stage_e_fusion:
+  ttc_aggressive_s: 3.0
+  camera_hold_ms: 400
+  normal_angle_gate_deg: 12.5
+  aggressive_angle_gate_deg: 18.0
+  aggressive_range_scale: 1.5
+  ekf_q_z: 1.0
+  ekf_q_vz: 1.2
+  ekf_q_theta: 0.04
+  ekf_q_theta_dot: 0.06
+  ekf_r_radar_z: 0.35
+  ekf_r_radar_vz: 0.55
+  ekf_r_cam_theta: 0.018
+  ekf_r_cam_z_weak: 30.0
 
 # ══════════════════════════════════════════════════════════════════════════════
 #                         IMU (BNO085) - SCAFFOLD

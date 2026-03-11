@@ -7,10 +7,10 @@
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
+#include <limits>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include <sstream>
-#include <unordered_set>
 
 namespace {
 
@@ -257,7 +257,6 @@ void BEVDashboard::update(const BEVInputFrame &frame) {
 
 void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
   const uint64_t now_ns = frame.now_ns == 0 ? Clock::now_ns() : frame.now_ns;
-  std::unordered_set<uint64_t> touched_by_camera;
 
   for (const auto &det : frame.camera_batch.dets) {
     if (det.object_id == UINT64_MAX) {
@@ -283,7 +282,6 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     ss << "[" << det.object_id << "] C:" << std::clamp(conf_pct, 0, 100) << "%";
     track.label = ss.str();
 
-    touched_by_camera.insert(det.object_id);
   }
 
   for (const auto &obj : frame.fused_objects) {
@@ -294,29 +292,56 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     Track &track = tracks_[obj.object_id];
     track.object_id = obj.object_id;
 
-    const float angle_rad =
-        adas::bev::angleFromPixel(obj.centroid_px.x, c_x_, f_x_);
+    const float angle_rad = obj.theta_rad;
     if (adas::bev::inAngleSpan(angle_rad, kCameraHalfFovDeg)) {
       track.corridor_angle_rad = angle_rad;
     }
 
-    track.last_cam_update_ns = now_ns;
+    if (obj.camera_age_ms < (std::numeric_limits<uint32_t>::max() / 2)) {
+      const uint64_t cam_age_ns =
+          static_cast<uint64_t>(obj.camera_age_ms) * 1000000ULL;
+      track.last_cam_update_ns = (now_ns > cam_age_ns) ? (now_ns - cam_age_ns)
+                                                       : now_ns;
+    }
+    track.camera_age_ms = obj.camera_age_ms;
+    track.radar_age_ms = obj.radar_age_ms;
+    track.is_predicted_camera = obj.is_predicted_camera;
+    track.is_aggressive_mode = obj.is_aggressive_mode;
+    track.ttc_s = obj.ttc_s;
+    track.fusion_quality = obj.fusion_quality;
     track.speed_fresh = obj.speed_fresh;
     track.speed_age_ms = obj.speed_age_ms;
     track.radial_vel_mps = obj.radial_vel_mps;
     track.has_cam_est_range = obj.z_cam_m > 0.1f;
     track.cam_est_range_m = obj.z_cam_m;
+    track.dz_cam_radar_m = -1.0f;
 
     if (obj.has_radar && obj.range_m > 0.1f) {
-      track.last_range_update_ns = now_ns;
+      track.has_radar = true;
+      const uint64_t radar_age_ns =
+          static_cast<uint64_t>(obj.radar_age_ms) * 1000000ULL;
+      track.last_range_update_ns =
+          (now_ns > radar_age_ns) ? (now_ns - radar_age_ns) : now_ns;
       track.z_m = obj.range_m;
+      if (track.has_cam_est_range) {
+        track.dz_cam_radar_m = std::abs(obj.range_m - track.cam_est_range_m);
+      }
       // Use pipeline-computed fused lateral position directly.
       track.x_offset_m = obj.x_lateral_m;
       track.has_crosshair = true;
+    } else {
+      track.has_radar = false;
+      track.has_crosshair = false;
     }
 
     std::stringstream ss;
     ss << "[" << obj.object_id << "] ";
+    if (obj.is_predicted_camera) {
+      ss << "P ";
+    }
+    if (obj.is_aggressive_mode) {
+      ss << "AG ";
+    }
     if (obj.has_radar && obj.range_m > 0.1f) {
       ss << "Z:" << std::fixed << std::setprecision(1) << obj.range_m << "m";
       if (track.speed_fresh) {
@@ -333,7 +358,6 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     }
     track.label = ss.str();
 
-    touched_by_camera.insert(obj.object_id);
   }
 
   if (frame.fcw_alert_context.has_value() &&
@@ -356,14 +380,19 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     }
   }
 
-  // Any camera-touched track not fused this frame should stay as ghost
-  // corridor.
-  for (uint64_t id : touched_by_camera) {
-    auto it = tracks_.find(id);
-    if (it != tracks_.end() && it->second.last_range_update_ns != now_ns) {
-      it->second.has_crosshair = false;
+  if (frame.fcw_eval_context.has_value() &&
+      frame.fcw_eval_context->has_candidate &&
+      frame.fcw_eval_context->object_id != UINT64_MAX) {
+    auto it = tracks_.find(frame.fcw_eval_context->object_id);
+    if (it != tracks_.end()) {
+      it->second.fcw_eval_level = frame.fcw_eval_context->level;
+      it->second.fcw_eval_risk = frame.fcw_eval_context->risk_score;
+      it->second.fcw_eval_used_camera_drop_grace =
+          frame.fcw_eval_context->used_camera_drop_grace;
+      it->second.fcw_eval_until_ns = now_ns + 600000000ULL; // 600 ms
     }
   }
+
 }
 
 void BEVDashboard::renderLoop() {
@@ -417,6 +446,9 @@ void BEVDashboard::renderLoop() {
       float trigger_speed_mps = 0.0f;
     };
     std::vector<FcwRayOverlay> fcw_ray_overlays;
+    int aggressive_tracks_visible = 0;
+    float best_ttc_s = std::numeric_limits<float>::infinity();
+    uint64_t best_ttc_id = UINT64_MAX;
 
     for (auto it = tracks_.begin(); it != tracks_.end();) {
       Track &track = it->second;
@@ -444,6 +476,14 @@ void BEVDashboard::renderLoop() {
       const bool hold_active = hold_remain > 0.0f;
       const bool crosshair_active =
           cam_alive && range_alive && track.has_crosshair;
+      if ((cam_alive || range_alive) && track.is_aggressive_mode) {
+        ++aggressive_tracks_visible;
+      }
+      if ((cam_alive || range_alive) && std::isfinite(track.ttc_s) &&
+          track.ttc_s > 0.0f && track.ttc_s < best_ttc_s) {
+        best_ttc_s = track.ttc_s;
+        best_ttc_id = track.object_id;
+      }
 
       // Camera corridor layer (25 degree span)
       if (cam_alive &&
@@ -471,6 +511,13 @@ void BEVDashboard::renderLoop() {
           if (hold_active) {
             cv::circle(canvas, cv::Point(anchor_x, anchor_y), 10,
                        cv::Scalar(0, 0, 180), 2);
+          }
+          if (track.is_aggressive_mode) {
+            cv::circle(canvas, cv::Point(anchor_x, anchor_y), 14,
+                       cv::Scalar(0, 165, 255), 2);
+            cv::putText(canvas, "AGG", cv::Point(anchor_x + 8, anchor_y + 10),
+                        cv::FONT_HERSHEY_SIMPLEX, 0.30,
+                        cv::Scalar(0, 165, 255), 1, cv::LINE_AA);
           }
 
           if (track.speed_fresh && std::abs(track.radial_vel_mps) > 0.1f) {
@@ -516,8 +563,64 @@ void BEVDashboard::renderLoop() {
       const cv::Scalar text_color = track.speed_fresh
                                         ? cv::Scalar(230, 230, 230)
                                         : cv::Scalar(160, 160, 160);
-      cv::putText(canvas, track.label, cv::Point(anchor_x - 40, anchor_y - 28),
+      cv::putText(canvas, track.label, cv::Point(anchor_x - 40, anchor_y - 40),
                   cv::FONT_HERSHEY_SIMPLEX, 0.32, text_color, 1);
+
+      if (track.fcw_eval_until_ns > now_ns) {
+        cv::Scalar eval_color(150, 150, 150); // Safe
+        if (track.fcw_eval_level == 1) {
+          eval_color = cv::Scalar(0, 220, 220); // Caution
+        } else if (track.fcw_eval_level == 2) {
+          eval_color = cv::Scalar(0, 165, 255); // Warn
+        } else if (track.fcw_eval_level >= 3) {
+          eval_color = cv::Scalar(0, 0, 255); // Critical
+        }
+
+        std::stringstream eval_ss;
+        eval_ss << "FCW L" << static_cast<int>(track.fcw_eval_level) << " r="
+                << std::fixed << std::setprecision(2) << track.fcw_eval_risk;
+        if (track.fcw_eval_used_camera_drop_grace) {
+          eval_ss << " RG";
+        }
+        cv::putText(canvas, eval_ss.str(),
+                    cv::Point(anchor_x - 40, anchor_y - 29),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.30, eval_color, 1,
+                    cv::LINE_AA);
+      }
+
+      std::stringstream dbg1;
+      dbg1 << "TTC:";
+      if (std::isfinite(track.ttc_s) && track.ttc_s > 0.0f) {
+        dbg1 << std::fixed << std::setprecision(2) << track.ttc_s << "s";
+      } else {
+        dbg1 << "--";
+      }
+      dbg1 << " Q:" << std::fixed << std::setprecision(2) << track.fusion_quality
+           << " dZ:";
+      if (track.dz_cam_radar_m >= 0.0f) {
+        dbg1 << std::fixed << std::setprecision(2) << track.dz_cam_radar_m;
+      } else {
+        dbg1 << "--";
+      }
+      cv::putText(canvas, dbg1.str(), cv::Point(anchor_x - 40, anchor_y - 18),
+                  cv::FONT_HERSHEY_SIMPLEX, 0.28, cv::Scalar(180, 210, 210), 1,
+                  cv::LINE_AA);
+
+      const auto ageToText = [](uint32_t age_ms) {
+        if (age_ms >= (std::numeric_limits<uint32_t>::max() / 2)) {
+          return std::string("--");
+        }
+        return std::to_string(age_ms);
+      };
+      std::stringstream dbg2;
+      dbg2 << "age c:" << ageToText(track.camera_age_ms)
+           << " r:" << ageToText(track.radar_age_ms)
+           << " sp:" << ageToText(track.speed_age_ms) << " P:"
+           << (track.is_predicted_camera ? "1" : "0") << " AG:"
+           << (track.is_aggressive_mode ? "1" : "0");
+      cv::putText(canvas, dbg2.str(), cv::Point(anchor_x - 40, anchor_y - 7),
+                  cv::FONT_HERSHEY_SIMPLEX, 0.27, cv::Scalar(170, 170, 170), 1,
+                  cv::LINE_AA);
 
       if (hold_active && track.z_m > 0.1f && anchor_x >= 0 &&
           anchor_x < kCanvasWidth && anchor_y >= 0 &&
@@ -530,6 +633,35 @@ void BEVDashboard::renderLoop() {
       }
 
       ++it;
+    }
+
+    cv::rectangle(canvas, cv::Rect(6, 6, 195, 52), cv::Scalar(35, 35, 35),
+                  cv::FILLED);
+    cv::rectangle(canvas, cv::Rect(6, 6, 195, 52), cv::Scalar(90, 90, 90), 1);
+    cv::putText(canvas, "FusionDbg", cv::Point(10, 18), cv::FONT_HERSHEY_SIMPLEX,
+                0.34, cv::Scalar(230, 230, 230), 1, cv::LINE_AA);
+
+    std::stringstream summary_1;
+    summary_1 << "AG tracks: " << aggressive_tracks_visible << "  Best TTC: ";
+    if (std::isfinite(best_ttc_s)) {
+      summary_1 << std::fixed << std::setprecision(2) << best_ttc_s << "s"
+                << " ID:" << best_ttc_id;
+    } else {
+      summary_1 << "--";
+    }
+    cv::putText(canvas, summary_1.str(), cv::Point(10, 32),
+                cv::FONT_HERSHEY_SIMPLEX, 0.30, cv::Scalar(0, 200, 255), 1,
+                cv::LINE_AA);
+
+    if (frame.fcw_eval_context.has_value() && frame.fcw_eval_context->has_candidate) {
+      std::stringstream summary_2;
+      summary_2 << "FCW cand ID:" << frame.fcw_eval_context->object_id
+                << " L:" << static_cast<int>(frame.fcw_eval_context->level)
+                << " r:" << std::fixed << std::setprecision(2)
+                << frame.fcw_eval_context->risk_score;
+      cv::putText(canvas, summary_2.str(), cv::Point(10, 46),
+                  cv::FONT_HERSHEY_SIMPLEX, 0.28, cv::Scalar(180, 220, 255), 1,
+                  cv::LINE_AA);
     }
 
     // FCW directional rays are drawn last so they remain visible over overlays.

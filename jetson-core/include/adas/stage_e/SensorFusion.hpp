@@ -1,192 +1,211 @@
 // File: include/adas/stage_e/SensorFusion.hpp
-// Camera-Radar fusion for FCW vertical slice
-// Uses a ground-plane pinhole geometry model to estimate longitudinal distance
-// from 2D bounding boxes and fuses with FMCW radar using 3-condition gating.
+// Asynchronous camera-radar fusion with EKF track state for FCW.
 #pragma once
 
 #include "adas/common/Types.hpp"
 
 #include <opencv2/core.hpp>
 
+#include <array>
 #include <atomic>
-#include <cmath>
-#include <deque>
+#include <cstdint>
 #include <limits>
-#include <optional>
+#include <mutex>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
 namespace adas {
 
-// ─────────────────────────────────────────────────────────────────────────────
-//                         FUSED OBJECT (Stage E output)
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// A single validated, fused object that has passed all gating conditions.
 struct FusedObject {
-    uint64_t object_id;   ///< Persistent tracker ID from nvtracker (Det::object_id)
-    int      object_class;
-    float    score;
+  uint64_t object_id;
+  int object_class;
+  float score;
 
-    // Camera data
-    cv::Rect2f  box_px;
-    cv::Point2f centroid_px;
-    float       z_cam_m;       ///< Ground-plane camera distance estimate (m) [NEW]
-    float       v_cam_mps;     ///< Camera-derived longitudinal velocity (m/s) [NEW]
-                               ///< Negative = approaching (matches spec convention)
+  // Camera data
+  cv::Rect2f box_px;
+  cv::Point2f centroid_px;
+  float z_cam_m;
+  float v_cam_mps;
 
-    // Radar data (populated only when all 3 gates pass)
-    bool  has_radar;
-    float range_m;           ///< Z_rad from radar (authoritative range)
-    float radial_vel_mps;    ///< V_rad (positive=toward/inward, negative=away)
-    float x_lateral_m;       ///< Lateral offset in ego frame (meters)
-    float fusion_quality;    ///< Radar-camera association quality [0..1]
-    bool  speed_fresh;       ///< True if speed is within TTL [NEW]
-    uint32_t speed_age_ms;   ///< Age of speed sample (for dashboard freshness)
+  // Radar data (authoritative longitudinal state when available)
+  bool has_radar;
+  float range_m;
+  float radial_vel_mps; // +toward/inward, -away/outward
+  float x_lateral_m;
+  float fusion_quality; // [0..1]
+  bool speed_fresh;
+  uint32_t speed_age_ms;
 
-    // Output
-    float    ttc_s;    ///< Time-to-collision (s). INFINITY if not approaching.
-    uint16_t sources;  ///< SensorSource bitmask
+  // FCW/BEV metadata
+  float ttc_s;
+  uint16_t sources;
+  float theta_rad;
+  uint32_t camera_age_ms;
+  uint32_t radar_age_ms;
+  bool is_predicted_camera;
+  bool is_aggressive_mode;
 
-    FusedObject()
-        : object_id(UINT64_MAX), object_class(0), score(0.f),
-          box_px(), centroid_px(),
-          z_cam_m(0.f), v_cam_mps(0.f),
-          has_radar(false), range_m(0.f), radial_vel_mps(0.f),
-          x_lateral_m(0.f), fusion_quality(0.f),
-          speed_fresh(false), speed_age_ms(0),
-          ttc_s(std::numeric_limits<float>::infinity()),
-          sources(SRC_NONE) {}
+  FusedObject()
+      : object_id(UINT64_MAX), object_class(0), score(0.0f), box_px(),
+        centroid_px(), z_cam_m(0.0f), v_cam_mps(0.0f), has_radar(false),
+        range_m(0.0f), radial_vel_mps(0.0f), x_lateral_m(0.0f),
+        fusion_quality(0.0f), speed_fresh(false), speed_age_ms(0),
+        ttc_s(std::numeric_limits<float>::infinity()), sources(SRC_NONE),
+        theta_rad(0.0f), camera_age_ms(0), radar_age_ms(0),
+        is_predicted_camera(false), is_aggressive_mode(false) {}
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-//                         FUSION CONFIGURATION
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// All parameters needed for the ground-plane 1D–2D fusion pipeline.
-/// Extract from your calibration YAML and rig geometry before constructing
-/// SensorFusion. Values set here come from FrontCam_calibration.yaml.
 struct FusionConfig {
-    // ── Camera intrinsics (FrontCam_calibration.yaml, 1280×720 reference) ──
-    float f_x = 828.752f;   ///< Horizontal focal length (pixels)
-    float f_y = 829.188f;   ///< Vertical focal length   (pixels)
-    float c_x = 606.709f;   ///< Principal point X       (pixels)
-    float c_y = 397.742f;   ///< Principal point Y       (pixels)
+  // Camera intrinsics at calibration resolution.
+  float f_x = 828.752f;
+  float f_y = 829.188f;
+  float c_x = 606.709f;
+  float c_y = 397.742f;
+  float calib_width_px = 1280.0f;
+  float calib_height_px = 720.0f;
 
-    // Reference resolution these intrinsics were calibrated at.
-    // When the pipeline runs at a different resolution, intrinsics are scaled.
-    float calib_width_px  = 1280.f;
-    float calib_height_px = 720.f;
+  // Rig geometry.
+  float cam_height_m = 1.30f;
+  float radar_below_cam_m = 0.0762f;
 
-    // ── Rig geometry ────────────────────────────────────────────────────────
-    float cam_height_m      = 1.30f;    ///< H: camera optical centre above ground (m)
-    float radar_below_cam_m = 0.0762f;  ///< Physical distance radar is below camera (m)
-                                        ///< = 3 inches. Used to project radar centre
-                                        ///< into image space for ROI computation.
+  // Front radar/camera shared intake and range tuning.
+  float radar_half_fov_deg = 15.0f; // 30 deg total
+  float roi_z_ref_m = 20.0f;
+  float z_min_m = 1.0f;
+  float z_max_m = 80.0f;
 
-    // ── Radar FOV projection ────────────────────────────────────────────────
-    float radar_half_fov_deg = 15.f;    ///< Half-angle of 30° radar FOV (degrees)
-    float roi_z_ref_m        = 20.f;    ///< Reference depth for vertical ROI centre.
-                                        ///< At 20 m, radar_below_cam_m shifts ROI
-                                        ///< down by ~4 px — negligible but correct.
+  // Legacy/default range gate baseline.
+  float dist_gate_m = 5.5f;
 
-    // ── Distance & velocity constraint derivation ───────────────────────────
-    float z_min_m = 1.0f;              ///< Reject Z_cam estimates below this (noise)
-    float z_max_m = 80.0f;            ///< Reject Z_cam estimates above this
+  // FCW v3 association controls.
+  float ttc_aggressive_s = 3.0f;
+  float normal_angle_gate_deg = 12.5f;
+  float aggressive_angle_gate_deg = 18.0f;
+  float normal_range_gate_m = 5.5f;
+  float aggressive_range_scale = 1.5f;
+  uint32_t camera_hold_ms = 400;
 
-    // ── Gating thresholds (Phase 5) ─────────────────────────────────────────
-    float dist_gate_m  = 5.0f;         ///< |Z_cam - Z_rad| < dist_gate_m to match
-    float vel_gate_mps = 3.0f;         ///< |V_cam - V_rad| < vel_gate_mps to match
+  // Association stability guards.
+  float max_backward_jump_m = 0.8f; // Reject range jumps away while closing.
+  float closing_speed_for_backward_guard_mps = 0.4f;
+  float camera_consistency_min_m = 1.25f;
+  float camera_consistency_ratio = 0.45f;
+  float camera_consistency_penalty = 1.5f;
 
-    // ── Track history ────────────────────────────────────────────────────────
-    int track_history_len = 8;         ///< Max Z_cam samples retained per track_id
+  // Track retention and output freshness.
+  uint32_t track_cleanup_ms = 1600;
+  uint32_t radar_hold_ms = 1000;
+  uint32_t predicted_camera_threshold_ms = 80;
 
-    FusionConfig() = default;
+  // EKF process noise.
+  float ekf_q_z = 1.0f;
+  float ekf_q_vz = 1.2f;
+  float ekf_q_theta = 0.04f;
+  float ekf_q_theta_dot = 0.06f;
+
+  // EKF measurement noise.
+  float ekf_r_radar_z = 0.35f;
+  float ekf_r_radar_vz = 0.55f;
+  float ekf_r_cam_theta = 0.018f;
+  float ekf_r_cam_z_weak = 30.0f; // weak consistency only
+
+  // Fixed radar range tx offset used historically in this project.
+  float radar_tx_m = 0.0127f;
+
+  FusionConfig() = default;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-//                         SENSOR FUSION CLASS
-// ─────────────────────────────────────────────────────────────────────────────
-
-/// SensorFusion: Implements the ground-plane 1D–2D fusion pipeline.
-///
-/// Pipeline overview (per user spec):
-///   Phase 1 — Read intrinsics from FusionConfig (static at construction).
-///   Phase 2 — Estimate Z_cam from bottom-centre pixel via pinhole geometry.
-///   Phase 3 — Estimate V_cam from per-track Z_cam history (Δz/Δt).
-///   Phase 4 — Read Z_rad, V_rad from each radar target.
-///   Phase 5 — Gate: spatial ROI + distance match + velocity match → FusedObject.
-///
-/// Thread safety: setPitch() may be called from the ZMQ imuThread at any time;
-/// it writes to an atomic<float>. fuse() is called from the visualisation thread
-/// only and reads that atomic safely.
 class SensorFusion {
-  public:
-    explicit SensorFusion(const FusionConfig& config = FusionConfig());
+public:
+  explicit SensorFusion(const FusionConfig &config = FusionConfig());
 
-    /// Set the current camera pitch angle (radians) received from the Pi.
-    /// Called by the ZMQ IMU pitch thread; stored atomically.
-    /// Positive θ = nose-up (camera tilted toward horizon).
-    void setPitch(float pitch_rad) {
-        pitch_rad_.store(pitch_rad, std::memory_order_relaxed);
-    }
+  void setPitch(float pitch_rad) {
+    pitch_rad_.store(pitch_rad, std::memory_order_relaxed);
+  }
 
-    /// Get the last pitch value (for logging / diagnostics).
-    float getPitch() const {
-        return pitch_rad_.load(std::memory_order_relaxed);
-    }
+  float getPitch() const {
+    return pitch_rad_.load(std::memory_order_relaxed);
+  }
 
-    /// Set the dynamic camera height (meters).
-    /// Called by the visualisation thread when changed in the config menu.
-    void setCameraHeight(float height_m) {
-        cam_height_m_.store(height_m, std::memory_order_relaxed);
-    }
+  void setCameraHeight(float height_m) {
+    cam_height_m_.store(height_m, std::memory_order_relaxed);
+  }
 
-    /// Run the full fusion pipeline for one frame.
-    /// @param camera  DetBatch from Stage B (DeepStream probe output)
-    /// @param radar   RadarTargets from Stage A (OPS243-A FrontRadar)
-    /// @return        Validated FusedObjects that passed all gating conditions
-    std::vector<FusedObject> fuse(const DetBatch& camera,
-                                  const RadarTargets& radar);
+  // New asynchronous API.
+  void ingestRadar(const RadarTargets &radar, uint64_t now_ns = 0);
+  void ingestCamera(const DetBatch &camera, uint64_t now_ns = 0);
+  std::vector<FusedObject> getFusedObjects(uint64_t now_ns = 0);
 
-    /// Compute the 2D radar ROI bounding box scaled for the given resolution.
-    /// Call this once per resolution change; result can be cached by caller.
-    cv::Rect2f computeRadarROI(float frame_width, float frame_height) const;
+  // Compatibility wrapper for older call sites.
+  std::vector<FusedObject> fuse(const DetBatch &camera, const RadarTargets &radar);
 
-  private:
-    // ── Phase 2 ─────────────────────────────────────────────────────────────
-    /// Estimate longitudinal distance Z_cam from bottom-centre pixel v using
-    /// the ground-plane model:  Z = H / tan(θ + α), where α = atan2(v - c_y, f_y).
-    /// Returns zero (invalid) if the geometry produces a negative or implausible Z.
-    float estimateDistance(float v_bottom, float fy_scaled, float cy_scaled,
-                           float pitch_rad, float cam_height_m) const;
+  cv::Rect2f computeRadarROI(float frame_width, float frame_height) const;
 
-    /// Helper to compute Intersection over Union of two bounding boxes (Phase 1)
-    float calculateIOU(const cv::Rect2f& a, const cv::Rect2f& b) const;
+private:
+  struct TrackState {
+    uint64_t object_id = UINT64_MAX;
+    int object_class = 0;
+    float score = 0.0f;
 
+    cv::Rect2f box_px;
+    cv::Point2f centroid_px;
+    float z_cam_m = 0.0f;
+    float cam_theta_rad = 0.0f;
+    bool has_camera_obs = false;
 
-    // ── Phase 5 ─────────────────────────────────────────────────────────────
-    /// Return true if the bottom-centre pixel (u, v) is inside the radar ROI.
-    bool inRadarROI(float u, float v, const cv::Rect2f& roi) const;
+    // EKF state: [z, vz, theta, theta_dot]
+    std::array<float, 4> x{0.0f, 0.0f, 0.0f, 0.0f};
+    std::array<float, 16> P{0.0f}; // row-major 4x4
+    bool initialized = false;
 
-    /// Given Z_rad and V_rad, compute TTC.
-    /// Convention: V_rad > 0 means approaching → TTC = Z_rad / V_rad.
-    float computeTTC(float z_rad, float v_rad_approaching) const;
+    float fusion_quality = 0.0f;
+    bool speed_fresh = false;
+    uint32_t speed_age_ms = 0;
+    bool is_aggressive_mode = false;
 
-    // ── State ────────────────────────────────────────────────────────────────
-    FusionConfig config_;
+    uint64_t last_predict_ns = 0;
+    uint64_t last_camera_ns = 0;
+    uint64_t last_radar_ns = 0;
+    uint64_t last_fused_ns = 0;
+  };
 
-    /// Current camera pitch from ZMQ IMU pitch message (atomic for thread safety).
-    std::atomic<float> pitch_rad_{0.0f};
+  struct RadarObs {
+    float range_m = 0.0f;
+    float radial_vel_mps = 0.0f;
+    bool speed_fresh = false;
+    uint32_t speed_age_ms = 0;
+  };
 
-    /// Current camera height above road (atomic for thread safety).
-    std::atomic<float> cam_height_m_{1.30f};
+  // Core math helpers.
+  float estimateDistance(float v_bottom, float fy_scaled, float cy_scaled,
+                         float pitch_rad, float cam_height_m) const;
+  float calculateIOU(const cv::Rect2f &a, const cv::Rect2f &b) const;
+  bool inRadarROI(float u, float v, const cv::Rect2f &roi) const;
+  float computeTTC(float z_rad, float v_rad_approaching) const;
 
-    /// Cached ROI for the last seen frame resolution (lazy-updated in fuse()).
-    mutable cv::Rect2f cached_roi_;
-    mutable float      cached_roi_width_  = -1.f;
-    mutable float      cached_roi_height_ = -1.f;
+  // EKF helpers.
+  static float normalizeAngle(float rad);
+  void initializeTrack(TrackState &track, const Det &det, float theta_rad,
+                       float z_cam_m, uint64_t now_ns);
+  void predictTrackTo(TrackState &track, uint64_t now_ns);
+  void updateTrackCamera(TrackState &track, float theta_rad, float z_cam_m);
+  void updateTrackRadar(TrackState &track, float z_rad_m, bool has_speed,
+                        float v_rad_mps);
+  void maybeCleanupTracks(uint64_t now_ns);
+
+  FusionConfig config_;
+
+  std::atomic<float> pitch_rad_{0.0f};
+  std::atomic<float> cam_height_m_{1.30f};
+
+  mutable cv::Rect2f cached_roi_;
+  mutable float cached_roi_width_ = -1.0f;
+  mutable float cached_roi_height_ = -1.0f;
+
+  std::unordered_map<uint64_t, TrackState> tracks_;
+  RadarTargets latest_radar_;
+
+  std::mutex mutex_;
 };
 
 } // namespace adas

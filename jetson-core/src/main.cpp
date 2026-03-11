@@ -4,6 +4,7 @@
 #include <csignal>
 #include <cstdint>
 #include <cstdlib>
+#include <algorithm>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -174,19 +175,17 @@ void visualizationThread() {
             << (display_enabled ? "enabled" : "disabled") << ")\n";
 
   while (g_visualizer_running.load() && !g_shutdown_requested.load()) {
-    bool got_frame = false;
+    bool got_camera_update = false;
     adas::DetBatch batch;
-    // Drain to latest
     if (g_ingest_manager) {
       while (g_ingest_manager->getFrontCamDetQueue().try_pop(batch)) {
-        got_frame = true;
+        got_camera_update = true;
       }
     }
 
     // DeepStream owns the X11 video window now.
     // Legacy OpenCV cv::namedWindow creation removed.
 
-    // Get latest radar data from IngestManager
     adas::RadarTargets radar;
     bool got_radar_update = false;
     if (g_ingest_manager) {
@@ -194,8 +193,13 @@ void visualizationThread() {
         auto &radar_queue =
             g_ingest_manager->getRadarQueue(adas::Mount::FrontRadar);
         while (radar_queue.try_pop(radar)) {
-          // Keep draining to get latest
           got_radar_update = true;
+          if (g_sensor_fusion) {
+            const uint64_t radar_now_ns =
+                (radar.h.t_ingest_ns > 0) ? radar.h.t_ingest_ns
+                                          : adas::Clock::now_ns();
+            g_sensor_fusion->ingestRadar(radar, radar_now_ns);
+          }
         }
       } catch (...) {
         // FrontRadar not configured, radar.targets will be empty
@@ -207,7 +211,6 @@ void visualizationThread() {
       auto &imu_queue = g_ingest_manager->getIMUQueue();
       adas::ImuSample imu_sample;
       while (imu_queue.try_pop(imu_sample)) {
-        // Calculate dt from timestamp
         float dt = 0.01f; // Default 100Hz
         if (g_ego_frame->previous_time_ns != 0 &&
             imu_sample.t_capture > g_ego_frame->previous_time_ns) {
@@ -218,133 +221,125 @@ void visualizationThread() {
         g_ego_frame->update(imu_sample, dt);
       }
 
-      // Pass ego velocity to FCW monitor
       if (g_fcw_monitor) {
         g_fcw_monitor->setEgoVelocity(g_ego_frame->getForwardVelocity_mps());
       }
     }
 
-    if (got_frame) {
-      // Run Stage E fusion
-      std::vector<adas::FusedObject> fused;
-      if (g_sensor_fusion) {
-        // Update fusion with the latest IMU pitch angle from the Pi.
-        // The ZMQ imuThread writes this atomically; we read it here once per
-        // frame so all distance estimates in this batch share the same θ.
-        if (g_ingest_manager) {
-          g_sensor_fusion->setPitch(g_ingest_manager->getLatestPitch());
+    if (g_sensor_fusion) {
+      if (g_ingest_manager) {
+        g_sensor_fusion->setPitch(g_ingest_manager->getLatestPitch());
+      }
+      if (got_camera_update) {
+        const uint64_t cam_now_ns =
+            (batch.h.t_ingest_ns > 0) ? batch.h.t_ingest_ns : adas::Clock::now_ns();
+        g_sensor_fusion->ingestCamera(batch, cam_now_ns);
+      }
+    }
+
+    const bool have_sensor_tick = got_camera_update || got_radar_update;
+    std::vector<adas::FusedObject> fused;
+    if (g_sensor_fusion && have_sensor_tick) {
+      fused = g_sensor_fusion->getFusedObjects(adas::Clock::now_ns());
+    }
+
+    std::optional<adas::FCWAlert> fcw_alert;
+    std::optional<adas::FCWEvaluation> fcw_eval;
+    if (g_fcw_monitor && !fused.empty()) {
+      fcw_alert = g_fcw_monitor->check(fused, adas::Clock::now_ns());
+      const auto eval = g_fcw_monitor->getLastEvaluation();
+      if (eval.has_candidate) {
+        fcw_eval = eval;
+      }
+    }
+
+    g_fcw_alert_active.store(fcw_alert.has_value());
+
+    // BLE Transmission: Heartbeat (1Hz) + Alerts (Immediate)
+    if (g_ble_server && g_ble_server->isConnected()) {
+      static auto last_ble_send = std::chrono::steady_clock::time_point();
+
+      const bool is_alerting = fcw_alert.has_value();
+      const auto now_time = std::chrono::steady_clock::now();
+      const auto time_since = std::chrono::duration_cast<std::chrono::milliseconds>(
+          now_time - last_ble_send);
+
+      if (is_alerting || time_since.count() > 1000) {
+        std::vector<adas::Alert> alerts_to_send;
+
+        int speed_kmh = 0;
+        if (g_ego_frame) {
+          speed_kmh = static_cast<int>(g_ego_frame->getSpeed_mps() * 3.6f);
         }
-        fused = g_sensor_fusion->fuse(batch, radar);
-      }
 
-      // Check for FCW alerts (fused-first risk model)
-      std::optional<adas::FCWAlert> fcw_alert;
-      if (g_fcw_monitor && !fused.empty()) {
-        fcw_alert = g_fcw_monitor->check(fused, adas::Clock::now_ns());
-      }
-
-      // Update FCW alert active status
-      if (fcw_alert.has_value()) {
-        // Radar alerts handled by BLE, we can keep g_fcw_alert_active for
-        // potential dashboard UI later.
-        g_fcw_alert_active.store(true);
-      } else {
-        g_fcw_alert_active.store(false);
-      }
-
-      // BLE Transmission: Heartbeat (1Hz) + Alerts (Immediate)
-      if (g_ble_server && g_ble_server->isConnected()) {
-        static auto last_ble_send = std::chrono::steady_clock::time_point();
-
-        bool is_alerting = fcw_alert.has_value();
-
-        auto now_time = std::chrono::steady_clock::now();
-        auto time_since = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now_time - last_ble_send);
-
-        if (is_alerting || time_since.count() > 1000) {
-          std::vector<adas::Alert> alerts_to_send;
-
-          // Use GPS-corrected ego speed for the phone dashboard
-          int speed_kmh = 0;
-          if (g_ego_frame) {
-            speed_kmh = static_cast<int>(g_ego_frame->getSpeed_mps() * 3.6f);
-          }
-
-          if (fcw_alert.has_value()) {
-            auto alert = adas::FCWAlertAdapter::convert(*fcw_alert,
-                                                        adas::Clock::now_ns());
-            alerts_to_send.push_back(alert);
-          } else {
-            // Heartbeat: No alerts
-          }
-
-          uint16_t tickId =
-              static_cast<uint16_t>(adas::Clock::now_ns() / 50'000'000);
-
-          // Encode Payload
-          auto payload = adas::encodeTickPayloadToCbor(tickId, speed_kmh, 0, 0,
-                                                       alerts_to_send);
-
-          // Fragment and Send
-          auto frames = adas::fragmentPayload(tickId, payload, 185);
-          for (const auto &frame : frames) {
-            g_ble_server->notifyAlertStream(frame);
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
-          }
-
-          last_ble_send = now_time;
-        }
-      }
-
-      // Log metrics if enabled
-      if (g_metrics_logger && g_metrics_logger->isEnabled()) {
-        uint64_t now_ns = adas::Clock::now_ns();
-        double e2e_latency_ms = (now_ns - batch.h.t_ingest_ns) / 1e6;
-
-        // Capture TTC and range from FCW alert if present
-        float ttc = fcw_alert.has_value() ? fcw_alert->ttc_s : -1.0f;
-        float range = fcw_alert.has_value() ? fcw_alert->range_m : -1.0f;
-        bool triggered = fcw_alert.has_value();
-
-        g_metrics_logger->logFrame(now_ns / 1e6, // timestamp_ms
-                                   batch.h.seq,
-                                   batch.inference_time_us /
-                                       1000.0, // convert to ms
-                                   ttc, range, triggered, e2e_latency_ms);
-      }
-
-      // Stage E -> BEV payload update
-      if (g_bev_dashboard) {
-        adas::BEVInputFrame bev_frame;
-        bev_frame.camera_batch = batch;
-        bev_frame.radar_targets = radar;
-        bev_frame.fused_objects = fused;
         if (fcw_alert.has_value()) {
-          bev_frame.fcw_alert_context = *fcw_alert;
-          if (fcw_alert->object_id != UINT64_MAX) {
-            bev_frame.fcw_focus_object_id = fcw_alert->object_id;
-          }
+          auto alert =
+              adas::FCWAlertAdapter::convert(*fcw_alert, adas::Clock::now_ns());
+          alerts_to_send.push_back(alert);
+        } else {
+          // Heartbeat: No alerts
         }
-        bev_frame.now_ns = adas::Clock::now_ns();
-        g_bev_dashboard->update(bev_frame);
+
+        uint16_t tickId =
+            static_cast<uint16_t>(adas::Clock::now_ns() / 50'000'000);
+
+        auto payload =
+            adas::encodeTickPayloadToCbor(tickId, speed_kmh, 0, 0, alerts_to_send);
+
+        auto frames = adas::fragmentPayload(tickId, payload, 185);
+        for (const auto &frame : frames) {
+          g_ble_server->notifyAlertStream(frame);
+          std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        last_ble_send = now_time;
       }
-    } else if (g_bev_dashboard && got_radar_update) {
-      // Feed raw front radar ticks to BEV even when camera has no new frame.
+    }
+
+    // Log metrics when camera frame data advanced Stage E.
+    if (got_camera_update && g_metrics_logger && g_metrics_logger->isEnabled()) {
+      const uint64_t now_ns = adas::Clock::now_ns();
+      const double e2e_latency_ms = (now_ns - batch.h.t_ingest_ns) / 1e6;
+
+      const float ttc = fcw_alert.has_value() ? fcw_alert->ttc_s : -1.0f;
+      const float range = fcw_alert.has_value() ? fcw_alert->range_m : -1.0f;
+      const bool triggered = fcw_alert.has_value();
+
+      g_metrics_logger->logFrame(now_ns / 1e6, // timestamp_ms
+                                 batch.h.seq,
+                                 batch.inference_time_us / 1000.0, // ms
+                                 ttc, range, triggered, e2e_latency_ms);
+    }
+
+    if (g_bev_dashboard && have_sensor_tick) {
       adas::BEVInputFrame bev_frame;
-      bev_frame.radar_targets = radar;
+      if (got_camera_update) {
+        bev_frame.camera_batch = batch;
+      }
+      if (got_radar_update) {
+        bev_frame.radar_targets = radar;
+      }
+      bev_frame.fused_objects = fused;
+      if (fcw_eval.has_value()) {
+        bev_frame.fcw_eval_context = *fcw_eval;
+      }
+      if (fcw_alert.has_value()) {
+        bev_frame.fcw_alert_context = *fcw_alert;
+        if (fcw_alert->object_id != UINT64_MAX) {
+          bev_frame.fcw_focus_object_id = fcw_alert->object_id;
+        }
+      }
       bev_frame.now_ns = adas::Clock::now_ns();
       g_bev_dashboard->update(bev_frame);
     }
 
-    if (!got_frame) {
+    if (!have_sensor_tick) {
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
   }
 
   std::cout << "[StageE] Thread stopped\n";
 }
-
 void statusBarThread() {
   while (g_status_running.load() && !g_shutdown_requested.load()) {
     if (!g_ingest_manager) {
@@ -492,9 +487,27 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   if (it != config.mounts.end()) {
     fusion_config.cam_height_m = it->second.xyz_m[2];
   }
-  // Aggressive camera-radar intake for FCW primary fusion path.
   fusion_config.radar_half_fov_deg = 15.0f; // 30 degree cone
   fusion_config.dist_gate_m = 5.5f;
+  fusion_config.normal_range_gate_m = fusion_config.dist_gate_m;
+  fusion_config.ttc_aggressive_s = config.stage_e_fusion.ttc_aggressive_s;
+  fusion_config.camera_hold_ms =
+      static_cast<uint32_t>(std::max(0, config.stage_e_fusion.camera_hold_ms));
+  fusion_config.normal_angle_gate_deg = config.stage_e_fusion.normal_angle_gate_deg;
+  fusion_config.aggressive_angle_gate_deg =
+      config.stage_e_fusion.aggressive_angle_gate_deg;
+  fusion_config.aggressive_range_scale =
+      config.stage_e_fusion.aggressive_range_scale;
+  fusion_config.ekf_q_z = config.stage_e_fusion.ekf_q_z;
+  fusion_config.ekf_q_vz = config.stage_e_fusion.ekf_q_vz;
+  fusion_config.ekf_q_theta = config.stage_e_fusion.ekf_q_theta;
+  fusion_config.ekf_q_theta_dot = config.stage_e_fusion.ekf_q_theta_dot;
+  fusion_config.ekf_r_radar_z = config.stage_e_fusion.ekf_r_radar_z;
+  fusion_config.ekf_r_radar_vz = config.stage_e_fusion.ekf_r_radar_vz;
+  fusion_config.ekf_r_cam_theta = config.stage_e_fusion.ekf_r_cam_theta;
+  fusion_config.ekf_r_cam_z_weak = config.stage_e_fusion.ekf_r_cam_z_weak;
+  fusion_config.radar_hold_ms =
+      static_cast<uint32_t>(std::max(500, config.front_radar.speed_ttl_ms + 200));
   g_sensor_fusion = std::make_unique<adas::SensorFusion>(fusion_config);
 
   // Configure FCW with physics-based parameters
@@ -509,6 +522,10 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   fcw_config.warn_risk_threshold = 0.56f;
   fcw_config.critical_risk_threshold = 0.74f;
   fcw_config.ttc_last_ditch_s = 0.85f;
+  fcw_config.camera_hold_ms = fusion_config.camera_hold_ms;
+  fcw_config.camera_drop_track_hold_ms = 1200;
+  fcw_config.camera_drop_radar_recent_ms = 150;
+  fcw_config.camera_drop_min_quality = 0.32f;
   g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
 
   // Initialize EgoFrame for ego vehicle state from IMU
@@ -595,6 +612,26 @@ void startReplayPipeline(const std::string &replay_file, float speed,
   adas::FusionConfig replay_fusion_config;
   replay_fusion_config.radar_half_fov_deg = 15.0f;
   replay_fusion_config.dist_gate_m = 5.5f;
+  replay_fusion_config.normal_range_gate_m = replay_fusion_config.dist_gate_m;
+  replay_fusion_config.ttc_aggressive_s = config.stage_e_fusion.ttc_aggressive_s;
+  replay_fusion_config.camera_hold_ms =
+      static_cast<uint32_t>(std::max(0, config.stage_e_fusion.camera_hold_ms));
+  replay_fusion_config.normal_angle_gate_deg =
+      config.stage_e_fusion.normal_angle_gate_deg;
+  replay_fusion_config.aggressive_angle_gate_deg =
+      config.stage_e_fusion.aggressive_angle_gate_deg;
+  replay_fusion_config.aggressive_range_scale =
+      config.stage_e_fusion.aggressive_range_scale;
+  replay_fusion_config.ekf_q_z = config.stage_e_fusion.ekf_q_z;
+  replay_fusion_config.ekf_q_vz = config.stage_e_fusion.ekf_q_vz;
+  replay_fusion_config.ekf_q_theta = config.stage_e_fusion.ekf_q_theta;
+  replay_fusion_config.ekf_q_theta_dot = config.stage_e_fusion.ekf_q_theta_dot;
+  replay_fusion_config.ekf_r_radar_z = config.stage_e_fusion.ekf_r_radar_z;
+  replay_fusion_config.ekf_r_radar_vz = config.stage_e_fusion.ekf_r_radar_vz;
+  replay_fusion_config.ekf_r_cam_theta = config.stage_e_fusion.ekf_r_cam_theta;
+  replay_fusion_config.ekf_r_cam_z_weak = config.stage_e_fusion.ekf_r_cam_z_weak;
+  replay_fusion_config.radar_hold_ms =
+      static_cast<uint32_t>(std::max(500, config.front_radar.speed_ttl_ms + 200));
   g_sensor_fusion = std::make_unique<adas::SensorFusion>(replay_fusion_config);
 
   adas::FCWMonitor::Config fcw_config;
@@ -608,6 +645,10 @@ void startReplayPipeline(const std::string &replay_file, float speed,
   fcw_config.warn_risk_threshold = 0.56f;
   fcw_config.critical_risk_threshold = 0.74f;
   fcw_config.ttc_last_ditch_s = 0.85f;
+  fcw_config.camera_hold_ms = replay_fusion_config.camera_hold_ms;
+  fcw_config.camera_drop_track_hold_ms = 1200;
+  fcw_config.camera_drop_radar_recent_ms = 150;
+  fcw_config.camera_drop_min_quality = 0.32f;
   g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
 
   g_ego_frame = std::make_unique<adas::EgoFrame>();

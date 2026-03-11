@@ -27,6 +27,7 @@ struct BEVInputFrame {
   std::vector<FusedObject> fused_objects;
   std::optional<uint64_t> fcw_focus_object_id;
   std::optional<FCWAlert> fcw_alert_context;
+  std::optional<FCWEvaluation> fcw_eval_context;
   uint64_t now_ns = 0;
 };
 
@@ -65,6 +66,14 @@ private:
     float radial_vel_mps = 0.0f;
     bool has_cam_est_range = false;
     float cam_est_range_m = 0.0f;
+    bool has_radar = false;
+    float ttc_s = -1.0f;
+    float fusion_quality = 0.0f;
+    float dz_cam_radar_m = -1.0f;
+    uint32_t camera_age_ms = 0;
+    uint32_t radar_age_ms = 0;
+    bool is_predicted_camera = false;
+    bool is_aggressive_mode = false;
     bool speed_fresh = false;
     uint32_t speed_age_ms = 0;
     uint64_t last_cam_update_ns = 0;
@@ -72,6 +81,10 @@ private:
     uint64_t ttc_hold_until_ns = 0;
     bool has_fcw_trigger_speed = false;
     float fcw_trigger_speed_mps = 0.0f;
+    uint64_t fcw_eval_until_ns = 0;
+    uint8_t fcw_eval_level = 0;
+    float fcw_eval_risk = 0.0f;
+    bool fcw_eval_used_camera_drop_grace = false;
     bool has_crosshair = false;
     std::string label;
   };

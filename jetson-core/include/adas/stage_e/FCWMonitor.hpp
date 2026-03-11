@@ -26,6 +26,23 @@ struct FCWAlert {
           object_id(UINT64_MAX), timestamp_ns(0), physics_triggered(false) {}
 };
 
+/// FCW evaluation snapshot for BEV/debug visibility.
+struct FCWEvaluation {
+    bool has_candidate;          // False when no eligible object this tick
+    uint64_t object_id;          // Best-evaluated object ID
+    uint8_t level;               // FCWMonitor::RiskLevel cast to uint8_t
+    float risk_score;            // [0..1] fused risk score
+    float ttc_s;                 // Candidate TTC
+    float range_m;               // Candidate range
+    float velocity_mps;          // Candidate closing speed
+    bool used_camera_drop_grace; // True when camera freshness grace was used
+
+    FCWEvaluation()
+        : has_candidate(false), object_id(UINT64_MAX), level(0), risk_score(0.0f),
+          ttc_s(0.0f), range_m(0.0f), velocity_mps(0.0f),
+          used_camera_drop_grace(false) {}
+};
+
 /// FCWMonitor: Checks fused objects for collision threats
 class FCWMonitor {
   public:
@@ -53,6 +70,10 @@ class FCWMonitor {
         float warn_risk_threshold;
         float critical_risk_threshold;
         float ttc_last_ditch_s; // TTC escalation threshold, last-resort only
+        uint32_t camera_hold_ms; // FCW eligibility requires camera freshness
+        uint32_t camera_drop_track_hold_ms; // Temporary radar-only continuation
+        uint32_t camera_drop_radar_recent_ms; // Radar freshness for grace
+        float camera_drop_min_quality; // Minimum fusion quality during grace
 
         // Dwell / hysteresis timing
         uint32_t caution_dwell_ms;
@@ -67,7 +88,10 @@ class FCWMonitor {
               min_fusion_quality(0.22f), path_half_width_m(0.85f),
               path_width_growth_per_m(0.035f), caution_risk_threshold(0.38f),
               warn_risk_threshold(0.56f), critical_risk_threshold(0.74f),
-              ttc_last_ditch_s(0.85f), caution_dwell_ms(180),
+              ttc_last_ditch_s(0.85f), camera_hold_ms(400),
+              camera_drop_track_hold_ms(1200), camera_drop_radar_recent_ms(150),
+              camera_drop_min_quality(0.32f),
+              caution_dwell_ms(180),
               warn_dwell_ms(140), critical_dwell_ms(80), clear_dwell_ms(220) {}
     };
 
@@ -98,6 +122,9 @@ class FCWMonitor {
     /// @return Stopping distance in meters (reaction + braking)
     float calculateStoppingDistance() const;
 
+    /// Get last StageE-4 evaluation snapshot (used by BEV debug UI).
+    FCWEvaluation getLastEvaluation() const { return last_evaluation_; }
+
   private:
     struct TrackState {
         RiskLevel level = RiskLevel::Safe;
@@ -116,6 +143,7 @@ class FCWMonitor {
     Config config_;
     float ego_velocity_mps_ = 0.0f;
     std::unordered_map<uint64_t, TrackState> track_states_;
+    FCWEvaluation last_evaluation_;
 };
 
 } // namespace adas

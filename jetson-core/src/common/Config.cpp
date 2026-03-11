@@ -128,6 +128,44 @@ Config ConfigLoader::loadConfig(const std::string &path) {
         config.front_radar.baud_rate = std::stoi(value);
       } else if (key == "poll_timeout_ms") {
         config.front_radar.poll_timeout_ms = std::stoi(value);
+      } else if (key == "speed_ttl_ms") {
+        config.front_radar.speed_ttl_ms = std::stoi(value);
+      } else if (key == "speed_mag_threshold") {
+        config.front_radar.speed_mag_threshold = std::stoi(value);
+      } else if (key == "range_mag_threshold") {
+        config.front_radar.range_mag_threshold = std::stoi(value);
+      } else if (key == "profile") {
+        config.front_radar.profile = value;
+      }
+    }
+    // Stage E fusion config
+    else if (current_section == "stage_e_fusion") {
+      if (key == "ttc_aggressive_s") {
+        config.stage_e_fusion.ttc_aggressive_s = std::stof(value);
+      } else if (key == "camera_hold_ms") {
+        config.stage_e_fusion.camera_hold_ms = std::stoi(value);
+      } else if (key == "normal_angle_gate_deg") {
+        config.stage_e_fusion.normal_angle_gate_deg = std::stof(value);
+      } else if (key == "aggressive_angle_gate_deg") {
+        config.stage_e_fusion.aggressive_angle_gate_deg = std::stof(value);
+      } else if (key == "aggressive_range_scale") {
+        config.stage_e_fusion.aggressive_range_scale = std::stof(value);
+      } else if (key == "ekf_q_z") {
+        config.stage_e_fusion.ekf_q_z = std::stof(value);
+      } else if (key == "ekf_q_vz") {
+        config.stage_e_fusion.ekf_q_vz = std::stof(value);
+      } else if (key == "ekf_q_theta") {
+        config.stage_e_fusion.ekf_q_theta = std::stof(value);
+      } else if (key == "ekf_q_theta_dot") {
+        config.stage_e_fusion.ekf_q_theta_dot = std::stof(value);
+      } else if (key == "ekf_r_radar_z") {
+        config.stage_e_fusion.ekf_r_radar_z = std::stof(value);
+      } else if (key == "ekf_r_radar_vz") {
+        config.stage_e_fusion.ekf_r_radar_vz = std::stof(value);
+      } else if (key == "ekf_r_cam_theta") {
+        config.stage_e_fusion.ekf_r_cam_theta = std::stof(value);
+      } else if (key == "ekf_r_cam_z_weak") {
+        config.stage_e_fusion.ekf_r_cam_z_weak = std::stof(value);
       }
     }
     // IMU config
@@ -195,6 +233,73 @@ void ConfigLoader::saveConfig(const std::string &path, const Config &config) {
       }
       new_content += line + "\n";
       continue;
+    }
+
+    if (current_section == "stage_e_fusion") {
+      auto emitFloat = [&](const std::string &name, float v) {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << name << ": " << v << "\n";
+        new_content += ss.str();
+      };
+
+      if (key == "ttc_aggressive_s") {
+        emitFloat("ttc_aggressive_s", config.stage_e_fusion.ttc_aggressive_s);
+        continue;
+      }
+      if (key == "camera_hold_ms") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "camera_hold_ms: "
+           << config.stage_e_fusion.camera_hold_ms << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "normal_angle_gate_deg") {
+        emitFloat("normal_angle_gate_deg",
+                  config.stage_e_fusion.normal_angle_gate_deg);
+        continue;
+      }
+      if (key == "aggressive_angle_gate_deg") {
+        emitFloat("aggressive_angle_gate_deg",
+                  config.stage_e_fusion.aggressive_angle_gate_deg);
+        continue;
+      }
+      if (key == "aggressive_range_scale") {
+        emitFloat("aggressive_range_scale",
+                  config.stage_e_fusion.aggressive_range_scale);
+        continue;
+      }
+      if (key == "ekf_q_z") {
+        emitFloat("ekf_q_z", config.stage_e_fusion.ekf_q_z);
+        continue;
+      }
+      if (key == "ekf_q_vz") {
+        emitFloat("ekf_q_vz", config.stage_e_fusion.ekf_q_vz);
+        continue;
+      }
+      if (key == "ekf_q_theta") {
+        emitFloat("ekf_q_theta", config.stage_e_fusion.ekf_q_theta);
+        continue;
+      }
+      if (key == "ekf_q_theta_dot") {
+        emitFloat("ekf_q_theta_dot", config.stage_e_fusion.ekf_q_theta_dot);
+        continue;
+      }
+      if (key == "ekf_r_radar_z") {
+        emitFloat("ekf_r_radar_z", config.stage_e_fusion.ekf_r_radar_z);
+        continue;
+      }
+      if (key == "ekf_r_radar_vz") {
+        emitFloat("ekf_r_radar_vz", config.stage_e_fusion.ekf_r_radar_vz);
+        continue;
+      }
+      if (key == "ekf_r_cam_theta") {
+        emitFloat("ekf_r_cam_theta", config.stage_e_fusion.ekf_r_cam_theta);
+        continue;
+      }
+      if (key == "ekf_r_cam_z_weak") {
+        emitFloat("ekf_r_cam_z_weak", config.stage_e_fusion.ekf_r_cam_z_weak);
+        continue;
+      }
     }
 
     if (current_section == "mounts" && current_mount == "FrontCam" &&

@@ -18,8 +18,7 @@ constexpr float kGravityMps2 = 9.81f;
 constexpr uint64_t kNsPerMs = 1000000ULL;
 constexpr uint64_t kTrackForgetNs = 2000000000ULL;
 
-float normalizedRangeScore(float range_m, float min_range_m,
-                           float max_range_m) {
+float normalizedRangeScore(float range_m, float min_range_m, float max_range_m) {
   const float span = std::max(max_range_m - min_range_m, 0.1f);
   return std::clamp((max_range_m - range_m) / span, 0.0f, 1.0f);
 }
@@ -126,9 +125,8 @@ FCWMonitor::RiskLevel FCWMonitor::applyDwell(TrackState &state,
     return state.level;
   }
 
-  const uint64_t elapsed_ms = (now_ns > state.pending_since_ns)
-                                  ? (now_ns - state.pending_since_ns) / kNsPerMs
-                                  : 0ULL;
+  const uint64_t elapsed_ms =
+      (now_ns > state.pending_since_ns) ? (now_ns - state.pending_since_ns) / kNsPerMs : 0ULL;
   const uint32_t dwell_ms = dwellForLevel(config_, desired_level);
   if (elapsed_ms >= dwell_ms) {
     state.level = desired_level;
@@ -147,9 +145,12 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     float risk = 0.0f;
     bool physics_contrib = false;
     bool ttc_last_ditch = false;
+    bool camera_drop_grace = false;
   };
 
   Candidate best;
+  Candidate best_eval;
+  bool has_eval = false;
   std::unordered_set<uint64_t> seen_ids;
 
   float stopping_distance_m = 0.0f;
@@ -170,6 +171,24 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
       applyDwell(state, RiskLevel::Safe, current_time_ns);
     };
 
+    const bool camera_fresh = obj.camera_age_ms <= config_.camera_hold_ms;
+    bool camera_drop_grace = false;
+    if (!camera_fresh) {
+      const bool has_camera_history = (obj.sources & SRC_CAM_F) != 0;
+      const bool radar_recent_for_grace =
+          obj.radar_age_ms <= config_.camera_drop_radar_recent_ms;
+      const float min_grace_quality =
+          std::max(config_.min_fusion_quality, config_.camera_drop_min_quality);
+      camera_drop_grace =
+          has_camera_history &&
+          obj.camera_age_ms <= config_.camera_drop_track_hold_ms &&
+          radar_recent_for_grace && obj.fusion_quality >= min_grace_quality;
+      if (!camera_drop_grace) {
+        demote_to_safe();
+        continue;
+      }
+    }
+
     if (!obj.has_radar || !obj.speed_fresh) {
       demote_to_safe();
       continue;
@@ -178,8 +197,7 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
       demote_to_safe();
       continue;
     }
-    if (obj.range_m < config_.min_range_m ||
-        obj.range_m > config_.max_range_m) {
+    if (obj.range_m < config_.min_range_m || obj.range_m > config_.max_range_m) {
       demote_to_safe();
       continue;
     }
@@ -202,14 +220,13 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
       continue;
     }
 
-    const float range_score = normalizedRangeScore(
-        obj.range_m, config_.min_range_m, config_.max_range_m);
+    const float range_score =
+        normalizedRangeScore(obj.range_m, config_.min_range_m, config_.max_range_m);
     const float closing_score =
         normalizedClosingScore(closing_mps, config_.min_closing_speed_mps);
     const float quality_score =
         normalizedQualityScore(obj.fusion_quality, config_.min_fusion_quality);
-    const float ttc_score =
-        normalizedTtcScore(obj.ttc_s, config_.ttc_threshold_s);
+    const float ttc_score = normalizedTtcScore(obj.ttc_s, config_.ttc_threshold_s);
 
     float physics_score = 0.0f;
     bool physics_contrib = false;
@@ -235,15 +252,29 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
 
     const RiskLevel desired_level = classifyRisk(risk_score);
     state.last_risk = risk_score;
-    const RiskLevel active_level =
-        applyDwell(state, desired_level, current_time_ns);
+    const RiskLevel active_level = applyDwell(state, desired_level, current_time_ns);
 
-    std::cout << "[StageE: 4_FCW] ID " << obj.object_id
-              << " | Z: " << obj.range_m << "m | V: " << obj.radial_vel_mps
-              << "m/s | TTC: " << obj.ttc_s << "s | Q: " << obj.fusion_quality
-              << " | X: " << obj.x_lateral_m << "m -> risk " << risk_score
-              << " level " << static_cast<int>(active_level)
+    std::cout << "[StageE: 4_FCW] ID " << obj.object_id << " | Z: " << obj.range_m
+              << "m | V: " << obj.radial_vel_mps << "m/s | TTC: " << obj.ttc_s
+              << "s | Q: " << obj.fusion_quality << " | X: " << obj.x_lateral_m
+              << "m -> risk " << risk_score << " level "
+              << static_cast<int>(active_level)
+              << (camera_drop_grace ? " [CAM_DROP_GRACE]" : "")
               << (ttc_last_ditch ? " [TTC_LAST_DITCH]" : "") << "\n";
+
+    if (!has_eval || active_level > best_eval.level ||
+        (active_level == best_eval.level && risk_score > best_eval.risk) ||
+        (active_level == best_eval.level &&
+         std::abs(risk_score - best_eval.risk) < 1e-4f &&
+         obj.ttc_s < best_eval.obj->ttc_s)) {
+      best_eval.obj = &obj;
+      best_eval.level = active_level;
+      best_eval.risk = risk_score;
+      best_eval.physics_contrib = physics_contrib;
+      best_eval.ttc_last_ditch = ttc_last_ditch;
+      best_eval.camera_drop_grace = camera_drop_grace;
+      has_eval = true;
+    }
 
     if (active_level < RiskLevel::Warn) {
       continue;
@@ -251,14 +282,14 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
 
     if (best.obj == nullptr || active_level > best.level ||
         (active_level == best.level && risk_score > best.risk) ||
-        (active_level == best.level &&
-         std::abs(risk_score - best.risk) < 1e-4f &&
+        (active_level == best.level && std::abs(risk_score - best.risk) < 1e-4f &&
          obj.ttc_s < best.obj->ttc_s)) {
       best.obj = &obj;
       best.level = active_level;
       best.risk = risk_score;
       best.physics_contrib = physics_contrib;
       best.ttc_last_ditch = ttc_last_ditch;
+      best.camera_drop_grace = camera_drop_grace;
     }
   }
 
@@ -271,6 +302,19 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     } else {
       ++it;
     }
+  }
+
+  if (has_eval && best_eval.obj != nullptr) {
+    last_evaluation_.has_candidate = true;
+    last_evaluation_.object_id = best_eval.obj->object_id;
+    last_evaluation_.level = static_cast<uint8_t>(best_eval.level);
+    last_evaluation_.risk_score = best_eval.risk;
+    last_evaluation_.ttc_s = best_eval.obj->ttc_s;
+    last_evaluation_.range_m = best_eval.obj->range_m;
+    last_evaluation_.velocity_mps = best_eval.obj->radial_vel_mps;
+    last_evaluation_.used_camera_drop_grace = best_eval.camera_drop_grace;
+  } else {
+    last_evaluation_ = FCWEvaluation();
   }
 
   if (best.obj == nullptr) {
@@ -290,7 +334,9 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     std::cout << "[FCW] ALERT: id=" << alert.object_id << " TTC=" << alert.ttc_s
               << "s range=" << alert.range_m << "m v=" << alert.velocity_mps
               << "m/s level=" << static_cast<int>(best.level)
-              << (best.ttc_last_ditch ? " [TTC_LAST_DITCH]" : "") << "\n";
+              << (best.camera_drop_grace ? " [CAM_DROP_GRACE]" : "")
+              << (best.ttc_last_ditch ? " [TTC_LAST_DITCH]" : "")
+              << "\n";
   }
 
   return alert;

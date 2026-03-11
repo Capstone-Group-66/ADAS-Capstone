@@ -70,6 +70,27 @@ struct IMUConfig {
     bool use_uart = false;
 };
 
+/// Stage E front-fusion and FCW tuning
+struct StageEFusionConfig {
+    float ttc_aggressive_s = 3.0f;
+    int camera_hold_ms = 400;
+    float normal_angle_gate_deg = 12.5f;
+    float aggressive_angle_gate_deg = 18.0f;
+    float aggressive_range_scale = 1.5f;
+
+    // EKF process noise
+    float ekf_q_z = 1.0f;
+    float ekf_q_vz = 1.2f;
+    float ekf_q_theta = 0.04f;
+    float ekf_q_theta_dot = 0.06f;
+
+    // EKF measurement noise
+    float ekf_r_radar_z = 0.35f;
+    float ekf_r_radar_vz = 0.55f;
+    float ekf_r_cam_theta = 0.018f;
+    float ekf_r_cam_z_weak = 30.0f;
+};
+
 /// Complete pipeline configuration
 struct Config {
     std::string schema_version = "1.0";
@@ -80,6 +101,7 @@ struct Config {
     NetworkConfig network;
     RadarConfig front_radar;
     IMUConfig imu;
+    StageEFusionConfig stage_e_fusion;
 
     std::map<Mount, MountExtrinsics> mounts;
 };
