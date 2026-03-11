@@ -264,13 +264,35 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
                        0.21f * quality_score + 0.10f * ttc_score +
                        0.05f * physics_score;
 
+    bool ttc_caution_floor = false;
+    bool ttc_warn_floor = false;
+    const bool ttc_valid = std::isfinite(obj.ttc_s) && obj.ttc_s > 0.0f;
+    if (ttc_valid && obj.ttc_s <= config_.ttc_threshold_s) {
+      risk_score = std::max(risk_score, config_.caution_risk_threshold + 0.01f);
+      ttc_caution_floor = true;
+    }
+    // If TTC is very short and the object is close/in-path, force at least WARN.
+    const float ttc_warn_floor_s = std::max(0.6f, 0.8f * config_.ttc_threshold_s);
+    if (ttc_valid && obj.ttc_s <= ttc_warn_floor_s && obj.range_m <= 5.0f) {
+      risk_score = std::max(risk_score, config_.warn_risk_threshold + 0.01f);
+      ttc_warn_floor = true;
+    }
+
     bool ttc_last_ditch = false;
-    if (std::isfinite(obj.ttc_s) && obj.ttc_s <= config_.ttc_last_ditch_s) {
+    if (ttc_valid && obj.ttc_s <= config_.ttc_last_ditch_s) {
       risk_score = std::max(risk_score, config_.warn_risk_threshold + 0.02f);
       ttc_last_ditch = true;
     }
 
-    const RiskLevel desired_level = classifyRisk(risk_score);
+    RiskLevel desired_level = classifyRisk(risk_score);
+    bool camera_drop_hold_level = false;
+    if (camera_drop_grace &&
+        static_cast<uint8_t>(state.level) > static_cast<uint8_t>(RiskLevel::Safe) &&
+        static_cast<uint8_t>(desired_level) <
+            static_cast<uint8_t>(state.level)) {
+      desired_level = state.level;
+      camera_drop_hold_level = true;
+    }
     state.last_risk = risk_score;
     const RiskLevel active_level =
         applyDwell(state, desired_level, current_time_ns);
@@ -283,7 +305,10 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
               << static_cast<int>(desired_level) << ", pending "
               << static_cast<int>(state.pending_level) << ")"
               << (camera_drop_grace ? " [CAM_DROP_GRACE]" : "")
+              << (camera_drop_hold_level ? " [CAM_DROP_HOLD_LEVEL]" : "")
               << (invalid_demote_grace_used ? " [INVALID_DEMOTE_GRACE]" : "")
+              << (ttc_caution_floor ? " [TTC_CAUTION_FLOOR]" : "")
+              << (ttc_warn_floor ? " [TTC_WARN_FLOOR]" : "")
               << (ttc_last_ditch ? " [TTC_LAST_DITCH]" : "") << "\n";
 
     if (!has_eval || active_level > best_eval.level ||
