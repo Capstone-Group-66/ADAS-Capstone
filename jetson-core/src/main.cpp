@@ -530,6 +530,7 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   fcw_config.camera_drop_track_hold_ms = 1200;
   fcw_config.camera_drop_radar_recent_ms = 150;
   fcw_config.camera_drop_min_quality = 0.32f;
+  fcw_config.invalid_demote_grace_ms = 350;
   g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
 
   // Initialize EgoFrame for ego vehicle state from IMU
@@ -655,6 +656,7 @@ void startReplayPipeline(const std::string &replay_file, float speed,
   fcw_config.camera_drop_track_hold_ms = 1200;
   fcw_config.camera_drop_radar_recent_ms = 150;
   fcw_config.camera_drop_min_quality = 0.32f;
+  fcw_config.invalid_demote_grace_ms = 350;
   g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
 
   g_ego_frame = std::make_unique<adas::EgoFrame>();

@@ -74,6 +74,7 @@ class FCWMonitor {
         uint32_t camera_drop_track_hold_ms; // Temporary radar-only continuation
         uint32_t camera_drop_radar_recent_ms; // Radar freshness for grace
         float camera_drop_min_quality; // Minimum fusion quality during grace
+        uint32_t invalid_demote_grace_ms; // Keep pending escalation briefly
 
         // Dwell / hysteresis timing
         uint32_t caution_dwell_ms;
@@ -90,7 +91,7 @@ class FCWMonitor {
               warn_risk_threshold(0.56f), critical_risk_threshold(0.74f),
               ttc_last_ditch_s(0.85f), camera_hold_ms(400),
               camera_drop_track_hold_ms(1200), camera_drop_radar_recent_ms(150),
-              camera_drop_min_quality(0.32f),
+              camera_drop_min_quality(0.32f), invalid_demote_grace_ms(350),
               caution_dwell_ms(180),
               warn_dwell_ms(140), critical_dwell_ms(80), clear_dwell_ms(220) {}
     };

@@ -167,9 +167,25 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     seen_ids.insert(obj.object_id);
     TrackState &state = track_states_[obj.object_id];
     state.last_seen_ns = current_time_ns;
+    bool invalid_demote_grace_used = false;
 
     const auto demote_to_safe = [&]() {
       state.last_risk = 0.0f;
+      const bool has_pending_escalation =
+          config_.invalid_demote_grace_ms > 0 &&
+          state.level == RiskLevel::Safe &&
+          state.pending_level != RiskLevel::Safe &&
+          state.pending_since_ns > 0;
+      if (has_pending_escalation) {
+        const uint64_t pending_age_ms =
+            (current_time_ns > state.pending_since_ns)
+                ? (current_time_ns - state.pending_since_ns) / kNsPerMs
+                : 0ULL;
+        if (pending_age_ms <= config_.invalid_demote_grace_ms) {
+          invalid_demote_grace_used = true;
+          return;
+        }
+      }
       applyDwell(state, RiskLevel::Safe, current_time_ns);
     };
 
@@ -259,12 +275,15 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     const RiskLevel active_level =
         applyDwell(state, desired_level, current_time_ns);
 
-    std::cout << "[StageE: 4_FCW] ID " << obj.object_id
-              << " | Z: " << obj.range_m << "m | V: " << obj.radial_vel_mps
-              << "m/s | TTC: " << obj.ttc_s << "s | Q: " << obj.fusion_quality
-              << " | X: " << obj.x_lateral_m << "m -> risk " << risk_score
-              << " level " << static_cast<int>(active_level)
+    std::cout << "[StageE: 4_FCW] ID " << obj.object_id << " | Z: " << obj.range_m
+              << "m | V: " << obj.radial_vel_mps << "m/s | TTC: " << obj.ttc_s
+              << "s | Q: " << obj.fusion_quality << " | X: " << obj.x_lateral_m
+              << "m -> risk " << risk_score << " level "
+              << static_cast<int>(active_level) << " (desired "
+              << static_cast<int>(desired_level) << ", pending "
+              << static_cast<int>(state.pending_level) << ")"
               << (camera_drop_grace ? " [CAM_DROP_GRACE]" : "")
+              << (invalid_demote_grace_used ? " [INVALID_DEMOTE_GRACE]" : "")
               << (ttc_last_ditch ? " [TTC_LAST_DITCH]" : "") << "\n";
 
     if (!has_eval || active_level > best_eval.level ||
