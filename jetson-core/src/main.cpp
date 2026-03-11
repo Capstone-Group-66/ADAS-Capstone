@@ -526,11 +526,15 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   fcw_config.warn_risk_threshold = 0.56f;
   fcw_config.critical_risk_threshold = 0.74f;
   fcw_config.ttc_last_ditch_s = 0.85f;
+  fcw_config.ttc_immediate_warn_s = 2.8f;
+  fcw_config.ttc_immediate_critical_s = 1.2f;
   fcw_config.camera_hold_ms = fusion_config.camera_hold_ms;
   fcw_config.camera_drop_track_hold_ms = 1200;
   fcw_config.camera_drop_radar_recent_ms = 150;
   fcw_config.camera_drop_min_quality = 0.32f;
   fcw_config.invalid_demote_grace_ms = 350;
+  fcw_config.invalid_state_hold_ms = 250;
+  fcw_config.log_fcw_drop_reasons = true;
   g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
 
   // Initialize EgoFrame for ego vehicle state from IMU
@@ -652,11 +656,15 @@ void startReplayPipeline(const std::string &replay_file, float speed,
   fcw_config.warn_risk_threshold = 0.56f;
   fcw_config.critical_risk_threshold = 0.74f;
   fcw_config.ttc_last_ditch_s = 0.85f;
+  fcw_config.ttc_immediate_warn_s = 2.8f;
+  fcw_config.ttc_immediate_critical_s = 1.2f;
   fcw_config.camera_hold_ms = replay_fusion_config.camera_hold_ms;
   fcw_config.camera_drop_track_hold_ms = 1200;
   fcw_config.camera_drop_radar_recent_ms = 150;
   fcw_config.camera_drop_min_quality = 0.32f;
   fcw_config.invalid_demote_grace_ms = 350;
+  fcw_config.invalid_state_hold_ms = 250;
+  fcw_config.log_fcw_drop_reasons = true;
   g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
 
   g_ego_frame = std::make_unique<adas::EgoFrame>();

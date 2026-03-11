@@ -70,11 +70,15 @@ class FCWMonitor {
         float warn_risk_threshold;
         float critical_risk_threshold;
         float ttc_last_ditch_s; // TTC escalation threshold, last-resort only
+        float ttc_immediate_warn_s; // Immediate WARN escalation threshold
+        float ttc_immediate_critical_s; // Immediate CRITICAL escalation threshold
         uint32_t camera_hold_ms; // FCW eligibility requires camera freshness
         uint32_t camera_drop_track_hold_ms; // Temporary radar-only continuation
         uint32_t camera_drop_radar_recent_ms; // Radar freshness for grace
         float camera_drop_min_quality; // Minimum fusion quality during grace
         uint32_t invalid_demote_grace_ms; // Keep pending escalation briefly
+        uint32_t invalid_state_hold_ms; // Preserve active state across brief invalid ticks
+        bool log_fcw_drop_reasons; // Emit explicit per-reason demotion logs
 
         // Dwell / hysteresis timing
         uint32_t caution_dwell_ms;
@@ -89,9 +93,11 @@ class FCWMonitor {
               min_fusion_quality(0.22f), path_half_width_m(0.85f),
               path_width_growth_per_m(0.035f), caution_risk_threshold(0.38f),
               warn_risk_threshold(0.56f), critical_risk_threshold(0.74f),
-              ttc_last_ditch_s(0.85f), camera_hold_ms(400),
+              ttc_last_ditch_s(0.85f), ttc_immediate_warn_s(2.8f),
+              ttc_immediate_critical_s(1.2f), camera_hold_ms(400),
               camera_drop_track_hold_ms(1200), camera_drop_radar_recent_ms(150),
               camera_drop_min_quality(0.32f), invalid_demote_grace_ms(350),
+              invalid_state_hold_ms(250), log_fcw_drop_reasons(false),
               caution_dwell_ms(180),
               warn_dwell_ms(140), critical_dwell_ms(80), clear_dwell_ms(220) {}
     };
@@ -132,6 +138,7 @@ class FCWMonitor {
         RiskLevel pending_level = RiskLevel::Safe;
         uint64_t pending_since_ns = 0;
         uint64_t last_seen_ns = 0;
+        uint64_t last_valid_ns = 0;
         float last_risk = 0.0f;
     };
 

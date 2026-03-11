@@ -46,6 +46,10 @@ float normalizedTtcScore(float ttc_s, float threshold_s) {
   return std::clamp((threshold_s - ttc_s) / threshold_s, 0.0f, 1.0f);
 }
 
+uint8_t levelRank(FCWMonitor::RiskLevel level) {
+  return static_cast<uint8_t>(level);
+}
+
 } // namespace
 
 FCWMonitor::FCWMonitor(const Config &config) : config_(config) {}
@@ -168,25 +172,56 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     TrackState &state = track_states_[obj.object_id];
     state.last_seen_ns = current_time_ns;
     bool invalid_demote_grace_used = false;
+    bool invalid_state_hold_used = false;
 
-    const auto demote_to_safe = [&]() {
+    const auto demote_to_safe = [&](const char *reason) {
       state.last_risk = 0.0f;
-      const bool has_pending_escalation =
-          config_.invalid_demote_grace_ms > 0 &&
-          state.level == RiskLevel::Safe &&
-          state.pending_level != RiskLevel::Safe &&
-          state.pending_since_ns > 0;
-      if (has_pending_escalation) {
-        const uint64_t pending_age_ms =
-            (current_time_ns > state.pending_since_ns)
-                ? (current_time_ns - state.pending_since_ns) / kNsPerMs
-                : 0ULL;
-        if (pending_age_ms <= config_.invalid_demote_grace_ms) {
-          invalid_demote_grace_used = true;
-          return;
+      const uint64_t valid_age_ms =
+          (state.last_valid_ns > 0 && current_time_ns > state.last_valid_ns)
+              ? (current_time_ns - state.last_valid_ns) / kNsPerMs
+              : 0ULL;
+
+      const bool has_active_state_hold =
+          config_.invalid_state_hold_ms > 0 &&
+          state.last_valid_ns > 0 &&
+          levelRank(state.level) > levelRank(RiskLevel::Safe) &&
+          valid_age_ms <= config_.invalid_state_hold_ms;
+      if (has_active_state_hold) {
+        invalid_state_hold_used = true;
+        // Keep active level pinned during short invalid gaps.
+        state.pending_level = state.level;
+        state.pending_since_ns = current_time_ns;
+      } else {
+        const bool has_pending_escalation =
+            config_.invalid_demote_grace_ms > 0 &&
+            state.level == RiskLevel::Safe &&
+            state.pending_level != RiskLevel::Safe &&
+            state.pending_since_ns > 0;
+        if (has_pending_escalation) {
+          const uint64_t pending_age_ms =
+              (current_time_ns > state.pending_since_ns)
+                  ? (current_time_ns - state.pending_since_ns) / kNsPerMs
+                  : 0ULL;
+          if (pending_age_ms <= config_.invalid_demote_grace_ms) {
+            invalid_demote_grace_used = true;
+          } else {
+            applyDwell(state, RiskLevel::Safe, current_time_ns);
+          }
+        } else {
+          applyDwell(state, RiskLevel::Safe, current_time_ns);
         }
       }
-      applyDwell(state, RiskLevel::Safe, current_time_ns);
+
+      if (config_.log_fcw_drop_reasons && g_verbose_mode.load()) {
+        std::cout << "[StageE: 4_FCW_DROP] ID " << obj.object_id
+                  << " | reason: " << reason << " | active "
+                  << static_cast<int>(state.level) << " (desired 0, pending "
+                  << static_cast<int>(state.pending_level) << ")"
+                  << " | valid_age_ms: " << valid_age_ms
+                  << (invalid_state_hold_used ? " [INVALID_STATE_HOLD]" : "")
+                  << (invalid_demote_grace_used ? " [INVALID_DEMOTE_GRACE]" : "")
+                  << "\n";
+      }
     };
 
     const bool camera_fresh = obj.camera_age_ms <= config_.camera_hold_ms;
@@ -202,32 +237,36 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
           obj.camera_age_ms <= config_.camera_drop_track_hold_ms &&
           radar_recent_for_grace && obj.fusion_quality >= min_grace_quality;
       if (!camera_drop_grace) {
-        demote_to_safe();
+        demote_to_safe("CAM_AGE");
         continue;
       }
     }
 
-    if (!obj.has_radar || !obj.speed_fresh) {
-      demote_to_safe();
+    if (!obj.has_radar) {
+      demote_to_safe("NO_RADAR");
+      continue;
+    }
+    if (!obj.speed_fresh) {
+      demote_to_safe("SPEED_STALE");
       continue;
     }
     if (!isRelevantClass(obj.object_class)) {
-      demote_to_safe();
+      demote_to_safe("CLASS_FILTER");
       continue;
     }
     if (obj.range_m < config_.min_range_m ||
         obj.range_m > config_.max_range_m) {
-      demote_to_safe();
+      demote_to_safe("RANGE_GATE");
       continue;
     }
     if (obj.fusion_quality < config_.min_fusion_quality) {
-      demote_to_safe();
+      demote_to_safe("LOW_QUALITY");
       continue;
     }
 
     const float closing_mps = obj.radial_vel_mps; // positive=inward/toward
     if (closing_mps <= config_.min_closing_speed_mps) {
-      demote_to_safe();
+      demote_to_safe("LOW_CLOSING_SPEED");
       continue;
     }
 
@@ -235,9 +274,11 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     const bool in_path = std::abs(obj.x_lateral_m) <= lane_half_width_m;
     if (!in_path) {
       // Ignore out-of-path objects to suppress adjacent-lane triggers.
-      demote_to_safe();
+      demote_to_safe("OUT_OF_PATH");
       continue;
     }
+
+    state.last_valid_ns = current_time_ns;
 
     const float range_score = normalizedRangeScore(
         obj.range_m, config_.min_range_m, config_.max_range_m);
@@ -284,18 +325,41 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
       ttc_last_ditch = true;
     }
 
+    bool ttc_immediate_warn = false;
+    bool ttc_immediate_critical = false;
     RiskLevel desired_level = classifyRisk(risk_score);
+    if (ttc_valid && obj.ttc_s <= config_.ttc_immediate_critical_s) {
+      if (levelRank(desired_level) < levelRank(RiskLevel::Critical)) {
+        desired_level = RiskLevel::Critical;
+      }
+      ttc_immediate_critical = true;
+    } else if (ttc_valid && obj.ttc_s <= config_.ttc_immediate_warn_s &&
+               levelRank(desired_level) < levelRank(RiskLevel::Warn)) {
+      desired_level = RiskLevel::Warn;
+      ttc_immediate_warn = true;
+    }
+
     bool camera_drop_hold_level = false;
     if (camera_drop_grace &&
-        static_cast<uint8_t>(state.level) > static_cast<uint8_t>(RiskLevel::Safe) &&
-        static_cast<uint8_t>(desired_level) <
-            static_cast<uint8_t>(state.level)) {
+        levelRank(state.level) > levelRank(RiskLevel::Safe) &&
+        levelRank(desired_level) < levelRank(state.level)) {
       desired_level = state.level;
       camera_drop_hold_level = true;
     }
+
+    const bool bypass_escalation_dwell =
+        (ttc_immediate_warn || ttc_immediate_critical) &&
+        levelRank(desired_level) > levelRank(state.level);
     state.last_risk = risk_score;
-    const RiskLevel active_level =
-        applyDwell(state, desired_level, current_time_ns);
+    RiskLevel active_level = RiskLevel::Safe;
+    if (bypass_escalation_dwell) {
+      state.level = desired_level;
+      state.pending_level = desired_level;
+      state.pending_since_ns = current_time_ns;
+      active_level = state.level;
+    } else {
+      active_level = applyDwell(state, desired_level, current_time_ns);
+    }
 
     std::cout << "[StageE: 4_FCW] ID " << obj.object_id << " | Z: " << obj.range_m
               << "m | V: " << obj.radial_vel_mps << "m/s | TTC: " << obj.ttc_s
@@ -309,6 +373,8 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
               << (invalid_demote_grace_used ? " [INVALID_DEMOTE_GRACE]" : "")
               << (ttc_caution_floor ? " [TTC_CAUTION_FLOOR]" : "")
               << (ttc_warn_floor ? " [TTC_WARN_FLOOR]" : "")
+              << (ttc_immediate_warn ? " [TTC_IMMEDIATE_WARN]" : "")
+              << (ttc_immediate_critical ? " [TTC_IMMEDIATE_CRITICAL]" : "")
               << (ttc_last_ditch ? " [TTC_LAST_DITCH]" : "") << "\n";
 
     if (!has_eval || active_level > best_eval.level ||
