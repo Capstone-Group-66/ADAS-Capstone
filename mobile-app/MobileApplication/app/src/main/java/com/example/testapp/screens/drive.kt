@@ -52,20 +52,21 @@ fun DriveContent(
     onDebugTrigger: () -> Unit,
     onDebugClear: () -> Unit,
 ) {
-    val laneActive = laneWarningActive(
-        expiry = state.fcwExpiry,
-        timestamp = state.timestamp,
-    )
+    val laneActive =
+        laneWarningActive(
+            expiry = state.fcwExpiry,
+            timestamp = state.timestamp,
+        )
     androidx.compose.material3.Surface(
         modifier = Modifier.fillMaxSize(),
         color = Color(0xFF121212),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-
             Column(
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(16.dp)
+                modifier =
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding(16.dp),
             ) {
                 Text("drive page")
 
@@ -84,9 +85,10 @@ fun DriveContent(
 
             SpeedDisplay(
                 speedText = "72 km/h",
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 24.dp, end = 20.dp)
+                modifier =
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 24.dp, end = 20.dp),
             )
 
             CenteredCar()
@@ -117,9 +119,10 @@ fun DriveContent(
                 s2 = state.status2,
                 s3 = state.status3,
                 s4 = state.status4,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 3.dp)
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 3.dp),
             )
         }
     }
@@ -150,11 +153,12 @@ fun WarningOverlay(state: UpdateUIstate) {
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
-                    modifier = Modifier
-                        .shadow(10.dp)
-                        .background(Color(0xFFF3F3F3).copy(alpha = alpha))
-                        .border(2.dp, Color.Red.copy(alpha = alpha))
-                        .padding(horizontal = 44.dp, vertical = 20.dp)
+                    modifier =
+                        Modifier
+                            .shadow(10.dp)
+                            .background(Color(0xFFF3F3F3).copy(alpha = alpha))
+                            .border(2.dp, Color.Red.copy(alpha = alpha))
+                            .padding(horizontal = 44.dp, vertical = 20.dp),
                 ) {
                     Text(
                         text = "BRAKE",
@@ -167,6 +171,7 @@ fun WarningOverlay(state: UpdateUIstate) {
         }
     }
 }
+
 fun laneWarningActive(
     expiry: Long,
     timestamp: Long,
