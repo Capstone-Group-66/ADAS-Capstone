@@ -169,9 +169,21 @@ std::string formatUptime(std::chrono::seconds uptime) {
 int clampSensitivityLevel(int level) { return std::max(1, std::min(5, level)); }
 
 float sensitivityFactor(int level) {
-  // Levels 1..5 map to 0.7, 0.85, 1.0, 1.15, 1.3
-  const int clamped = clampSensitivityLevel(level);
-  return 0.70f + 0.15f * static_cast<float>(clamped - 1);
+  // Levels 1..5 map to 0.85, 0.95, 1.00, 1.05, 1.15 (tighter around L3).
+  switch (clampSensitivityLevel(level)) {
+  case 1:
+    return 0.85f;
+  case 2:
+    return 0.95f;
+  case 3:
+    return 1.00f;
+  case 4:
+    return 1.05f;
+  case 5:
+    return 1.15f;
+  default:
+    return 1.00f;
+  }
 }
 
 const char *sensitivityLabel(int level) {
