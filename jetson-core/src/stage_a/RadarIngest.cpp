@@ -450,20 +450,21 @@ bool RadarIngest::setupSerialPort() {
   // Send mode + common commands for OPS243.
   std::vector<std::string> init_cmds;
   if (combined_native_mode_) {
-    init_cmds.push_back("OY\r\n"); // Combined speed+range output.
+    init_cmds.push_back("OY\r"); // Combined speed+range output.
   } else {
-    init_cmds.push_back("GX\r\n"); // Legacy split stream mode.
-    init_cmds.push_back("OS\r\n");
-    init_cmds.push_back("oD\r\n");
+    init_cmds.push_back("GX\r"); // Legacy split stream mode.
+    init_cmds.push_back("OS\r");
+    init_cmds.push_back("oD\r");
   }
-  init_cmds.push_back("OJ\r\n"); // JSON output.
-  init_cmds.push_back("UM\r\n"); // Speed units: m/s.
-  init_cmds.push_back("uM\r\n"); // Range units: meters.
-  init_cmds.push_back("SX\r\n");
-  init_cmds.push_back("S[\r\n");
-  init_cmds.push_back("s[\r\n");
+  // Match known-good front-radar script sequence.
+  init_cmds.push_back("UM\r"); // Speed units: m/s.
+  init_cmds.push_back("uM\r"); // Range units: meters.
+  init_cmds.push_back("OJ\r"); // JSON output.
+  init_cmds.push_back("SX\r");
+  init_cmds.push_back("S[\r");
+  init_cmds.push_back("s[\r");
   for (const std::string &cmd : init_cmds) {
-    if (!writeSerialCommand(fd_, cmd, 45)) {
+    if (!writeSerialCommand(fd_, cmd, 80)) {
       std::cerr << "[RadarIngest] Failed to send init command: " << cmd;
       closeSerialFd();
       return false;
@@ -472,11 +473,11 @@ bool RadarIngest::setupSerialPort() {
 
   // Custom threshold commands based on configuration
   std::string mag_speed =
-      "M>" + std::to_string(config_.speed_mag_threshold) + "\r\n";
+      "M>" + std::to_string(config_.speed_mag_threshold) + "\r";
   std::string mag_range =
-      "m>" + std::to_string(config_.range_mag_threshold) + "\r\n";
-  if (!writeSerialCommand(fd_, mag_speed, 45) ||
-      !writeSerialCommand(fd_, mag_range, 45)) {
+      "m>" + std::to_string(config_.range_mag_threshold) + "\r";
+  if (!writeSerialCommand(fd_, mag_speed, 80) ||
+      !writeSerialCommand(fd_, mag_range, 80)) {
     std::cerr << "[RadarIngest] Failed to send magnitude thresholds\n";
     closeSerialFd();
     return false;
@@ -588,10 +589,16 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
 
   line_buffer_.append(reinterpret_cast<const char *>(data), len);
 
-  size_t pos;
-  while ((pos = line_buffer_.find("\r\n")) != std::string::npos) {
-    std::string line = line_buffer_.substr(0, pos);
-    line_buffer_.erase(0, pos + 2);
+  size_t line_end = 0;
+  while ((line_end = line_buffer_.find_first_of("\r\n")) != std::string::npos) {
+    std::string line = line_buffer_.substr(0, line_end);
+
+    size_t consume = line_end;
+    while (consume < line_buffer_.size() &&
+           (line_buffer_[consume] == '\r' || line_buffer_[consume] == '\n')) {
+      ++consume;
+    }
+    line_buffer_.erase(0, consume);
 
     if (line.empty())
       continue;
