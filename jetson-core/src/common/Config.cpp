@@ -6,6 +6,8 @@
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
+#include <algorithm>
+#include <cctype>
 
 // Simple JSON parsing (minimal implementation without external dependency)
 // For production, consider using nlohmann/json
@@ -28,6 +30,15 @@ std::string readFile(const std::string &path) {
   std::stringstream buffer;
   buffer << file.rdbuf();
   return buffer.str();
+}
+
+std::string normalizeRadarOutputMode(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  if (value == "combined_native") {
+    return "combined_native";
+  }
+  return "split_range";
 }
 
 } // namespace
@@ -128,6 +139,8 @@ Config ConfigLoader::loadConfig(const std::string &path) {
         config.front_radar.baud_rate = std::stoi(value);
       } else if (key == "poll_timeout_ms") {
         config.front_radar.poll_timeout_ms = std::stoi(value);
+      } else if (key == "output_mode") {
+        config.front_radar.output_mode = normalizeRadarOutputMode(value);
       } else if (key == "speed_ttl_ms") {
         config.front_radar.speed_ttl_ms = std::stoi(value);
       } else if (key == "speed_mag_threshold") {
@@ -195,6 +208,8 @@ Config ConfigLoader::loadConfig(const std::string &path) {
     }
   }
 
+  config.front_radar.output_mode =
+      normalizeRadarOutputMode(config.front_radar.output_mode);
   return config;
 }
 
@@ -301,6 +316,15 @@ void ConfigLoader::saveConfig(const std::string &path, const Config &config) {
         emitFloat("ekf_r_cam_z_weak", config.stage_e_fusion.ekf_r_cam_z_weak);
         continue;
       }
+    }
+
+    if (current_section == "front_radar" && key == "output_mode") {
+      std::stringstream ss;
+      ss << std::string(indent, ' ')
+         << "output_mode: \""
+         << normalizeRadarOutputMode(config.front_radar.output_mode) << "\"\n";
+      new_content += ss.str();
+      continue;
     }
 
     if (current_section == "mounts" && current_mount == "FrontCam" &&

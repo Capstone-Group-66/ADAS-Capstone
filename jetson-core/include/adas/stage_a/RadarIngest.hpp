@@ -81,8 +81,16 @@ class RadarIngest {
     /// Setup serial port with termios
     bool setupSerialPort();
 
-    /// Read complete frame from serial
-    bool readFrame(std::vector<uint8_t> &buffer);
+    /// Read available bytes from serial.
+    /// Return value:
+    ///   1  = data read
+    ///   0  = timeout/no data
+    ///  -1  = recoverable read error (keep fd open)
+    ///  -2  = disconnect/re-enumeration detected (fd should be reopened)
+    int readFrame(std::vector<uint8_t> &buffer);
+
+    /// Close active serial fd if open.
+    void closeSerialFd();
 
     Mount mount_;
     std::string port_;
@@ -121,6 +129,12 @@ class RadarIngest {
     float last_speed_mps_{0.0f};
     uint64_t last_speed_ts_monotonic_{0};
     std::string line_buffer_; // For assembling JSON lines
+    bool combined_native_mode_{false};
+
+    // Reconnect/watchdog
+    uint64_t last_data_time_ns_{0};
+    uint64_t last_connect_attempt_ns_{0};
+    uint32_t reconnect_backoff_ms_{200};
 
     // Raw CSV Logger
     std::ofstream raw_csv_file_;

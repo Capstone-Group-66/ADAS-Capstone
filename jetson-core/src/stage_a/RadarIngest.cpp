@@ -5,9 +5,12 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
+#include <cerrno>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <cstring>
+#include <initializer_list>
 #include <iostream>
 
 #ifdef __linux__
@@ -28,18 +31,77 @@ std::string toLowerAscii(std::string value) {
   return value;
 }
 
+bool isCombinedNativeMode(std::string mode) {
+  mode = toLowerAscii(mode);
+  return mode == "combined_native";
+}
+
+bool tryReadFloatField(const nlohmann::json &packet, const char *key,
+                       float &out_value) {
+  auto it = packet.find(key);
+  if (it == packet.end()) {
+    return false;
+  }
+  if (it->is_number_float() || it->is_number_integer() ||
+      it->is_number_unsigned()) {
+    out_value = it->get<float>();
+    return true;
+  }
+  if (it->is_string()) {
+    try {
+      out_value = std::stof(it->get<std::string>());
+      return true;
+    } catch (...) {
+      return false;
+    }
+  }
+  return false;
+}
+
+bool tryReadFloatAny(const nlohmann::json &packet,
+                     std::initializer_list<const char *> keys,
+                     float &out_value) {
+  for (const char *key : keys) {
+    if (tryReadFloatField(packet, key, out_value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+std::string readUnitField(const nlohmann::json &packet) {
+  auto it = packet.find("unit");
+  if (it == packet.end()) {
+    return "";
+  }
+  if (it->is_string()) {
+    return toLowerAscii(it->get<std::string>());
+  }
+  return toLowerAscii(it->dump());
+}
+
+bool unitIndicatesSpeed(const std::string &unit) {
+  return unit == "mps" || unit == "m/s" || unit == "meters_per_second";
+}
+
+bool unitIndicatesRange(const std::string &unit) {
+  return unit == "m" || unit == "meter" || unit == "meters";
+}
+
 float normalizeTowardPositiveSpeed(float raw_speed_mps,
                                    const nlohmann::json &packet) {
   // Project convention: positive = toward/inward, negative = away/outward.
-  if (!packet.contains("direction")) {
+  if (!packet.contains("direction") && !packet.contains("dir")) {
     return raw_speed_mps;
   }
 
   std::string direction_text;
-  if (packet["direction"].is_string()) {
-    direction_text = packet["direction"].get<std::string>();
+  const auto &direction_value =
+      packet.contains("direction") ? packet["direction"] : packet["dir"];
+  if (direction_value.is_string()) {
+    direction_text = direction_value.get<std::string>();
   } else {
-    direction_text = packet["direction"].dump();
+    direction_text = direction_value.dump();
   }
   direction_text = toLowerAscii(direction_text);
 
@@ -95,7 +157,9 @@ uint32_t computeDynamicSpeedTtlMs(int base_ttl_ms, float speed_mps) {
 RadarIngest::RadarIngest(Mount mount, const std::string &port,
                          SPSCQueue<RadarTargets, 8> &queue,
                          const RadarConfig &config)
-    : mount_(mount), port_(port), queue_(queue), config_(config) {}
+    : mount_(mount), port_(port), queue_(queue), config_(config) {
+  combined_native_mode_ = isCombinedNativeMode(config_.output_mode);
+}
 
 RadarIngest::~RadarIngest() { stop(); }
 
@@ -112,10 +176,7 @@ void RadarIngest::stop() {
   running_.store(false, std::memory_order_relaxed);
 
 #ifdef __linux__
-  if (fd_ >= 0) {
-    close(fd_);
-    fd_ = -1;
-  }
+  closeSerialFd();
 #endif
 
   if (thread_.joinable()) {
@@ -129,58 +190,106 @@ void RadarIngest::stop() {
 
 void RadarIngest::run() {
   std::cout << "[RadarIngest] Starting " << mountToString(mount_) << " on "
-            << port_ << " at " << config_.baud_rate << " baud" << std::endl;
+            << port_ << " at " << config_.baud_rate << " baud"
+            << " (mode="
+            << (combined_native_mode_ ? "combined_native" : "split_range")
+            << ")" << std::endl;
 
 #ifdef __linux__
-  if (!setupSerialPort()) {
-    std::cerr << "[RadarIngest] Failed to setup serial port\n";
-    healthy_.store(false, std::memory_order_relaxed);
-    running_.store(false, std::memory_order_relaxed);
-    return;
-  }
-
-  healthy_.store(true, std::memory_order_relaxed);
   last_rate_time_ = Clock::now_ns();
+  last_data_time_ns_ = last_rate_time_;
 
-  // Open CSV file for raw data dump
-  std::string log_name =
-      "ops243c_raw_" + std::to_string(Clock::now_ms()) + ".csv";
-  raw_csv_file_.open(log_name);
-  if (raw_csv_file_.is_open()) {
-    raw_csv_file_ << "t_ingest_ns,range_m,speed_mps,magnitude,time,direction\n";
-  } else {
-    std::cerr << "[RadarIngest] Failed to open raw CSV log: " << log_name
-              << "\n";
-  }
+  constexpr uint64_t kWatchdogNoDataNs = 1500000000ULL; // 1.5 s
 
   std::vector<uint8_t> buffer;
   buffer.reserve(4096);
 
   while (running_.load(std::memory_order_relaxed)) {
-    // Read available data
-    if (!readFrame(buffer)) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    if (fd_ < 0) {
+      const uint64_t now_ns = Clock::now_ns();
+      const uint64_t elapsed_ms =
+          (now_ns > last_connect_attempt_ns_)
+              ? (now_ns - last_connect_attempt_ns_) / 1000000ULL
+              : 0;
+      if (elapsed_ms < reconnect_backoff_ms_) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        continue;
+      }
+
+      last_connect_attempt_ns_ = now_ns;
+      if (!setupSerialPort()) {
+        healthy_.store(false, std::memory_order_relaxed);
+        reconnect_backoff_ms_ = std::min<uint32_t>(reconnect_backoff_ms_ * 2, 2000);
+        std::this_thread::sleep_for(std::chrono::milliseconds(reconnect_backoff_ms_));
+        continue;
+      }
+
+      reconnect_backoff_ms_ = 200;
+      healthy_.store(true, std::memory_order_relaxed);
+      last_data_time_ns_ = Clock::now_ns();
+      line_buffer_.clear();
+
+      if (!raw_csv_file_.is_open()) {
+        std::string log_name =
+            "ops243c_raw_" + std::to_string(Clock::now_ms()) + ".csv";
+        raw_csv_file_.open(log_name);
+        if (raw_csv_file_.is_open()) {
+          raw_csv_file_
+              << "t_ingest_ns,range_m,speed_mps,magnitude,time,direction\n";
+        } else {
+          std::cerr << "[RadarIngest] Failed to open raw CSV log: " << log_name
+                    << "\n";
+        }
+      }
       continue;
     }
 
-    // Timestamp immediately after successful read
-    uint64_t t_ingest = Clock::now_ns();
+    const int read_status = readFrame(buffer);
+    if (read_status == 1) {
+      // Timestamp immediately after successful read
+      uint64_t t_ingest = Clock::now_ns();
+      last_data_time_ns_ = t_ingest;
 
-    // Parse and push to queue
-    if (!buffer.empty()) {
-      RadarTargets targets = parseFrame(buffer.data(), buffer.size(), t_ingest);
+      // Parse and push to queue
+      if (!buffer.empty()) {
+        RadarTargets targets = parseFrame(buffer.data(), buffer.size(), t_ingest);
 
-      if (!targets.targets.empty()) {
-        // Record before pushing to queue (if recording active)
-        if (recorder_) {
-          recorder_->recordRadar(targets);
+        if (!targets.targets.empty()) {
+          // Record before pushing to queue (if recording active)
+          if (recorder_) {
+            recorder_->recordRadar(targets);
+          }
+          queue_.try_push(std::move(targets));
         }
-        queue_.try_push(std::move(targets));
-      }
 
-      frames_received_.fetch_add(1, std::memory_order_relaxed);
-      bytes_received_.fetch_add(buffer.size(), std::memory_order_relaxed);
-      frames_in_window_++;
+        frames_received_.fetch_add(1, std::memory_order_relaxed);
+        bytes_received_.fetch_add(buffer.size(), std::memory_order_relaxed);
+        frames_in_window_++;
+      }
+    } else if (read_status == -2) {
+      std::cerr << "[RadarIngest] Serial disconnect detected on " << port_
+                << ", reconnecting...\n";
+      errors_.fetch_add(1, std::memory_order_relaxed);
+      healthy_.store(false, std::memory_order_relaxed);
+      closeSerialFd();
+      std::this_thread::sleep_for(std::chrono::milliseconds(50));
+      continue;
+    } else if (read_status == -1) {
+      errors_.fetch_add(1, std::memory_order_relaxed);
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      continue;
+    } else {
+      const uint64_t now_ns = Clock::now_ns();
+      if (now_ns > last_data_time_ns_ &&
+          (now_ns - last_data_time_ns_) > kWatchdogNoDataNs) {
+        std::cerr << "[RadarIngest] No radar bytes for >1.5s on " << port_
+                  << ", forcing reconnect\n";
+        healthy_.store(false, std::memory_order_relaxed);
+        closeSerialFd();
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        continue;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 
     // Calculate rate every 5 seconds (matching radar_freq_test.cpp)
@@ -217,13 +326,18 @@ void RadarIngest::run() {
                 << " | Errs: " << errs;
       std::cout << std::endl;
 
-      // Only warn if below pipeline rate (20Hz)
-      if (hz < 20.0) {
-        std::cerr
-            << "  [WARN] Below 20Hz pipeline rate - may cause data drops\n";
-        if (hz < 10.0) {
+      // Mode-aware health thresholds: combined mode runs ~13-14Hz by design.
+      const double warn_hz = combined_native_mode_ ? 10.0 : 20.0;
+      const double unhealthy_hz = combined_native_mode_ ? 6.0 : 10.0;
+      if (hz < warn_hz) {
+        std::cerr << "  [WARN] Below expected radar rate for mode="
+                  << (combined_native_mode_ ? "combined_native" : "split_range")
+                  << " (hz=" << hz << ")\n";
+        if (hz < unhealthy_hz) {
           healthy_.store(false, std::memory_order_relaxed);
         }
+      } else {
+        healthy_.store(true, std::memory_order_relaxed);
       }
 
       frames_in_window_ = 0;
@@ -231,8 +345,7 @@ void RadarIngest::run() {
     }
   }
 
-  close(fd_);
-  fd_ = -1;
+  closeSerialFd();
 #else
   std::cerr << "[RadarIngest] Serial port only supported on Linux\n";
   while (running_.load(std::memory_order_relaxed)) {
@@ -256,8 +369,7 @@ bool RadarIngest::setupSerialPort() {
   struct termios tty {};
   if (tcgetattr(fd_, &tty) != 0) {
     perror("[RadarIngest] tcgetattr");
-    close(fd_);
-    fd_ = -1;
+    closeSerialFd();
     return false;
   }
 
@@ -302,19 +414,30 @@ bool RadarIngest::setupSerialPort() {
 
   if (tcsetattr(fd_, TCSANOW, &tty) != 0) {
     perror("[RadarIngest] tcsetattr");
-    close(fd_);
-    fd_ = -1;
+    closeSerialFd();
     return false;
   }
 
   // Flush buffers
   tcflush(fd_, TCIOFLUSH);
 
-  // Send config commands for OPS243-C
-  const char *init_cmds[] = {"GX\r\n", "OS\r\n", "oD\r\n", "OJ\r\n", "UM\r\n",
-                             "uM\r\n", "SX\r\n", "S[\r\n", "s[\r\n"};
-  for (const char *cmd : init_cmds) {
-    write(fd_, cmd, strlen(cmd));
+  // Send mode + common commands for OPS243.
+  std::vector<std::string> init_cmds;
+  if (combined_native_mode_) {
+    init_cmds.push_back("OY\r\n"); // Combined speed+range output.
+  } else {
+    init_cmds.push_back("GX\r\n"); // Legacy split stream mode.
+    init_cmds.push_back("OS\r\n");
+    init_cmds.push_back("oD\r\n");
+  }
+  init_cmds.push_back("OJ\r\n"); // JSON output.
+  init_cmds.push_back("UM\r\n"); // Speed units: m/s.
+  init_cmds.push_back("uM\r\n"); // Range units: meters.
+  init_cmds.push_back("SX\r\n");
+  init_cmds.push_back("S[\r\n");
+  init_cmds.push_back("s[\r\n");
+  for (const std::string &cmd : init_cmds) {
+    write(fd_, cmd.c_str(), cmd.length());
     usleep(50000); // 50ms wait
   }
 
@@ -332,16 +455,23 @@ bool RadarIngest::setupSerialPort() {
   tcflush(fd_, TCIOFLUSH);
 
   std::cout << "[RadarIngest] Serial port configured: " << port_ << " @ "
-            << config_.baud_rate << " baud\n";
+            << config_.baud_rate << " baud"
+            << " (mode="
+            << (combined_native_mode_ ? "combined_native" : "split_range")
+            << ")\n";
   return true;
 #else
   return false;
 #endif
 }
 
-bool RadarIngest::readFrame(std::vector<uint8_t> &buffer) {
+int RadarIngest::readFrame(std::vector<uint8_t> &buffer) {
 #ifdef __linux__
   buffer.clear();
+
+  if (fd_ < 0) {
+    return -2;
+  }
 
   // Use select with timeout
   fd_set read_fds;
@@ -353,21 +483,57 @@ bool RadarIngest::readFrame(std::vector<uint8_t> &buffer) {
   tv.tv_usec = config_.poll_timeout_ms * 1000;
 
   int ret = select(fd_ + 1, &read_fds, nullptr, nullptr, &tv);
-  if (ret <= 0) {
-    return false; // Timeout or error
+  if (ret == 0) {
+    return 0; // Timeout
+  }
+  if (ret < 0) {
+    if (errno == EINTR) {
+      return 0;
+    }
+    return -2;
   }
 
-  // Read available data
+  // Drain all currently available bytes in non-blocking mode.
   uint8_t temp[1024];
-  ssize_t n = read(fd_, temp, sizeof(temp));
-  if (n <= 0) {
-    return false;
+  bool saw_disconnect = false;
+  while (true) {
+    ssize_t n = read(fd_, temp, sizeof(temp));
+    if (n > 0) {
+      buffer.insert(buffer.end(), temp, temp + n);
+      continue;
+    }
+    if (n == 0) {
+      saw_disconnect = true;
+      break;
+    }
+    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+      break;
+    }
+    if (errno == EINTR) {
+      continue;
+    }
+    if (errno == EIO || errno == ENODEV || errno == EBADF) {
+      saw_disconnect = true;
+      break;
+    }
+    return -1;
   }
 
-  buffer.assign(temp, temp + n);
-  return true;
+  if (!buffer.empty()) {
+    return 1;
+  }
+  return saw_disconnect ? -2 : 0;
 #else
-  return false;
+  return -2;
+#endif
+}
+
+void RadarIngest::closeSerialFd() {
+#ifdef __linux__
+  if (fd_ >= 0) {
+    close(fd_);
+    fd_ = -1;
+  }
 #endif
 }
 
@@ -392,69 +558,98 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
     try {
       auto j = nlohmann::json::parse(line);
 
+      float parsed_range_m = 0.0f;
+      float parsed_speed_mps = 0.0f;
+      const bool has_range =
+          tryReadFloatAny(j, {"range", "dist", "distance", "rng"},
+                          parsed_range_m);
+      const bool has_speed =
+          tryReadFloatAny(j, {"speed", "vel", "velocity", "spd"},
+                          parsed_speed_mps);
+      const std::string unit = readUnitField(j);
+      const bool unit_is_speed = unitIndicatesSpeed(unit);
+      const bool unit_is_range = unitIndicatesRange(unit);
+
       if (raw_csv_file_.is_open()) {
         raw_csv_file_ << t_ingest << ",";
-        if (j.contains("range"))
-          raw_csv_file_ << j["range"];
+        if (has_range) {
+          raw_csv_file_ << parsed_range_m;
+        }
         raw_csv_file_ << ",";
-        if (j.contains("speed"))
-          raw_csv_file_ << j["speed"];
+        if (has_speed) {
+          raw_csv_file_ << parsed_speed_mps;
+        }
         raw_csv_file_ << ",";
-        if (j.contains("magnitude"))
+        if (j.contains("magnitude")) {
           raw_csv_file_ << j["magnitude"];
+        }
         raw_csv_file_ << ",";
-        if (j.contains("time"))
+        if (j.contains("time")) {
           raw_csv_file_ << j["time"];
+        }
         raw_csv_file_ << ",";
-        if (j.contains("direction"))
+        if (j.contains("direction")) {
           raw_csv_file_ << j["direction"];
+        } else if (j.contains("dir")) {
+          raw_csv_file_ << j["dir"];
+        }
         raw_csv_file_ << "\n";
         raw_csv_file_.flush();
       }
 
-      if (j.contains("unit")) {
-        std::string unit = j["unit"];
-        if (unit == "mps" && j.contains("speed")) {
-          float speed = j["speed"];
-          last_speed_mps_ = normalizeTowardPositiveSpeed(speed, j);
-          last_speed_ts_monotonic_ = t_ingest;
-          speed_events_window_.fetch_add(1, std::memory_order_relaxed);
-        } else if (unit == "m" && j.contains("range")) {
-          float range = j["range"];
-          if (range > 0.1f && range <= 100.0f) { // Ignore anomalies
-            RadarTarget target;
-            target.range_m = range;
-            target.azimuth_rad = 0.0f;
-            target.rcs_db = 0.0f;
-            target.sigma_r = 0.1f;
-            target.sigma_v = 0.05f;
-            target.sigma_az = 0.5f;
+      float normalized_speed_mps = last_speed_mps_;
+      if (has_speed) {
+        normalized_speed_mps = normalizeTowardPositiveSpeed(parsed_speed_mps, j);
+        last_speed_mps_ = normalized_speed_mps;
+        last_speed_ts_monotonic_ = t_ingest;
+        speed_events_window_.fetch_add(1, std::memory_order_relaxed);
+      }
 
-            range_events_window_.fetch_add(1, std::memory_order_relaxed);
+      // Auto-detect support:
+      // - split stream (unit mps / unit m)
+      // - combined stream (speed + range in one packet)
+      const bool should_emit_range_target =
+          has_range && (unit.empty() || unit_is_range || has_speed || !unit_is_speed);
+      if (should_emit_range_target && parsed_range_m > 0.1f &&
+          parsed_range_m <= 100.0f) {
+        RadarTarget target;
+        target.range_m = parsed_range_m;
+        target.azimuth_rad = 0.0f;
+        target.rcs_db = 0.0f;
+        target.sigma_r = 0.1f;
+        target.sigma_v = 0.05f;
+        target.sigma_az = 0.5f;
 
-            // TTL Evaluation
-            uint64_t age_ns = t_ingest > last_speed_ts_monotonic_
-                                  ? (t_ingest - last_speed_ts_monotonic_)
-                                  : 0;
-            uint32_t age_ms = static_cast<uint32_t>(age_ns / 1000000);
-            const uint32_t dynamic_speed_ttl_ms =
-                computeDynamicSpeedTtlMs(config_.speed_ttl_ms, last_speed_mps_);
+        range_events_window_.fetch_add(1, std::memory_order_relaxed);
 
-            if (age_ms <= dynamic_speed_ttl_ms) {
-              target.radial_vel_mps = last_speed_mps_;
-              target.speed_fresh = true;
-              target.speed_age_ms = age_ms;
-              fused_fresh_window_.fetch_add(1, std::memory_order_relaxed);
-            } else {
-              target.radial_vel_mps = 0.0f;
-              target.speed_fresh = false;
-              target.speed_age_ms = age_ms;
-              fused_stale_window_.fetch_add(1, std::memory_order_relaxed);
-            }
+        if (has_speed) {
+          target.radial_vel_mps = normalized_speed_mps;
+          target.speed_fresh = true;
+          target.speed_age_ms = 0;
+          fused_fresh_window_.fetch_add(1, std::memory_order_relaxed);
+        } else {
+          // TTL evaluation for range-only packets.
+          uint64_t age_ns = t_ingest > last_speed_ts_monotonic_
+                                ? (t_ingest - last_speed_ts_monotonic_)
+                                : 0;
+          uint32_t age_ms = static_cast<uint32_t>(age_ns / 1000000);
+          const uint32_t dynamic_speed_ttl_ms =
+              computeDynamicSpeedTtlMs(config_.speed_ttl_ms, last_speed_mps_);
 
-            targets.targets.push_back(target);
+          if (age_ms <= dynamic_speed_ttl_ms) {
+            target.radial_vel_mps = last_speed_mps_;
+            target.speed_fresh = true;
+            target.speed_age_ms = age_ms;
+            fused_fresh_window_.fetch_add(1, std::memory_order_relaxed);
+          } else {
+            target.radial_vel_mps = 0.0f;
+            target.speed_fresh = false;
+            target.speed_age_ms = age_ms;
+            fused_stale_window_.fetch_add(1, std::memory_order_relaxed);
           }
         }
+
+        targets.targets.push_back(target);
       }
     } catch (...) {
       parse_error_count_.fetch_add(1, std::memory_order_relaxed);

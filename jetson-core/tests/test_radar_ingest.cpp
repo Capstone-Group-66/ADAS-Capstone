@@ -62,6 +62,47 @@ int main() {
     assert(f2.targets[0].speed_fresh == false); // Still stale (1000ms > 900ms)
     std::cout << "  Passed Phase 4 (fragmented buffering logic works)\n";
 
+    std::cout << "Test 5: Combined packet (range+speed) should emit immediate fresh target\n";
+    std::string combined_msg = "{\"range\":8.5, \"speed\":1.25, \"direction\":\"toward\"}\r\n";
+    RadarTargets c1 = ingest.parseFrame(reinterpret_cast<const uint8_t*>(combined_msg.data()), combined_msg.length(), t_base + 1100000000ULL);
+    assert(!c1.targets.empty());
+    assert(c1.targets[0].range_m == 8.5f);
+    assert(c1.targets[0].radial_vel_mps == 1.25f);
+    assert(c1.targets[0].speed_fresh == true);
+    assert(c1.targets[0].speed_age_ms == 0);
+    std::cout << "  Passed Phase 5 (combined packet immediate fusion)\n";
+
+    std::cout << "Test 6: Combined packet direction normalization away->negative\n";
+    std::string combined_away = "{\"dist\":6.0, \"vel\":2.0, \"dir\":\"away\"}\r\n";
+    RadarTargets c2 = ingest.parseFrame(reinterpret_cast<const uint8_t*>(combined_away.data()), combined_away.length(), t_base + 1200000000ULL);
+    assert(!c2.targets.empty());
+    assert(c2.targets[0].range_m == 6.0f);
+    assert(c2.targets[0].radial_vel_mps == -2.0f);
+    assert(c2.targets[0].speed_fresh == true);
+    std::cout << "  Passed Phase 6 (direction normalization)\n";
+
+    std::cout << "Test 7: Fragmented combined packet reconstruction\n";
+    std::string cfrag1 = "{\"distance\":4.0, \"speed\":0.9";
+    std::string cfrag2 = ", \"direction\":\"toward\"}\r\n";
+    RadarTargets cf1 = ingest.parseFrame(reinterpret_cast<const uint8_t*>(cfrag1.data()), cfrag1.length(), t_base + 1300000000ULL);
+    assert(cf1.targets.empty());
+    RadarTargets cf2 = ingest.parseFrame(reinterpret_cast<const uint8_t*>(cfrag2.data()), cfrag2.length(), t_base + 1301000000ULL);
+    assert(!cf2.targets.empty());
+    assert(cf2.targets[0].range_m == 4.0f);
+    assert(cf2.targets[0].radial_vel_mps == 0.9f);
+    std::cout << "  Passed Phase 7 (fragmented combined stream)\n";
+
+    std::cout << "Test 8: Mixed stream range-only should reuse cached speed within TTL\n";
+    std::string split_speed = "{\"unit\":\"mps\", \"speed\":1.1, \"direction\":\"toward\"}\r\n";
+    ingest.parseFrame(reinterpret_cast<const uint8_t*>(split_speed.data()), split_speed.length(), t_base + 1400000000ULL);
+    std::string alias_range_only = "{\"distance\":5.5}\r\n";
+    RadarTargets mixed = ingest.parseFrame(reinterpret_cast<const uint8_t*>(alias_range_only.data()), alias_range_only.length(), t_base + 1400500000ULL);
+    assert(!mixed.targets.empty());
+    assert(mixed.targets[0].range_m == 5.5f);
+    assert(mixed.targets[0].radial_vel_mps == 1.1f);
+    assert(mixed.targets[0].speed_fresh == true);
+    std::cout << "  Passed Phase 8 (mixed split+combined compatibility)\n";
+
     std::cout << "\nAll test_radar_ingest assertions passed!\n";
     return 0;
 }

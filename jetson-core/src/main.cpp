@@ -5,6 +5,7 @@
 #include <cmath>
 #include <csignal>
 #include <cstdint>
+#include <cctype>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
@@ -167,6 +168,22 @@ std::string formatUptime(std::chrono::seconds uptime) {
 }
 
 int clampSensitivityLevel(int level) { return std::max(1, std::min(5, level)); }
+
+std::string normalizeRadarOutputMode(std::string mode) {
+  std::transform(mode.begin(), mode.end(), mode.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  if (mode == "combined_native") {
+    return "combined_native";
+  }
+  return "split_range";
+}
+
+const char *radarOutputModeLabel(const std::string &mode) {
+  if (normalizeRadarOutputMode(mode) == "combined_native") {
+    return "COMBINED_NATIVE";
+  }
+  return "SPLIT_RANGE";
+}
 
 float sensitivityFactor(int level) {
   // Levels 1..5 map to 0.85, 0.95, 1.00, 1.05, 1.15 (tighter around L3).
@@ -528,7 +545,7 @@ void printBanner() {
   std::this_thread::sleep_for(std::chrono::seconds(2));
 }
 
-void printMenu() {
+void printMenu(const adas::Config &config) {
   std::cout << "\n";
   std::cout
       << "==============================================================\n";
@@ -563,6 +580,8 @@ void printMenu() {
   std::cout << " 15) Set Stage E Sensitivity [L" << g_stage_e_sensitivity_level
             << " " << sensitivityLabel(g_stage_e_sensitivity_level) << " x"
             << sens_ss.str() << "]\n";
+  std::cout << " 16) Set Front Radar Output Mode ["
+            << radarOutputModeLabel(config.front_radar.output_mode) << "]\n";
   std::cout << "  h) Set Camera Height On-The-Fly\n";
   std::cout << "  0) Exit\n";
   std::cout
@@ -997,6 +1016,8 @@ int main(int argc, char **argv) {
     // Load configuration
     std::cout << "[Main] Loading configuration from: " << config_path << "\n";
     adas::Config config = adas::ConfigLoader::loadConfig(config_path);
+    config.front_radar.output_mode =
+        normalizeRadarOutputMode(config.front_radar.output_mode);
 
     // Load hardware mapping (may be empty if file doesn't exist)
     adas::HardwareMap hw_map;
@@ -1018,7 +1039,7 @@ int main(int argc, char **argv) {
 
     // Interactive menu loop
     while (!g_shutdown_requested.load(std::memory_order_relaxed)) {
-      printMenu();
+      printMenu(config);
 
       std::string input;
       std::cin >> input;
@@ -1242,6 +1263,8 @@ int main(int argc, char **argv) {
         // Reload config from disk
         try {
           config = adas::ConfigLoader::loadConfig(config_path);
+          config.front_radar.output_mode =
+              normalizeRadarOutputMode(config.front_radar.output_mode);
           std::cout << "\n[Config] Reloaded from: " << config_path << "\n";
           std::cout << "[Config] Camera: front=" << config.cameras.width << "x"
                     << config.cameras.height
@@ -1335,6 +1358,39 @@ int main(int argc, char **argv) {
           std::cout << " - will apply on next pipeline start (stop/start).";
         }
         std::cout << "\n";
+      } break;
+
+      case 16: // Set Front Radar Output Mode
+      {
+        std::cout << "  Select front radar output mode:\n";
+        std::cout << "    1) split_range (legacy split speed/range stream)\n";
+        std::cout << "    2) combined_native (single packet speed+range via OY)\n";
+        std::cout << "  Enter choice [1-2]: ";
+
+        int mode_choice = 0;
+        std::cin >> mode_choice;
+        if (std::cin.fail() || (mode_choice != 1 && mode_choice != 2)) {
+          std::cin.clear();
+          std::cin.ignore(10000, '\n');
+          std::cout << "[Main] Invalid mode choice. Use 1 or 2.\n";
+          break;
+        }
+
+        config.front_radar.output_mode =
+            (mode_choice == 2) ? "combined_native" : "split_range";
+        try {
+          adas::ConfigLoader::saveConfig(config_path, config);
+          std::cout << "[Main] Front radar output mode set to "
+                    << radarOutputModeLabel(config.front_radar.output_mode)
+                    << ".";
+          if (g_pipeline_running.load()) {
+            std::cout << " Applies on next pipeline start (stop/start).";
+          }
+          std::cout << "\n";
+        } catch (const std::exception &e) {
+          std::cerr << "[Main] Failed to save front radar output mode: "
+                    << e.what() << "\n";
+        }
       } break;
 
       case 14: // Toggle RTSP Server

@@ -37,6 +37,7 @@ front_radar:
   port: "/dev/ttyACM0"
   baud_rate: 921600
   poll_timeout_ms: 50
+  output_mode: "split_range"
   speed_ttl_ms: 900
   speed_mag_threshold: 10
   range_mag_threshold: 20

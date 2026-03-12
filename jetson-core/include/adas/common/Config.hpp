@@ -56,6 +56,11 @@ struct RadarConfig {
     int baud_rate = 921600;
     int poll_timeout_ms = 50;
     
+    // Radar output stream mode:
+    // - split_range: speed/range split stream (legacy behavior)
+    // - combined_native: native combined speed+range packets (OY)
+    std::string output_mode = "split_range";
+
     // Fusion holding parameters
     int speed_ttl_ms = 900;
     int speed_mag_threshold = 10;
