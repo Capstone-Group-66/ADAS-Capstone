@@ -52,7 +52,22 @@ uint8_t levelRank(FCWMonitor::RiskLevel level) {
 
 } // namespace
 
-FCWMonitor::FCWMonitor(const Config &config) : config_(config) {}
+FCWMonitor::FCWMonitor(const Config &config)
+    : config_(config),
+      min_trigger_object_speed_mps_(
+          std::max(0.0f, config.min_trigger_object_speed_mps)) {}
+
+void FCWMonitor::setMinTriggerObjectSpeedGateMps(float min_speed_mps) {
+  if (!std::isfinite(min_speed_mps) || min_speed_mps < 0.0f) {
+    min_speed_mps = 0.0f;
+  }
+  min_trigger_object_speed_mps_.store(min_speed_mps,
+                                      std::memory_order_relaxed);
+}
+
+float FCWMonitor::getMinTriggerObjectSpeedGateMps() const {
+  return min_trigger_object_speed_mps_.load(std::memory_order_relaxed);
+}
 
 bool FCWMonitor::isRelevantClass(int cls) {
   // COCO classes relevant for FCW:
@@ -436,6 +451,17 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
   }
 
   if (best.obj == nullptr) {
+    return std::nullopt;
+  }
+
+  const float min_trigger_speed_mps =
+      min_trigger_object_speed_mps_.load(std::memory_order_relaxed);
+  if (best.obj->radial_vel_mps < min_trigger_speed_mps) {
+    if (g_verbose_mode.load()) {
+      std::cout << "[FCW] SUPPRESSED by speed gate: id=" << best.obj->object_id
+                << " v=" << best.obj->radial_vel_mps
+                << "m/s gate=" << min_trigger_speed_mps << "m/s\n";
+    }
     return std::nullopt;
   }
 

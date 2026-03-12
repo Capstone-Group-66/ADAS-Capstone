@@ -2,6 +2,7 @@
 #include "adas/stage_e/FCWMonitor.hpp"
 
 #include <cassert>
+#include <cmath>
 #include <iostream>
 #include <vector>
 
@@ -127,6 +128,34 @@ int main() {
 
   auto hold_demote = hold_monitor.check(hold_objects, 3'600'000'000ULL);
   assert(!hold_demote.has_value()); // Hold window exceeded, demoted to safe.
+
+  // New behavior: final trigger speed gate suppresses low-speed alerts and can
+  // be adjusted on-the-fly.
+  adas::FCWMonitor::Config gate_cfg = immediate_cfg;
+  gate_cfg.caution_dwell_ms = 0;
+  gate_cfg.warn_dwell_ms = 0;
+  gate_cfg.critical_dwell_ms = 0;
+  gate_cfg.clear_dwell_ms = 0;
+  gate_cfg.min_trigger_object_speed_mps = 4.5f;
+  adas::FCWMonitor gate_monitor(gate_cfg);
+
+  adas::FusedObject gate_obj = ttc_obj;
+  gate_obj.object_id = 2001;
+  gate_obj.ttc_s = 1.0f;
+  gate_obj.radial_vel_mps = 4.0f;
+  gate_obj.camera_age_ms = 30;
+  gate_obj.radar_age_ms = 20;
+
+  std::vector<adas::FusedObject> gate_objects{gate_obj};
+  auto gated_alert = gate_monitor.check(gate_objects, 4'000'000'000ULL);
+  assert(!gated_alert.has_value());
+  assert(std::fabs(gate_monitor.getMinTriggerObjectSpeedGateMps() - 4.5f) <
+         1e-4f);
+
+  gate_monitor.setMinTriggerObjectSpeedGateMps(3.5f);
+  auto ungated_alert = gate_monitor.check(gate_objects, 4'050'000'000ULL);
+  assert(ungated_alert.has_value());
+  assert(ungated_alert->object_id == gate_obj.object_id);
 
   std::cout << "[PASS] test_fcw_monitor_v3\n";
   return 0;

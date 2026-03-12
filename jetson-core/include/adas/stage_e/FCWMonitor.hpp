@@ -2,6 +2,7 @@
 // Forward Collision Warning monitor
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <optional>
 #include <unordered_map>
@@ -53,6 +54,7 @@ class FCWMonitor {
         float min_range_m;     // Ignore if closer than this (already hit)
         float max_range_m;     // Ignore if too far
         float min_closing_speed_mps; // Positive=toward/inward
+        float min_trigger_object_speed_mps; // Final alert gate (0=disabled)
 
         // Physics-based FCW parameters
         float friction_coefficient; // Road friction (0.7 = dry, 0.4 = wet, 0.2
@@ -88,7 +90,9 @@ class FCWMonitor {
 
         Config()
             : ttc_threshold_s(3.0f), min_range_m(0.5f), max_range_m(50.0f),
-              min_closing_speed_mps(0.35f), friction_coefficient(0.7f),
+              min_closing_speed_mps(0.35f),
+              min_trigger_object_speed_mps(0.0f),
+              friction_coefficient(0.7f),
               reaction_time_s(2.5f), use_physics_fcw(false),
               min_fusion_quality(0.22f), path_half_width_m(0.85f),
               path_width_growth_per_m(0.035f), caution_risk_threshold(0.38f),
@@ -110,6 +114,14 @@ class FCWMonitor {
 
     /// Get current ego velocity
     float getEgoVelocity() const { return ego_velocity_mps_; }
+
+    /// Set final FCW trigger speed gate for object radial speed.
+    /// @param min_speed_mps Minimum object radial speed in m/s.
+    ///                      0 disables this final trigger gate.
+    void setMinTriggerObjectSpeedGateMps(float min_speed_mps);
+
+    /// Get current final FCW trigger speed gate in m/s.
+    float getMinTriggerObjectSpeedGateMps() const;
 
     /// Check fused objects for FCW threats
     /// @param objects Fused objects from SensorFusion
@@ -150,6 +162,7 @@ class FCWMonitor {
 
     Config config_;
     float ego_velocity_mps_ = 0.0f;
+    std::atomic<float> min_trigger_object_speed_mps_{0.0f};
     std::unordered_map<uint64_t, TrackState> track_states_;
     FCWEvaluation last_evaluation_;
 };

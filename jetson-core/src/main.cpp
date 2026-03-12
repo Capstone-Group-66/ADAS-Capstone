@@ -150,6 +150,8 @@ std::string g_replay_file;
 float g_replay_speed = 1.0f;
 bool g_replay_fast = false;
 int g_stage_e_sensitivity_level = 3; // 1=least sensitive, 5=most sensitive
+float g_fcw_min_trigger_object_speed_gate_mps =
+    0.0f; // 0 means no final trigger speed gate
 
 std::string formatUptime(std::chrono::seconds uptime) {
   int hours = uptime.count() / 3600;
@@ -583,6 +585,11 @@ void printMenu(const adas::Config &config) {
             << sens_ss.str() << "]\n";
   std::cout << " 16) Set Front Radar Output Mode ["
             << radarOutputModeLabel(config.front_radar.output_mode) << "]\n";
+  std::ostringstream speed_gate_ss;
+  speed_gate_ss << std::fixed << std::setprecision(2)
+                << g_fcw_min_trigger_object_speed_gate_mps;
+  std::cout << " 17) Set FCW Min Trigger Object Speed Gate ["
+            << speed_gate_ss.str() << " m/s]\n";
   std::cout << "  h) Set Camera Height On-The-Fly\n";
   std::cout << "  0) Exit\n";
   std::cout
@@ -674,6 +681,8 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   fcw_config.invalid_demote_grace_ms = 350;
   fcw_config.invalid_state_hold_ms = 250;
   fcw_config.log_fcw_drop_reasons = true;
+  fcw_config.min_trigger_object_speed_mps =
+      std::max(0.0f, g_fcw_min_trigger_object_speed_gate_mps);
   applyStageESensitivity(fusion_config, fcw_config,
                          g_stage_e_sensitivity_level);
 
@@ -697,7 +706,8 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
             << (fcw_config.use_physics_fcw ? "ENABLED" : "disabled")
             << ", Sensitivity: L" << g_stage_e_sensitivity_level << " ("
             << sensitivityLabel(g_stage_e_sensitivity_level) << ", x"
-            << sens_start_ss.str() << "))\n";
+            << sens_start_ss.str() << "), Min Trigger Speed Gate: "
+            << fcw_config.min_trigger_object_speed_mps << " m/s)\n";
 
   // Initialize BLE Server
   g_ble_server = std::make_unique<adas::SimpleBleServer>();
@@ -813,6 +823,8 @@ void startReplayPipeline(const std::string &replay_file, float speed,
   fcw_config.invalid_demote_grace_ms = 350;
   fcw_config.invalid_state_hold_ms = 250;
   fcw_config.log_fcw_drop_reasons = true;
+  fcw_config.min_trigger_object_speed_mps =
+      std::max(0.0f, g_fcw_min_trigger_object_speed_gate_mps);
   applyStageESensitivity(replay_fusion_config, fcw_config,
                          g_stage_e_sensitivity_level);
   g_sensor_fusion = std::make_unique<adas::SensorFusion>(replay_fusion_config);
@@ -827,7 +839,8 @@ void startReplayPipeline(const std::string &replay_file, float speed,
   std::cout << "[Main] Stage E fusion initialized (Replay Mode, Sensitivity: L"
             << g_stage_e_sensitivity_level << " ("
             << sensitivityLabel(g_stage_e_sensitivity_level) << ", x"
-            << sens_replay_ss.str() << "))\n";
+            << sens_replay_ss.str() << "), Min Trigger Speed Gate: "
+            << fcw_config.min_trigger_object_speed_mps << " m/s)\n";
 
   // Initialize BLE Server (No real GPS connection needed for playback scaling,
   // but kept for UI output)
@@ -1393,6 +1406,35 @@ int main(int argc, char **argv) {
           std::cerr << "[Main] Failed to save front radar output mode: "
                     << e.what() << "\n";
         }
+      } break;
+
+      case 17: // Set FCW Min Trigger Object Speed Gate
+      {
+        std::cout << "  Enter FCW min trigger object speed gate (m/s, >= 0): ";
+        float speed_gate_mps = g_fcw_min_trigger_object_speed_gate_mps;
+        std::cin >> speed_gate_mps;
+        if (std::cin.fail() || !std::isfinite(speed_gate_mps) ||
+            speed_gate_mps < 0.0f) {
+          std::cin.clear();
+          std::cin.ignore(10000, '\n');
+          std::cout << "[Main] Invalid speed gate value. Use a number >= 0.\n";
+          break;
+        }
+
+        g_fcw_min_trigger_object_speed_gate_mps = speed_gate_mps;
+        if (g_fcw_monitor) {
+          g_fcw_monitor->setMinTriggerObjectSpeedGateMps(
+              g_fcw_min_trigger_object_speed_gate_mps);
+        }
+
+        std::cout << "[Main] FCW min trigger object speed gate set to "
+                  << g_fcw_min_trigger_object_speed_gate_mps << " m/s";
+        if (g_pipeline_running.load() && g_fcw_monitor) {
+          std::cout << " (applied on-the-fly).";
+        } else {
+          std::cout << " (will apply on next pipeline start).";
+        }
+        std::cout << "\n";
       } break;
 
       case 14: // Toggle RTSP Server
