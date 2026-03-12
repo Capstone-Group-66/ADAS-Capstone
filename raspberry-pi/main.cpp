@@ -19,10 +19,8 @@ float vehicle_hood_length = 0.5f;
 // Camera details
 const Size CAMERA_SIZE =  Size(1080, 720);
 const float CAMERA_FOCAL_PX = 828.7524f;
-
 Mat camera_matrix = (Mat_<float>(3,3) << 828.7524f, 0.0f, 606.7092f, 0.0f, 829.1880f, 397.7422f, 0.0f, 0.0f, 1.0f);
 Mat dist_coeffs = (Mat_<float>(1,5) << -0.4554f, 0.2687f, 0.0008772f, 0.0004815f, -0.09284f);
-
 std::string video_path = "videos/CameraFront.mp4";
 //std::string video_path = "/dev/video0";
 
@@ -35,6 +33,7 @@ const float IOU_THRESHOLD = 0.2f;
 const float CONFIDENCE_THRESHOLD = 0.35;
 const float NMS_THRESHOLD = 0.2f;
 
+// set draw = true to show image with boxes
 bool draw = false;
 
 struct Detection {
@@ -65,6 +64,7 @@ struct Track {
         last_time = std::chrono::steady_clock::now();
     }
 
+    // Matches class id from model to real sizes
     int convertClassId(int id){
         if(id == 5) return 4;
         if(id == 7) return 5;
@@ -111,7 +111,6 @@ struct Track {
     }
 };
 
-
 float calculate_iou(const cv::Rect& a, const cv::Rect& b) {
     float intersection_area = (a & b).area();
     float union_area = a.area() + b.area() - intersection_area;
@@ -153,9 +152,9 @@ void updateTracks(std::vector<Track>& tracks, std::vector<Detection>& detections
             tracks.emplace_back(detections[i]);
         }
     }
-
 }
 
+// Take output from inference and create list of Detections
 std::vector<Detection> postProcess(ncnn::Mat& output) {
     std::vector<Detection> detections;
 
@@ -166,6 +165,7 @@ std::vector<Detection> postProcess(ncnn::Mat& output) {
     //person, bicycle, car, motorcycle, bus, truck
     const std::set<int> target_classes = {0, 1, 2, 3, 5, 7};
 
+    // Create detections from boxes identified in model
     for (size_t i = 0; i < output.w; ++i) {
         float max_score = 0;
         int class_id = 0;
@@ -192,7 +192,7 @@ std::vector<Detection> postProcess(ncnn::Mat& output) {
         }
     }
 
-    // Remove overlapping boxes
+    // Remove overlapping detection
     std::vector<Detection> nmsDetections;
     std::vector<int> indices;
     cv::dnn::NMSBoxes(boxes, confidences, CONFIDENCE_THRESHOLD, NMS_THRESHOLD, indices);
@@ -203,6 +203,7 @@ std::vector<Detection> postProcess(ncnn::Mat& output) {
     return nmsDetections;
 }
 
+// Get the earliest ttc from tracks
 float computeTTC(std::vector<Track>& tracks){
     float earliest_ttc = -1.0f;
     for (auto& track : tracks) {
@@ -248,9 +249,8 @@ int main(){
     std::vector<Track> tracks;
     auto start = std::chrono::steady_clock::now();
     while(cap.isOpened()){
+        // Skip frames to keep system real time
         auto elapsed_time = std::chrono::duration<float>(std::chrono::steady_clock::now() - start).count();
-
-        // Skip frames to keep up
         int target_frame_id = (int)(elapsed_time * camera_fps);
         int current_id  = (int)cap.get(CAP_PROP_POS_FRAMES);
         while (current_id < target_frame_id){
@@ -265,6 +265,7 @@ int main(){
             // Undistort image
             Mat undistorted_frame;
             remap(frame, undistorted_frame, map1, map2, INTER_LINEAR);
+
             ncnn::Mat input = ncnn::Mat::from_pixels_resize(undistorted_frame.data, ncnn::Mat::PIXEL_BGR, undistorted_frame.cols, undistorted_frame.rows, model_size.width, model_size.height);
             input.substract_mean_normalize(0, norm_vals);
             ncnn::Extractor ex = net.create_extractor();
@@ -285,6 +286,7 @@ int main(){
                 std::cout << "0,2" << std::endl; //false,on //TODO
             }
             
+            // Draw tracks
             if (draw){
                 for(const auto& track : tracks){
                     rectangle(undistorted_frame, track.last_box, Scalar(0, 255, 0), 2);
