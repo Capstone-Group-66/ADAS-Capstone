@@ -12,8 +12,7 @@ file(COPY ${CMAKE_CURRENT_SOURCE_DIR}/videos DESTINATION ${CMAKE_CURRENT_BINARY_
 
 add_executable(${PROJECT_NAME} main.cpp)
 
-target_include_directories(${PROJECT_NAME} PRIVATE 
-    /home/john471g/ncnn/build/install/include
+target_include_directories(${PROJECT_NAME} PRIVATE
     ${OpenCV_INCLUDE_DIRS}
 )
 
