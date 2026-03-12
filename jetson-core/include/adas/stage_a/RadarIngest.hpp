@@ -134,12 +134,7 @@ class RadarIngest {
     // Reconnect/watchdog
     uint64_t last_data_time_ns_{0};
     uint64_t last_connect_attempt_ns_{0};
-    uint64_t connected_since_ns_{0};
-    uint64_t frames_at_connect_{0};
     uint32_t reconnect_backoff_ms_{200};
-    int desired_baud_rate_{921600};
-    int active_baud_rate_{0};
-    bool startup_baud_probe_done_{false};
 
     // Raw CSV Logger
     std::ofstream raw_csv_file_;

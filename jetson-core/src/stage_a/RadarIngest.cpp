@@ -88,24 +88,6 @@ bool unitIndicatesRange(const std::string &unit) {
   return unit == "m" || unit == "meter" || unit == "meters";
 }
 
-#ifdef __linux__
-bool writeAllCommand(int fd, const std::string &cmd) {
-  size_t offset = 0;
-  while (offset < cmd.size()) {
-    const ssize_t n = write(fd, cmd.data() + offset, cmd.size() - offset);
-    if (n > 0) {
-      offset += static_cast<size_t>(n);
-      continue;
-    }
-    if (n < 0 && (errno == EINTR)) {
-      continue;
-    }
-    return false;
-  }
-  return true;
-}
-#endif
-
 float normalizeTowardPositiveSpeed(float raw_speed_mps,
                                    const nlohmann::json &packet) {
   // Project convention: positive = toward/inward, negative = away/outward.
@@ -177,7 +159,6 @@ RadarIngest::RadarIngest(Mount mount, const std::string &port,
                          const RadarConfig &config)
     : mount_(mount), port_(port), queue_(queue), config_(config) {
   combined_native_mode_ = isCombinedNativeMode(config_.output_mode);
-  desired_baud_rate_ = config_.baud_rate;
 }
 
 RadarIngest::~RadarIngest() { stop(); }
@@ -245,10 +226,6 @@ void RadarIngest::run() {
       reconnect_backoff_ms_ = 200;
       healthy_.store(true, std::memory_order_relaxed);
       last_data_time_ns_ = Clock::now_ns();
-      connected_since_ns_ = last_data_time_ns_;
-      frames_at_connect_ = frames_received_.load(std::memory_order_relaxed);
-      active_baud_rate_ = desired_baud_rate_;
-      startup_baud_probe_done_ = false;
       line_buffer_.clear();
 
       if (!raw_csv_file_.is_open()) {
@@ -302,34 +279,6 @@ void RadarIngest::run() {
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
       continue;
     } else {
-      const uint64_t now_ns = Clock::now_ns();
-      const uint64_t connected_elapsed_ns =
-          (connected_since_ns_ > 0 && now_ns > connected_since_ns_)
-              ? (now_ns - connected_since_ns_)
-              : 0;
-      const uint64_t total_frames =
-          frames_received_.load(std::memory_order_relaxed);
-      const uint64_t frames_since_connect =
-          (total_frames >= frames_at_connect_)
-              ? (total_frames - frames_at_connect_)
-              : 0;
-      // One-time startup baud probe for "few pings then dead" behavior.
-      if (!startup_baud_probe_done_ && frames_since_connect >= 1 &&
-          frames_since_connect <= 4 && connected_elapsed_ns > 2000000000ULL) {
-        startup_baud_probe_done_ = true;
-        if (active_baud_rate_ == 921600) {
-          desired_baud_rate_ = 115200;
-        } else {
-          desired_baud_rate_ = 921600;
-        }
-        std::cerr << "[RadarIngest] Startup stream stalled after "
-                  << frames_since_connect << " frames, probing alternate baud "
-                  << desired_baud_rate_ << "\n";
-        healthy_.store(false, std::memory_order_relaxed);
-        closeSerialFd();
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        continue;
-      }
       // No-data windows can be valid (target/threshold dependent); reconnect
       // only on explicit serial disconnect/error signals.
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -401,8 +350,8 @@ void RadarIngest::run() {
 
 bool RadarIngest::setupSerialPort() {
 #ifdef __linux__
-  // Open blocking for reliable init writes; switch to non-blocking afterward.
-  fd_ = open(port_.c_str(), O_RDWR | O_NOCTTY);
+  // From radar_freq_test.cpp: open serial port
+  fd_ = open(port_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
   if (fd_ < 0) {
     perror("[RadarIngest] open");
     return false;
@@ -416,9 +365,9 @@ bool RadarIngest::setupSerialPort() {
     return false;
   }
 
-  // Set baud rate
+  // Set baud rate (921600)
   speed_t baud = B921600;
-  switch (desired_baud_rate_) {
+  switch (config_.baud_rate) {
   case 115200:
     baud = B115200;
     break;
@@ -432,9 +381,7 @@ bool RadarIngest::setupSerialPort() {
     baud = B921600;
     break;
   default:
-    std::cerr << "[RadarIngest] Unsupported baud rate (" << desired_baud_rate_
-              << "), using 921600\n";
-    desired_baud_rate_ = 921600;
+    std::cerr << "[RadarIngest] Unsupported baud rate, using 921600\n";
     baud = B921600;
   }
   cfsetispeed(&tty, baud);
@@ -482,11 +429,7 @@ bool RadarIngest::setupSerialPort() {
   init_cmds.push_back("S[\r\n");
   init_cmds.push_back("s[\r\n");
   for (const std::string &cmd : init_cmds) {
-    if (!writeAllCommand(fd_, cmd)) {
-      std::cerr << "[RadarIngest] Failed to send radar command: " << cmd;
-      closeSerialFd();
-      return false;
-    }
+    write(fd_, cmd.c_str(), cmd.length());
     usleep(50000); // 50ms wait
   }
 
@@ -495,32 +438,16 @@ bool RadarIngest::setupSerialPort() {
       "M>" + std::to_string(config_.speed_mag_threshold) + "\r\n";
   std::string mag_range =
       "m>" + std::to_string(config_.range_mag_threshold) + "\r\n";
-  if (!writeAllCommand(fd_, mag_speed)) {
-    std::cerr << "[RadarIngest] Failed to send speed magnitude threshold\n";
-    closeSerialFd();
-    return false;
-  }
+  write(fd_, mag_speed.c_str(), mag_speed.length());
   usleep(50000);
-  if (!writeAllCommand(fd_, mag_range)) {
-    std::cerr << "[RadarIngest] Failed to send range magnitude threshold\n";
-    closeSerialFd();
-    return false;
-  }
+  write(fd_, mag_range.c_str(), mag_range.length());
   usleep(50000);
 
   // Flush again to clear config echoing
   tcflush(fd_, TCIOFLUSH);
 
-  // Runtime loop uses non-blocking select/read.
-  const int flags = fcntl(fd_, F_GETFL, 0);
-  if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) != 0) {
-    perror("[RadarIngest] fcntl(O_NONBLOCK)");
-    closeSerialFd();
-    return false;
-  }
-
   std::cout << "[RadarIngest] Serial port configured: " << port_ << " @ "
-            << desired_baud_rate_ << " baud" << " (mode="
+            << config_.baud_rate << " baud" << " (mode="
             << (combined_native_mode_ ? "combined_native" : "split_range")
             << ")\n";
   return true;
