@@ -198,8 +198,6 @@ void RadarIngest::run() {
   last_rate_time_ = Clock::now_ns();
   last_data_time_ns_ = last_rate_time_;
 
-  constexpr uint64_t kWatchdogNoDataNs = 1500000000ULL; // 1.5 s
-
   std::vector<uint8_t> buffer;
   buffer.reserve(4096);
 
@@ -281,16 +279,8 @@ void RadarIngest::run() {
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
       continue;
     } else {
-      const uint64_t now_ns = Clock::now_ns();
-      if (now_ns > last_data_time_ns_ &&
-          (now_ns - last_data_time_ns_) > kWatchdogNoDataNs) {
-        std::cerr << "[RadarIngest] No radar bytes for >1.5s on " << port_
-                  << ", forcing reconnect\n";
-        healthy_.store(false, std::memory_order_relaxed);
-        closeSerialFd();
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
-        continue;
-      }
+      // No-data windows can be valid (target/threshold dependent); reconnect
+      // only on explicit serial disconnect/error signals.
       std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
 
@@ -491,7 +481,10 @@ int RadarIngest::readFrame(std::vector<uint8_t> &buffer) {
     if (errno == EINTR) {
       return 0;
     }
-    return -2;
+    if (errno == EBADF || errno == ENODEV || errno == EIO) {
+      return -2;
+    }
+    return -1;
   }
 
   // Drain all currently available bytes in non-blocking mode.
@@ -504,7 +497,7 @@ int RadarIngest::readFrame(std::vector<uint8_t> &buffer) {
       continue;
     }
     if (n == 0) {
-      saw_disconnect = true;
+      // Zero-byte read on non-blocking serial is not a hard disconnect.
       break;
     }
     if (errno == EAGAIN || errno == EWOULDBLOCK) {
