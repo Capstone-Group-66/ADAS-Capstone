@@ -41,7 +41,7 @@ fun Navigation(
 
             Drive(
                 vehicleStatusViewModel = vm,
-                onDebugFcw = { scope.launch { repository.simulateFcwAlert() } },
+                onDebugTrigger = { scope.launch { repository.simulateFcwAlert() } },
                 onDebugClear = { scope.launch { repository.simulateClear() } },
             )
         }
