@@ -448,8 +448,6 @@ bool RadarIngest::setupSerialPort() {
   tcflush(fd_, TCIOFLUSH);
 
   // Send mode + common commands for OPS243.
-  // We intentionally perform a "mode lock" second pass so the selected mode
-  // overrides any sticky prior mode from previous runs.
   std::vector<std::string> init_cmds;
   if (combined_native_mode_) {
     init_cmds.push_back("OY\r\n"); // Combined speed+range output.
@@ -482,23 +480,6 @@ bool RadarIngest::setupSerialPort() {
     std::cerr << "[RadarIngest] Failed to send magnitude thresholds\n";
     closeSerialFd();
     return false;
-  }
-
-  // Mode lock pass (fast) to force selected output mode immediately at startup.
-  if (combined_native_mode_) {
-    if (!writeSerialCommand(fd_, "OY\r\n", 25)) {
-      std::cerr << "[RadarIngest] Failed to lock combined mode (OY)\n";
-      closeSerialFd();
-      return false;
-    }
-  } else {
-    if (!writeSerialCommand(fd_, "GX\r\n", 25) ||
-        !writeSerialCommand(fd_, "OS\r\n", 20) ||
-        !writeSerialCommand(fd_, "oD\r\n", 20)) {
-      std::cerr << "[RadarIngest] Failed to lock split mode (GX/OS/oD)\n";
-      closeSerialFd();
-      return false;
-    }
   }
 
   // Flush again to clear config echoing
