@@ -408,6 +408,18 @@ bool RadarIngest::setupSerialPort() {
   case 230400:
     baud = B230400;
     break;
+  case 256000:
+#ifdef B256000
+    baud = B256000;
+#elif defined(B250000)
+    std::cerr << "[RadarIngest] B256000 unavailable, using B250000 fallback\n";
+    baud = B250000;
+#else
+    std::cerr << "[RadarIngest] 256000 baud unsupported on this platform, using "
+                 "230400 fallback\n";
+    baud = B230400;
+#endif
+    break;
   case 460800:
     baud = B460800;
     break;
