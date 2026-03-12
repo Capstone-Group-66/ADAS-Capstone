@@ -5,6 +5,7 @@
 #include <csignal>
 #include <cstdint>
 #include <cstdlib>
+#include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -147,6 +148,7 @@ std::string g_record_dir = "./recordings";
 std::string g_replay_file;
 float g_replay_speed = 1.0f;
 bool g_replay_fast = false;
+int g_stage_e_sensitivity_level = 3; // 1=least sensitive, 5=most sensitive
 
 std::string formatUptime(std::chrono::seconds uptime) {
   int hours = uptime.count() / 3600;
@@ -162,6 +164,104 @@ std::string formatUptime(std::chrono::seconds uptime) {
     ss << seconds << "s";
   }
   return ss.str();
+}
+
+int clampSensitivityLevel(int level) { return std::max(1, std::min(5, level)); }
+
+float sensitivityFactor(int level) {
+  // Levels 1..5 map to 0.7, 0.85, 1.0, 1.15, 1.3
+  const int clamped = clampSensitivityLevel(level);
+  return 0.70f + 0.15f * static_cast<float>(clamped - 1);
+}
+
+const char *sensitivityLabel(int level) {
+  switch (clampSensitivityLevel(level)) {
+  case 1:
+    return "LOW";
+  case 2:
+    return "MED-LOW";
+  case 3:
+    return "MEDIUM";
+  case 4:
+    return "MED-HIGH";
+  case 5:
+    return "HIGH";
+  default:
+    return "MEDIUM";
+  }
+}
+
+uint32_t scaleU32(uint32_t value, float factor, uint32_t min_v,
+                  uint32_t max_v) {
+  const float scaled = std::round(static_cast<float>(value) * factor);
+  const float clamped = std::clamp(scaled, static_cast<float>(min_v),
+                                   static_cast<float>(max_v));
+  return static_cast<uint32_t>(clamped);
+}
+
+void applyStageESensitivity(adas::FusionConfig &fusion_config,
+                            adas::FCWMonitor::Config &fcw_config, int level) {
+  const int clamped_level = clampSensitivityLevel(level);
+  const float sens = sensitivityFactor(clamped_level);
+  const float inv_sens = std::max(0.5f, 1.0f / sens);
+
+  // Fusion association sensitivity.
+  fusion_config.ttc_aggressive_s =
+      std::clamp(fusion_config.ttc_aggressive_s * sens, 2.0f, 6.0f);
+  fusion_config.normal_angle_gate_deg =
+      std::clamp(fusion_config.normal_angle_gate_deg * sens, 8.0f, 22.0f);
+  fusion_config.aggressive_angle_gate_deg = std::clamp(
+      fusion_config.aggressive_angle_gate_deg * sens, 10.0f, 30.0f);
+  if (fusion_config.aggressive_angle_gate_deg <
+      fusion_config.normal_angle_gate_deg) {
+    fusion_config.aggressive_angle_gate_deg =
+        fusion_config.normal_angle_gate_deg;
+  }
+  fusion_config.aggressive_range_scale =
+      std::clamp(fusion_config.aggressive_range_scale * sens, 1.0f, 2.5f);
+  fusion_config.camera_hold_ms =
+      scaleU32(fusion_config.camera_hold_ms, sens, 200, 1400);
+
+  // FCW risk/escalation sensitivity.
+  fcw_config.ttc_threshold_s =
+      std::clamp(fcw_config.ttc_threshold_s * sens, 2.0f, 5.0f);
+  fcw_config.ttc_immediate_warn_s =
+      std::clamp(fcw_config.ttc_immediate_warn_s * sens, 1.8f, 4.2f);
+  fcw_config.ttc_immediate_critical_s =
+      std::clamp(fcw_config.ttc_immediate_critical_s * sens, 0.7f, 2.0f);
+  fcw_config.min_closing_speed_mps =
+      std::clamp(fcw_config.min_closing_speed_mps * inv_sens, 0.15f, 1.2f);
+  fcw_config.min_fusion_quality =
+      std::clamp(fcw_config.min_fusion_quality * inv_sens, 0.08f, 0.50f);
+  fcw_config.caution_risk_threshold =
+      std::clamp(fcw_config.caution_risk_threshold * inv_sens, 0.20f, 0.80f);
+  fcw_config.warn_risk_threshold =
+      std::clamp(fcw_config.warn_risk_threshold * inv_sens, 0.30f, 0.90f);
+  fcw_config.critical_risk_threshold =
+      std::clamp(fcw_config.critical_risk_threshold * inv_sens, 0.40f, 0.98f);
+  fcw_config.path_half_width_m =
+      std::clamp(fcw_config.path_half_width_m * sens, 0.6f, 1.8f);
+  fcw_config.path_width_growth_per_m =
+      std::clamp(fcw_config.path_width_growth_per_m * sens, 0.015f, 0.09f);
+
+  // Timing/hysteresis. Higher sensitivity => escalate faster, hold longer.
+  fcw_config.caution_dwell_ms =
+      scaleU32(fcw_config.caution_dwell_ms, inv_sens, 20, 800);
+  fcw_config.warn_dwell_ms = scaleU32(fcw_config.warn_dwell_ms, inv_sens, 20, 800);
+  fcw_config.critical_dwell_ms =
+      scaleU32(fcw_config.critical_dwell_ms, inv_sens, 10, 600);
+  fcw_config.clear_dwell_ms = scaleU32(fcw_config.clear_dwell_ms, sens, 20, 1200);
+  fcw_config.camera_drop_track_hold_ms =
+      scaleU32(fcw_config.camera_drop_track_hold_ms, sens, 400, 3000);
+  fcw_config.camera_drop_radar_recent_ms =
+      scaleU32(fcw_config.camera_drop_radar_recent_ms, sens, 50, 800);
+  fcw_config.invalid_demote_grace_ms =
+      scaleU32(fcw_config.invalid_demote_grace_ms, sens, 60, 1200);
+  fcw_config.invalid_state_hold_ms =
+      scaleU32(fcw_config.invalid_state_hold_ms, sens, 80, 1600);
+
+  // Keep FCW camera hold in lockstep with fusion camera hold.
+  fcw_config.camera_hold_ms = fusion_config.camera_hold_ms;
 }
 
 // Visualization control flag (set to false for production)
@@ -443,6 +543,12 @@ void printMenu() {
   std::cout << " 13) Edit Camera Config (opens editor, hot-reload)\n";
   std::cout << " 14) Toggle RTSP Stream ["
             << (g_rtsp_streaming.load() ? "ON" : "OFF") << "]\n";
+  std::ostringstream sens_ss;
+  sens_ss << std::fixed << std::setprecision(2)
+          << sensitivityFactor(g_stage_e_sensitivity_level);
+  std::cout << " 15) Set Stage E Sensitivity [L" << g_stage_e_sensitivity_level
+            << " " << sensitivityLabel(g_stage_e_sensitivity_level) << " x"
+            << sens_ss.str() << "]\n";
   std::cout << "  h) Set Camera Height On-The-Fly\n";
   std::cout << "  0) Exit\n";
   std::cout
@@ -512,7 +618,6 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   fusion_config.ekf_r_cam_z_weak = config.stage_e_fusion.ekf_r_cam_z_weak;
   fusion_config.radar_hold_ms = static_cast<uint32_t>(
       std::max(500, config.front_radar.speed_ttl_ms + 200));
-  g_sensor_fusion = std::make_unique<adas::SensorFusion>(fusion_config);
 
   // Configure FCW with physics-based parameters
   adas::FCWMonitor::Config fcw_config;
@@ -535,6 +640,9 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   fcw_config.invalid_demote_grace_ms = 350;
   fcw_config.invalid_state_hold_ms = 250;
   fcw_config.log_fcw_drop_reasons = true;
+  applyStageESensitivity(fusion_config, fcw_config, g_stage_e_sensitivity_level);
+
+  g_sensor_fusion = std::make_unique<adas::SensorFusion>(fusion_config);
   g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
 
   // Initialize EgoFrame for ego vehicle state from IMU
@@ -546,9 +654,15 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
       g_bsd_receiver.get(), fusion_config.c_x, fusion_config.f_x);
   g_bev_dashboard->start();
 
+  std::ostringstream sens_start_ss;
+  sens_start_ss << std::fixed << std::setprecision(2)
+                << sensitivityFactor(g_stage_e_sensitivity_level);
   std::cout << "[Main] Stage E fusion initialized (TTC threshold: "
             << g_fcw_monitor->getThreshold() << "s, Physics FCW: "
-            << (fcw_config.use_physics_fcw ? "ENABLED" : "disabled") << ")\n";
+            << (fcw_config.use_physics_fcw ? "ENABLED" : "disabled")
+            << ", Sensitivity: L" << g_stage_e_sensitivity_level << " ("
+            << sensitivityLabel(g_stage_e_sensitivity_level) << ", x"
+            << sens_start_ss.str() << "))\n";
 
   // Initialize BLE Server
   g_ble_server = std::make_unique<adas::SimpleBleServer>();
@@ -643,7 +757,6 @@ void startReplayPipeline(const std::string &replay_file, float speed,
       config.stage_e_fusion.ekf_r_cam_z_weak;
   replay_fusion_config.radar_hold_ms = static_cast<uint32_t>(
       std::max(500, config.front_radar.speed_ttl_ms + 200));
-  g_sensor_fusion = std::make_unique<adas::SensorFusion>(replay_fusion_config);
 
   adas::FCWMonitor::Config fcw_config;
   fcw_config.ttc_threshold_s = 3.0f;
@@ -665,12 +778,21 @@ void startReplayPipeline(const std::string &replay_file, float speed,
   fcw_config.invalid_demote_grace_ms = 350;
   fcw_config.invalid_state_hold_ms = 250;
   fcw_config.log_fcw_drop_reasons = true;
+  applyStageESensitivity(replay_fusion_config, fcw_config,
+                         g_stage_e_sensitivity_level);
+  g_sensor_fusion = std::make_unique<adas::SensorFusion>(replay_fusion_config);
   g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
 
   g_ego_frame = std::make_unique<adas::EgoFrame>();
   g_ego_frame->init();
 
-  std::cout << "[Main] Stage E fusion initialized (Replay Mode)\n";
+  std::ostringstream sens_replay_ss;
+  sens_replay_ss << std::fixed << std::setprecision(2)
+                 << sensitivityFactor(g_stage_e_sensitivity_level);
+  std::cout << "[Main] Stage E fusion initialized (Replay Mode, Sensitivity: L"
+            << g_stage_e_sensitivity_level << " ("
+            << sensitivityLabel(g_stage_e_sensitivity_level) << ", x"
+            << sens_replay_ss.str() << "))\n";
 
   // Initialize BLE Server (No real GPS connection needed for playback scaling,
   // but kept for UI output)
@@ -1173,6 +1295,31 @@ int main(int argc, char **argv) {
           startReplayPipeline(file_path, speed, config, hw_map, calib_dir,
                               model_path);
         }
+      } break;
+
+      case 15: // Set Stage E Sensitivity
+      {
+        std::cout << "  Enter Stage E sensitivity [1-5] (1=least, 5=most): ";
+        int level = g_stage_e_sensitivity_level;
+        std::cin >> level;
+        if (std::cin.fail() || level < 1 || level > 5) {
+          std::cin.clear();
+          std::cin.ignore(10000, '\n');
+          std::cout << "[Main] Invalid sensitivity level. Use 1..5.\n";
+          break;
+        }
+        g_stage_e_sensitivity_level = clampSensitivityLevel(level);
+        std::ostringstream ss;
+        ss << std::fixed << std::setprecision(2)
+           << sensitivityFactor(g_stage_e_sensitivity_level);
+        std::cout << "[Main] Stage E sensitivity set to L"
+                  << g_stage_e_sensitivity_level << " ("
+                  << sensitivityLabel(g_stage_e_sensitivity_level) << ", x"
+                  << ss.str() << ")";
+        if (g_pipeline_running.load()) {
+          std::cout << " - will apply on next pipeline start (stop/start).";
+        }
+        std::cout << "\n";
       } break;
 
       case 14: // Toggle RTSP Server
