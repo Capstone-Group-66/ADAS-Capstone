@@ -23,6 +23,7 @@ constexpr int kEgoW = 20;
 constexpr int kEgoH = 40;
 constexpr float kRadarHalfFovDeg = 10.0f;  // 20 degree cone
 constexpr float kCameraHalfFovDeg = 12.5f; // 25 degree corridor span
+constexpr float kCameraDebugConeHalfFovDeg = 30.0f; // 60 degree debug cone
 constexpr float kRadarRangeTxM = 0.0127f;  // Keep same t_x used in fusion.
 constexpr float kRadarHeatDecay = 0.94f;
 constexpr float kRadarHeatBlurSigma = 2.2f;
@@ -435,6 +436,17 @@ void BEVDashboard::renderLoop() {
     // Raw radar scan-lines (20 degree cone)
     for (const auto &target : frame.radar_targets.targets) {
       drawRadarRangeLine(canvas, target.range_m, cv::Scalar(190, 110, 30), 1);
+    }
+
+    // Camera detections outside the 60 degree debug cone are rendered as gray
+    // corridors for visual alignment debugging.
+    for (const auto &det : frame.camera_batch.dets) {
+      const float angle_rad = adas::bev::angleFromPixel(det.centroid.x, c_x_, f_x_);
+      if (!std::isfinite(angle_rad) ||
+          adas::bev::inAngleSpan(angle_rad, kCameraDebugConeHalfFovDeg)) {
+        continue;
+      }
+      drawCorridor(canvas, angle_rad, cv::Scalar(95, 95, 95), 1);
     }
 
     struct FcwRayOverlay {
