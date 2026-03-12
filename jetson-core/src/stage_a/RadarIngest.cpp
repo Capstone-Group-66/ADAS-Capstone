@@ -88,6 +88,40 @@ bool unitIndicatesRange(const std::string &unit) {
   return unit == "m" || unit == "meter" || unit == "meters";
 }
 
+bool writeSerialCommand(int fd, const std::string &cmd, int settle_ms) {
+#ifdef __linux__
+  size_t offset = 0;
+  while (offset < cmd.size()) {
+    const ssize_t n = write(fd, cmd.data() + offset, cmd.size() - offset);
+    if (n > 0) {
+      offset += static_cast<size_t>(n);
+      continue;
+    }
+    if (n < 0 && errno == EINTR) {
+      continue;
+    }
+    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      usleep(1000);
+      continue;
+    }
+    return false;
+  }
+  // Ensure command is physically drained to device before next command.
+  if (tcdrain(fd) != 0) {
+    return false;
+  }
+  if (settle_ms > 0) {
+    usleep(static_cast<useconds_t>(settle_ms) * 1000);
+  }
+  return true;
+#else
+  (void)fd;
+  (void)cmd;
+  (void)settle_ms;
+  return false;
+#endif
+}
+
 float normalizeTowardPositiveSpeed(float raw_speed_mps,
                                    const nlohmann::json &packet) {
   // Project convention: positive = toward/inward, negative = away/outward.
@@ -350,8 +384,8 @@ void RadarIngest::run() {
 
 bool RadarIngest::setupSerialPort() {
 #ifdef __linux__
-  // From radar_freq_test.cpp: open serial port
-  fd_ = open(port_.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+  // Open in blocking mode for deterministic startup configuration.
+  fd_ = open(port_.c_str(), O_RDWR | O_NOCTTY);
   if (fd_ < 0) {
     perror("[RadarIngest] open");
     return false;
@@ -414,6 +448,8 @@ bool RadarIngest::setupSerialPort() {
   tcflush(fd_, TCIOFLUSH);
 
   // Send mode + common commands for OPS243.
+  // We intentionally perform a "mode lock" second pass so the selected mode
+  // overrides any sticky prior mode from previous runs.
   std::vector<std::string> init_cmds;
   if (combined_native_mode_) {
     init_cmds.push_back("OY\r\n"); // Combined speed+range output.
@@ -429,8 +465,11 @@ bool RadarIngest::setupSerialPort() {
   init_cmds.push_back("S[\r\n");
   init_cmds.push_back("s[\r\n");
   for (const std::string &cmd : init_cmds) {
-    write(fd_, cmd.c_str(), cmd.length());
-    usleep(50000); // 50ms wait
+    if (!writeSerialCommand(fd_, cmd, 45)) {
+      std::cerr << "[RadarIngest] Failed to send init command: " << cmd;
+      closeSerialFd();
+      return false;
+    }
   }
 
   // Custom threshold commands based on configuration
@@ -438,13 +477,40 @@ bool RadarIngest::setupSerialPort() {
       "M>" + std::to_string(config_.speed_mag_threshold) + "\r\n";
   std::string mag_range =
       "m>" + std::to_string(config_.range_mag_threshold) + "\r\n";
-  write(fd_, mag_speed.c_str(), mag_speed.length());
-  usleep(50000);
-  write(fd_, mag_range.c_str(), mag_range.length());
-  usleep(50000);
+  if (!writeSerialCommand(fd_, mag_speed, 45) ||
+      !writeSerialCommand(fd_, mag_range, 45)) {
+    std::cerr << "[RadarIngest] Failed to send magnitude thresholds\n";
+    closeSerialFd();
+    return false;
+  }
+
+  // Mode lock pass (fast) to force selected output mode immediately at startup.
+  if (combined_native_mode_) {
+    if (!writeSerialCommand(fd_, "OY\r\n", 25)) {
+      std::cerr << "[RadarIngest] Failed to lock combined mode (OY)\n";
+      closeSerialFd();
+      return false;
+    }
+  } else {
+    if (!writeSerialCommand(fd_, "GX\r\n", 25) ||
+        !writeSerialCommand(fd_, "OS\r\n", 20) ||
+        !writeSerialCommand(fd_, "oD\r\n", 20)) {
+      std::cerr << "[RadarIngest] Failed to lock split mode (GX/OS/oD)\n";
+      closeSerialFd();
+      return false;
+    }
+  }
 
   // Flush again to clear config echoing
   tcflush(fd_, TCIOFLUSH);
+
+  // Runtime loop uses select/read in non-blocking mode.
+  const int flags = fcntl(fd_, F_GETFL, 0);
+  if (flags < 0 || fcntl(fd_, F_SETFL, flags | O_NONBLOCK) != 0) {
+    perror("[RadarIngest] fcntl(O_NONBLOCK)");
+    closeSerialFd();
+    return false;
+  }
 
   std::cout << "[RadarIngest] Serial port configured: " << port_ << " @ "
             << config_.baud_rate << " baud" << " (mode="
