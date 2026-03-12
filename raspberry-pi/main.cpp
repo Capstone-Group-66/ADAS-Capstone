@@ -13,9 +13,6 @@ float real_sizes[6][2] = {
   {3.0f, 2.4f} // 5 Truck
 };
 
-// Vehicle details
-float vehicle_hood_length = 0.5f;
-
 // Camera details
 const Size CAMERA_SIZE =  Size(1080, 720);
 const float CAMERA_FOCAL_PX = 828.7524f;
