@@ -1,11 +1,11 @@
 // File: src/main.cpp
 // ADAS Pipeline Entry Point - Interactive CLI with Stages A, B, E
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <csignal>
 #include <cstdint>
-#include <cctype>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
@@ -170,8 +170,9 @@ std::string formatUptime(std::chrono::seconds uptime) {
 int clampSensitivityLevel(int level) { return std::max(1, std::min(5, level)); }
 
 std::string normalizeRadarOutputMode(std::string mode) {
-  std::transform(mode.begin(), mode.end(), mode.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  std::transform(mode.begin(), mode.end(), mode.begin(), [](unsigned char c) {
+    return static_cast<char>(std::tolower(c));
+  });
   if (mode == "combined_native") {
     return "combined_native";
   }
@@ -1364,7 +1365,8 @@ int main(int argc, char **argv) {
       {
         std::cout << "  Select front radar output mode:\n";
         std::cout << "    1) split_range (legacy split speed/range stream)\n";
-        std::cout << "    2) combined_native (single packet speed+range via OY)\n";
+        std::cout
+            << "    2) combined_native (single packet speed+range via OY)\n";
         std::cout << "  Enter choice [1-2]: ";
 
         int mode_choice = 0;

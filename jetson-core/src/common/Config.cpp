@@ -2,12 +2,12 @@
 // Configuration loader implementation
 #include "adas/common/Config.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <stdexcept>
-#include <algorithm>
-#include <cctype>
 
 // Simple JSON parsing (minimal implementation without external dependency)
 // For production, consider using nlohmann/json
@@ -33,8 +33,9 @@ std::string readFile(const std::string &path) {
 }
 
 std::string normalizeRadarOutputMode(std::string value) {
-  std::transform(value.begin(), value.end(), value.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  std::transform(
+      value.begin(), value.end(), value.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   if (value == "combined_native") {
     return "combined_native";
   }
@@ -320,8 +321,7 @@ void ConfigLoader::saveConfig(const std::string &path, const Config &config) {
 
     if (current_section == "front_radar" && key == "output_mode") {
       std::stringstream ss;
-      ss << std::string(indent, ' ')
-         << "output_mode: \""
+      ss << std::string(indent, ' ') << "output_mode: \""
          << normalizeRadarOutputMode(config.front_radar.output_mode) << "\"\n";
       new_content += ss.str();
       continue;

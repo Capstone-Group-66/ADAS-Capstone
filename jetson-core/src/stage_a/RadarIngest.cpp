@@ -5,8 +5,8 @@
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
-#include <cerrno>
 #include <cctype>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -190,8 +190,7 @@ void RadarIngest::stop() {
 
 void RadarIngest::run() {
   std::cout << "[RadarIngest] Starting " << mountToString(mount_) << " on "
-            << port_ << " at " << config_.baud_rate << " baud"
-            << " (mode="
+            << port_ << " at " << config_.baud_rate << " baud" << " (mode="
             << (combined_native_mode_ ? "combined_native" : "split_range")
             << ")" << std::endl;
 
@@ -219,8 +218,10 @@ void RadarIngest::run() {
       last_connect_attempt_ns_ = now_ns;
       if (!setupSerialPort()) {
         healthy_.store(false, std::memory_order_relaxed);
-        reconnect_backoff_ms_ = std::min<uint32_t>(reconnect_backoff_ms_ * 2, 2000);
-        std::this_thread::sleep_for(std::chrono::milliseconds(reconnect_backoff_ms_));
+        reconnect_backoff_ms_ =
+            std::min<uint32_t>(reconnect_backoff_ms_ * 2, 2000);
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(reconnect_backoff_ms_));
         continue;
       }
 
@@ -252,7 +253,8 @@ void RadarIngest::run() {
 
       // Parse and push to queue
       if (!buffer.empty()) {
-        RadarTargets targets = parseFrame(buffer.data(), buffer.size(), t_ingest);
+        RadarTargets targets =
+            parseFrame(buffer.data(), buffer.size(), t_ingest);
 
         if (!targets.targets.empty()) {
           // Record before pushing to queue (if recording active)
@@ -455,8 +457,7 @@ bool RadarIngest::setupSerialPort() {
   tcflush(fd_, TCIOFLUSH);
 
   std::cout << "[RadarIngest] Serial port configured: " << port_ << " @ "
-            << config_.baud_rate << " baud"
-            << " (mode="
+            << config_.baud_rate << " baud" << " (mode="
             << (combined_native_mode_ ? "combined_native" : "split_range")
             << ")\n";
   return true;
@@ -560,12 +561,10 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
 
       float parsed_range_m = 0.0f;
       float parsed_speed_mps = 0.0f;
-      const bool has_range =
-          tryReadFloatAny(j, {"range", "dist", "distance", "rng"},
-                          parsed_range_m);
-      const bool has_speed =
-          tryReadFloatAny(j, {"speed", "vel", "velocity", "spd"},
-                          parsed_speed_mps);
+      const bool has_range = tryReadFloatAny(
+          j, {"range", "dist", "distance", "rng"}, parsed_range_m);
+      const bool has_speed = tryReadFloatAny(
+          j, {"speed", "vel", "velocity", "spd"}, parsed_speed_mps);
       const std::string unit = readUnitField(j);
       const bool unit_is_speed = unitIndicatesSpeed(unit);
       const bool unit_is_range = unitIndicatesRange(unit);
@@ -599,7 +598,8 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
 
       float normalized_speed_mps = last_speed_mps_;
       if (has_speed) {
-        normalized_speed_mps = normalizeTowardPositiveSpeed(parsed_speed_mps, j);
+        normalized_speed_mps =
+            normalizeTowardPositiveSpeed(parsed_speed_mps, j);
         last_speed_mps_ = normalized_speed_mps;
         last_speed_ts_monotonic_ = t_ingest;
         speed_events_window_.fetch_add(1, std::memory_order_relaxed);
@@ -609,7 +609,8 @@ RadarTargets RadarIngest::parseFrame(const uint8_t *data, size_t len,
       // - split stream (unit mps / unit m)
       // - combined stream (speed + range in one packet)
       const bool should_emit_range_target =
-          has_range && (unit.empty() || unit_is_range || has_speed || !unit_is_speed);
+          has_range &&
+          (unit.empty() || unit_is_range || has_speed || !unit_is_speed);
       if (should_emit_range_target && parsed_range_m > 0.1f &&
           parsed_range_m <= 100.0f) {
         RadarTarget target;
