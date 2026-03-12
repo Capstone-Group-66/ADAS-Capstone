@@ -315,8 +315,7 @@ void RadarIngest::run() {
               : 0;
       // One-time startup baud probe for "few pings then dead" behavior.
       if (!startup_baud_probe_done_ && frames_since_connect >= 1 &&
-          frames_since_connect <= 4 &&
-          connected_elapsed_ns > 2000000000ULL) {
+          frames_since_connect <= 4 && connected_elapsed_ns > 2000000000ULL) {
         startup_baud_probe_done_ = true;
         if (active_baud_rate_ == 921600) {
           desired_baud_rate_ = 115200;
@@ -521,8 +520,7 @@ bool RadarIngest::setupSerialPort() {
   }
 
   std::cout << "[RadarIngest] Serial port configured: " << port_ << " @ "
-            << desired_baud_rate_ << " baud"
-            << " (mode="
+            << desired_baud_rate_ << " baud" << " (mode="
             << (combined_native_mode_ ? "combined_native" : "split_range")
             << ")\n";
   return true;
