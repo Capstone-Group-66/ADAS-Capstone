@@ -23,7 +23,6 @@ constexpr int kEgoW = 20;
 constexpr int kEgoH = 40;
 constexpr float kRadarHalfFovDeg = 10.0f;  // 20 degree cone
 constexpr float kCameraHalfFovDeg = 12.5f; // 25 degree corridor span
-constexpr float kCameraDebugConeHalfFovDeg = 30.0f; // 60 degree debug cone
 constexpr float kRadarRangeTxM = 0.0127f;  // Keep same t_x used in fusion.
 constexpr float kRadarHeatDecay = 0.94f;
 constexpr float kRadarHeatBlurSigma = 2.2f;
@@ -266,9 +265,6 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
 
     const float angle_rad =
         adas::bev::angleFromPixel(det.centroid.x, c_x_, f_x_);
-    if (!adas::bev::inAngleSpan(angle_rad, kCameraHalfFovDeg)) {
-      continue;
-    }
 
     Track &track = tracks_[det.object_id];
     track.object_id = det.object_id;
@@ -293,9 +289,7 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     track.object_id = obj.object_id;
 
     const float angle_rad = obj.theta_rad;
-    if (adas::bev::inAngleSpan(angle_rad, kCameraHalfFovDeg)) {
-      track.corridor_angle_rad = angle_rad;
-    }
+    track.corridor_angle_rad = angle_rad;
 
     if (obj.camera_age_ms < (std::numeric_limits<uint32_t>::max() / 2)) {
       const uint64_t cam_age_ns =
@@ -438,17 +432,6 @@ void BEVDashboard::renderLoop() {
       drawRadarRangeLine(canvas, target.range_m, cv::Scalar(190, 110, 30), 1);
     }
 
-    // Camera detections outside the 60 degree debug cone are rendered as gray
-    // corridors for visual alignment debugging.
-    for (const auto &det : frame.camera_batch.dets) {
-      const float angle_rad = adas::bev::angleFromPixel(det.centroid.x, c_x_, f_x_);
-      if (!std::isfinite(angle_rad) ||
-          adas::bev::inAngleSpan(angle_rad, kCameraDebugConeHalfFovDeg)) {
-        continue;
-      }
-      drawCorridor(canvas, angle_rad, cv::Scalar(95, 95, 95), 1);
-    }
-
     struct FcwRayOverlay {
       cv::Point target;
       bool has_trigger_speed = false;
@@ -537,25 +520,35 @@ void BEVDashboard::renderLoop() {
                             cv::Scalar(0, 255, 0), 2, cv::LINE_AA, 0, 0.35);
           }
         }
-      } else if (!crosshair_active && cam_alive && track.has_cam_est_range &&
-                 track.cam_est_range_m > 0.1f &&
-                 track.cam_est_range_m <= maxDisplayRangeM()) {
-        // Camera-only estimated distance from pipeline (z_cam_m).
-        const float x_cam = adas::bev::lateralFromRangeAndAngle(
-            track.cam_est_range_m, track.corridor_angle_rad);
-        anchor_x = toCanvasX(x_cam);
-        anchor_y = toCanvasY(track.cam_est_range_m);
-        if (anchor_x >= 0 && anchor_x < kCanvasWidth && anchor_y >= 0 &&
-            anchor_y < kCanvasHeight) {
-          cv::circle(canvas, cv::Point(anchor_x, anchor_y), 4,
-                     cv::Scalar(255, 210, 120), cv::FILLED);
-        }
       } else if (range_alive && !cam_alive && track.z_m > 0.1f) {
         // Range-only track visualization fallback.
         anchor_x = toCanvasX(track.x_offset_m);
         anchor_y = toCanvasY(track.z_m);
         cv::circle(canvas, cv::Point(anchor_x, anchor_y), 4,
                    cv::Scalar(200, 110, 30), cv::FILLED);
+      }
+
+      if (cam_alive && track.has_cam_est_range && track.cam_est_range_m > 0.1f &&
+          track.cam_est_range_m <= maxDisplayRangeM()) {
+        // Camera-estimated pose from pipeline math:
+        // X from centroid angle, Y from z_cam_m.
+        const float x_cam = adas::bev::lateralFromRangeAndAngle(
+            track.cam_est_range_m, track.corridor_angle_rad);
+        const int cam_dot_x = toCanvasX(x_cam);
+        const int cam_dot_y = toCanvasY(track.cam_est_range_m);
+        if (cam_dot_x >= 0 && cam_dot_x < kCanvasWidth && cam_dot_y >= 0 &&
+            cam_dot_y < kCanvasHeight) {
+          const bool outside_radar_cone = !adas::bev::inAngleSpan(
+              track.corridor_angle_rad, kRadarHalfFovDeg);
+          if (outside_radar_cone) {
+            drawCorridor(canvas, track.corridor_angle_rad, cv::Scalar(95, 95, 95),
+                         1);
+          }
+          cv::circle(canvas, cv::Point(cam_dot_x, cam_dot_y), 4,
+                     outside_radar_cone ? cv::Scalar(135, 135, 135)
+                                        : cv::Scalar(255, 210, 120),
+                     cv::FILLED);
+        }
       }
 
       // TTL bars: stale cleanup + TTC hold timer.
