@@ -53,16 +53,14 @@ uint8_t levelRank(FCWMonitor::RiskLevel level) {
 } // namespace
 
 FCWMonitor::FCWMonitor(const Config &config)
-    : config_(config),
-      min_trigger_object_speed_mps_(
-          std::max(0.0f, config.min_trigger_object_speed_mps)) {}
+    : config_(config), min_trigger_object_speed_mps_(std::max(
+                           0.0f, config.min_trigger_object_speed_mps)) {}
 
 void FCWMonitor::setMinTriggerObjectSpeedGateMps(float min_speed_mps) {
   if (!std::isfinite(min_speed_mps) || min_speed_mps < 0.0f) {
     min_speed_mps = 0.0f;
   }
-  min_trigger_object_speed_mps_.store(min_speed_mps,
-                                      std::memory_order_relaxed);
+  min_trigger_object_speed_mps_.store(min_speed_mps, std::memory_order_relaxed);
 }
 
 float FCWMonitor::getMinTriggerObjectSpeedGateMps() const {
