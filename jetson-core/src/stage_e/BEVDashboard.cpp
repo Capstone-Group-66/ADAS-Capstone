@@ -468,6 +468,8 @@ void BEVDashboard::renderLoop() {
       const bool hold_active = hold_remain > 0.0f;
       const bool crosshair_active =
           cam_alive && range_alive && track.has_crosshair;
+      const bool speed_vector_active =
+          track.speed_fresh && std::abs(track.radial_vel_mps) > 0.1f;
       if ((cam_alive || range_alive) && track.is_aggressive_mode) {
         ++aggressive_tracks_visible;
       }
@@ -481,7 +483,9 @@ void BEVDashboard::renderLoop() {
       if (cam_alive &&
           adas::bev::inAngleSpan(track.corridor_angle_rad, kCameraHalfFovDeg)) {
         const cv::Scalar corridor_color =
-            crosshair_active ? cv::Scalar(120, 220, 120)
+            crosshair_active
+                ? (speed_vector_active ? cv::Scalar(120, 220, 120)
+                                       : cv::Scalar(0, 220, 255))
                              : cv::Scalar(90, 90, 170); // ghost
         drawCorridor(canvas, track.corridor_angle_rad, corridor_color,
                      crosshair_active ? 2 : 1);
@@ -498,6 +502,11 @@ void BEVDashboard::renderLoop() {
             anchor_y < kCanvasHeight) {
           const cv::Scalar marker_color =
               hold_active ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 255);
+          // Bright fused-position dot for immediate object localization.
+          cv::circle(canvas, cv::Point(anchor_x, anchor_y), 9, marker_color, 1,
+                     cv::LINE_AA);
+          cv::circle(canvas, cv::Point(anchor_x, anchor_y), 5, marker_color,
+                     cv::FILLED, cv::LINE_AA);
           drawCrosshair(canvas, anchor_x, anchor_y, marker_color, 6, 2);
 
           if (hold_active) {
@@ -512,7 +521,7 @@ void BEVDashboard::renderLoop() {
                         1, cv::LINE_AA);
           }
 
-          if (track.speed_fresh && std::abs(track.radial_vel_mps) > 0.1f) {
+          if (speed_vector_active) {
             const int arrow_len = 12;
             const int dir = (track.radial_vel_mps > 0.0f) ? 1 : -1;
             cv::arrowedLine(canvas, cv::Point(anchor_x, anchor_y),
