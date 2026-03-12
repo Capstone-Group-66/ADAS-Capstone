@@ -182,8 +182,7 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
               : 0ULL;
 
       const bool has_active_state_hold =
-          config_.invalid_state_hold_ms > 0 &&
-          state.last_valid_ns > 0 &&
+          config_.invalid_state_hold_ms > 0 && state.last_valid_ns > 0 &&
           levelRank(state.level) > levelRank(RiskLevel::Safe) &&
           valid_age_ms <= config_.invalid_state_hold_ms;
       if (has_active_state_hold) {
@@ -219,7 +218,8 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
                   << static_cast<int>(state.pending_level) << ")"
                   << " | valid_age_ms: " << valid_age_ms
                   << (invalid_state_hold_used ? " [INVALID_STATE_HOLD]" : "")
-                  << (invalid_demote_grace_used ? " [INVALID_DEMOTE_GRACE]" : "")
+                  << (invalid_demote_grace_used ? " [INVALID_DEMOTE_GRACE]"
+                                                : "")
                   << "\n";
       }
     };
@@ -312,8 +312,10 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
       risk_score = std::max(risk_score, config_.caution_risk_threshold + 0.01f);
       ttc_caution_floor = true;
     }
-    // If TTC is very short and the object is close/in-path, force at least WARN.
-    const float ttc_warn_floor_s = std::max(0.6f, 0.8f * config_.ttc_threshold_s);
+    // If TTC is very short and the object is close/in-path, force at least
+    // WARN.
+    const float ttc_warn_floor_s =
+        std::max(0.6f, 0.8f * config_.ttc_threshold_s);
     if (ttc_valid && obj.ttc_s <= ttc_warn_floor_s && obj.range_m <= 5.0f) {
       risk_score = std::max(risk_score, config_.warn_risk_threshold + 0.01f);
       ttc_warn_floor = true;
@@ -361,11 +363,11 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
       active_level = applyDwell(state, desired_level, current_time_ns);
     }
 
-    std::cout << "[StageE: 4_FCW] ID " << obj.object_id << " | Z: " << obj.range_m
-              << "m | V: " << obj.radial_vel_mps << "m/s | TTC: " << obj.ttc_s
-              << "s | Q: " << obj.fusion_quality << " | X: " << obj.x_lateral_m
-              << "m -> risk " << risk_score << " level "
-              << static_cast<int>(active_level) << " (desired "
+    std::cout << "[StageE: 4_FCW] ID " << obj.object_id
+              << " | Z: " << obj.range_m << "m | V: " << obj.radial_vel_mps
+              << "m/s | TTC: " << obj.ttc_s << "s | Q: " << obj.fusion_quality
+              << " | X: " << obj.x_lateral_m << "m -> risk " << risk_score
+              << " level " << static_cast<int>(active_level) << " (desired "
               << static_cast<int>(desired_level) << ", pending "
               << static_cast<int>(state.pending_level) << ")"
               << (camera_drop_grace ? " [CAM_DROP_GRACE]" : "")

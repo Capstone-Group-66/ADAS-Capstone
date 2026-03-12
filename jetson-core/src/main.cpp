@@ -2,10 +2,10 @@
 // ADAS Pipeline Entry Point - Interactive CLI with Stages A, B, E
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <csignal>
 #include <cstdint>
 #include <cstdlib>
-#include <cmath>
 #include <iomanip>
 #include <iostream>
 #include <memory>
@@ -206,8 +206,8 @@ const char *sensitivityLabel(int level) {
 uint32_t scaleU32(uint32_t value, float factor, uint32_t min_v,
                   uint32_t max_v) {
   const float scaled = std::round(static_cast<float>(value) * factor);
-  const float clamped = std::clamp(scaled, static_cast<float>(min_v),
-                                   static_cast<float>(max_v));
+  const float clamped =
+      std::clamp(scaled, static_cast<float>(min_v), static_cast<float>(max_v));
   return static_cast<uint32_t>(clamped);
 }
 
@@ -222,8 +222,8 @@ void applyStageESensitivity(adas::FusionConfig &fusion_config,
       std::clamp(fusion_config.ttc_aggressive_s * sens, 2.0f, 6.0f);
   fusion_config.normal_angle_gate_deg =
       std::clamp(fusion_config.normal_angle_gate_deg * sens, 8.0f, 22.0f);
-  fusion_config.aggressive_angle_gate_deg = std::clamp(
-      fusion_config.aggressive_angle_gate_deg * sens, 10.0f, 30.0f);
+  fusion_config.aggressive_angle_gate_deg =
+      std::clamp(fusion_config.aggressive_angle_gate_deg * sens, 10.0f, 30.0f);
   if (fusion_config.aggressive_angle_gate_deg <
       fusion_config.normal_angle_gate_deg) {
     fusion_config.aggressive_angle_gate_deg =
@@ -259,10 +259,12 @@ void applyStageESensitivity(adas::FusionConfig &fusion_config,
   // Timing/hysteresis. Higher sensitivity => escalate faster, hold longer.
   fcw_config.caution_dwell_ms =
       scaleU32(fcw_config.caution_dwell_ms, inv_sens, 20, 800);
-  fcw_config.warn_dwell_ms = scaleU32(fcw_config.warn_dwell_ms, inv_sens, 20, 800);
+  fcw_config.warn_dwell_ms =
+      scaleU32(fcw_config.warn_dwell_ms, inv_sens, 20, 800);
   fcw_config.critical_dwell_ms =
       scaleU32(fcw_config.critical_dwell_ms, inv_sens, 10, 600);
-  fcw_config.clear_dwell_ms = scaleU32(fcw_config.clear_dwell_ms, sens, 20, 1200);
+  fcw_config.clear_dwell_ms =
+      scaleU32(fcw_config.clear_dwell_ms, sens, 20, 1200);
   fcw_config.camera_drop_track_hold_ms =
       scaleU32(fcw_config.camera_drop_track_hold_ms, sens, 400, 3000);
   fcw_config.camera_drop_radar_recent_ms =
@@ -652,7 +654,8 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   fcw_config.invalid_demote_grace_ms = 350;
   fcw_config.invalid_state_hold_ms = 250;
   fcw_config.log_fcw_drop_reasons = true;
-  applyStageESensitivity(fusion_config, fcw_config, g_stage_e_sensitivity_level);
+  applyStageESensitivity(fusion_config, fcw_config,
+                         g_stage_e_sensitivity_level);
 
   g_sensor_fusion = std::make_unique<adas::SensorFusion>(fusion_config);
   g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);

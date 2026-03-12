@@ -528,7 +528,8 @@ void BEVDashboard::renderLoop() {
                    cv::Scalar(200, 110, 30), cv::FILLED);
       }
 
-      if (cam_alive && track.has_cam_est_range && track.cam_est_range_m > 0.1f &&
+      if (cam_alive && track.has_cam_est_range &&
+          track.cam_est_range_m > 0.1f &&
           track.cam_est_range_m <= maxDisplayRangeM()) {
         // Camera-estimated pose from pipeline math:
         // X from centroid angle, Y from z_cam_m.
@@ -541,8 +542,8 @@ void BEVDashboard::renderLoop() {
           const bool outside_radar_cone = !adas::bev::inAngleSpan(
               track.corridor_angle_rad, kRadarHalfFovDeg);
           if (outside_radar_cone) {
-            drawCorridor(canvas, track.corridor_angle_rad, cv::Scalar(95, 95, 95),
-                         1);
+            drawCorridor(canvas, track.corridor_angle_rad,
+                         cv::Scalar(95, 95, 95), 1);
           }
           cv::circle(canvas, cv::Point(cam_dot_x, cam_dot_y), 4,
                      outside_radar_cone ? cv::Scalar(135, 135, 135)
