@@ -11,6 +11,7 @@ composeBom = "2024.09.00"
 navigationCompose = "2.8.0"
 transportationConsumer = "4.0.0"
 rules = "1.7.0"
+ui = "1.10.5"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -31,6 +32,7 @@ androidx-compose-material3-adaptive-navigation-suite = { group = "androidx.compo
 androidx-navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigationCompose"}
 transportation-consumer = { group = "com.google.android.libraries.mapsplatform.transportation", name = "transportation-consumer", version.ref = "transportationConsumer" }
 androidx-rules = { group = "androidx.test", name = "rules", version.ref = "rules" }
+androidx-ui = { group = "androidx.compose.ui", name = "ui", version.ref = "ui" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
