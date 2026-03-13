@@ -107,14 +107,13 @@ class MainActivity : ComponentActivity() {
 
 // ── Custom NavigationSuite colours ────────────────────────────────────────────
 private val adasNavColors
-    @Composable get() = NavigationSuiteDefaults.colors(
-        // Bottom nav bar / rail container
-        navigationBarContainerColor  = CardBackground,
-        navigationRailContainerColor = CardBackground,
-        navigationDrawerContainerColor = CharcoalLight,
-
-
-    )
+    @Composable get() =
+        NavigationSuiteDefaults.colors(
+            // Bottom nav bar / rail container
+            navigationBarContainerColor = CardBackground,
+            navigationRailContainerColor = CardBackground,
+            navigationDrawerContainerColor = CharcoalLight,
+        )
 
 @PreviewScreenSizes
 @Composable
@@ -154,14 +153,15 @@ fun TestAppApp(
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
     val navController = rememberNavController()
 
-    val navColors  = adasNavColors
+    val navColors = adasNavColors
     val itemColors = adasItemColors
 
-
     // Wrap everything in charcoal so no white flashes appear
-    Box(modifier = Modifier
-        .fillMaxSize()
-        .background(Charcoal)
+    Box(
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(Charcoal),
     ) {
         NavigationSuiteScaffold(
             navigationSuiteColors = navColors,
@@ -170,26 +170,26 @@ fun TestAppApp(
                     item(
                         icon = {
                             NavItemIcon(
-                                icon      = destination.icon,
-                                label     = destination.label,
-                                selected  = currentDestination == destination,
+                                icon = destination.icon,
+                                label = destination.label,
+                                selected = currentDestination == destination,
                             )
                         },
                         label = {
                             Text(
-                                text       = destination.label.uppercase(),
-                                fontSize   = 9.sp,
+                                text = destination.label.uppercase(),
+                                fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 letterSpacing = 1.sp,
                             )
                         },
                         selected = currentDestination == destination,
-                        colors   = itemColors,
+                        colors = itemColors,
                         onClick = {
                             currentDestination = destination
                             when (destination) {
-                                AppDestinations.HOME     -> navController.navigate("home")
-                                AppDestinations.DRIVE    -> navController.navigate("drive")
+                                AppDestinations.HOME -> navController.navigate("home")
+                                AppDestinations.DRIVE -> navController.navigate("drive")
                                 AppDestinations.SETTINGS -> navController.navigate("settings")
                             }
                         },
@@ -207,8 +207,6 @@ fun TestAppApp(
     }
 }
 
-
-
 enum class AppDestinations(
     val label: String,
     val icon: ImageVector,
@@ -218,61 +216,70 @@ enum class AppDestinations(
     SETTINGS("Settings", Icons.Default.Settings),
 }
 
-
-
 // ── Custom item colours ───────────────────────────────────────────────────────
 private val adasItemColors
-    @Composable get() = NavigationSuiteItemColors(
-        navigationBarItemColors = NavigationBarItemDefaults.colors(
-            selectedIconColor    = AccentCyan,
-            selectedTextColor    = AccentCyan,
-            unselectedIconColor  = TextSecondary,
-            unselectedTextColor  = TextSecondary,
-            indicatorColor       = AccentCyan.copy(alpha = 0.15f),
-        ),
-        navigationRailItemColors = NavigationRailItemDefaults.colors(
-            selectedIconColor    = AccentCyan,
-            selectedTextColor    = AccentCyan,
-            unselectedIconColor  = TextSecondary,
-            unselectedTextColor  = TextSecondary,
-            indicatorColor       = AccentCyan.copy(alpha = 0.15f),
-        ),
-        navigationDrawerItemColors = NavigationDrawerItemDefaults.colors(
-            selectedContainerColor   = AccentCyan.copy(alpha = 0.12f),
-            selectedIconColor        = AccentCyan,
-            selectedTextColor        = AccentCyan,
-            unselectedIconColor      = TextSecondary,
-            unselectedTextColor      = TextSecondary,
-        ),
-    )
+    @Composable get() =
+        NavigationSuiteItemColors(
+            navigationBarItemColors =
+                NavigationBarItemDefaults.colors(
+                    selectedIconColor = AccentCyan,
+                    selectedTextColor = AccentCyan,
+                    unselectedIconColor = TextSecondary,
+                    unselectedTextColor = TextSecondary,
+                    indicatorColor = AccentCyan.copy(alpha = 0.15f),
+                ),
+            navigationRailItemColors =
+                NavigationRailItemDefaults.colors(
+                    selectedIconColor = AccentCyan,
+                    selectedTextColor = AccentCyan,
+                    unselectedIconColor = TextSecondary,
+                    unselectedTextColor = TextSecondary,
+                    indicatorColor = AccentCyan.copy(alpha = 0.15f),
+                ),
+            navigationDrawerItemColors =
+                NavigationDrawerItemDefaults.colors(
+                    selectedContainerColor = AccentCyan.copy(alpha = 0.12f),
+                    selectedIconColor = AccentCyan,
+                    selectedTextColor = AccentCyan,
+                    unselectedIconColor = TextSecondary,
+                    unselectedTextColor = TextSecondary,
+                ),
+        )
 
 // ── Thin glowing cyan line that sits at the top of the content area ───────────
 @Composable
 private fun TopAccentLine() {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .drawBehind {
-                drawLine(
-                    brush = Brush.horizontalGradient(
-                        listOf(
-                            Color.Transparent,
-                            AccentCyan.copy(alpha = 0.5f),
-                            AccentCyanDim.copy(alpha = 0.8f),
-                            AccentCyan.copy(alpha = 0.5f),
-                            Color.Transparent,
-                        )
-                    ),
-                    start = Offset(0f, 0f),
-                    end   = Offset(size.width, 0f),
-                    strokeWidth = size.height,
-                )
-            }
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .drawBehind {
+                    drawLine(
+                        brush =
+                            Brush.horizontalGradient(
+                                listOf(
+                                    Color.Transparent,
+                                    AccentCyan.copy(alpha = 0.5f),
+                                    AccentCyanDim.copy(alpha = 0.8f),
+                                    AccentCyan.copy(alpha = 0.5f),
+                                    Color.Transparent,
+                                ),
+                            ),
+                        start = Offset(0f, 0f),
+                        end = Offset(size.width, 0f),
+                        strokeWidth = size.height,
+                    )
+                },
     )
 }
 
-fun drawLine(brush: Any, start: Any, end: Any, strokeWidth: Any) {}
+fun drawLine(
+    brush: Any,
+    start: Any,
+    end: Any,
+    strokeWidth: Any,
+) {}
 
 // ── Icon with a pulsing glow ring when selected ───────────────────────────────
 @Composable
@@ -286,34 +293,37 @@ private fun NavItemIcon(
             val infiniteTransition = rememberInfiniteTransition(label = "navGlow")
             val glowAlpha by infiniteTransition.animateFloat(
                 initialValue = 0.2f,
-                targetValue  = 0.55f,
-                animationSpec = infiniteRepeatable(
-                    animation  = tween(1000, easing = EaseInOutSine),
-                    repeatMode = RepeatMode.Reverse,
-                ),
+                targetValue = 0.55f,
+                animationSpec =
+                    infiniteRepeatable(
+                        animation = tween(1000, easing = EaseInOutSine),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
                 label = "glowAlpha",
             )
             Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .drawBehind {
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                listOf(
-                                    AccentCyan.copy(alpha = glowAlpha),
-                                    Color.Transparent,
-                                )
-                            ),
-                            radius = size.minDimension / 1.4f,
-                        )
-                    }
+                modifier =
+                    Modifier
+                        .size(32.dp)
+                        .drawBehind {
+                            drawCircle(
+                                brush =
+                                    Brush.radialGradient(
+                                        listOf(
+                                            AccentCyan.copy(alpha = glowAlpha),
+                                            Color.Transparent,
+                                        ),
+                                    ),
+                                radius = size.minDimension / 1.4f,
+                            )
+                        },
             )
         }
         Icon(
-            imageVector     = icon,
+            imageVector = icon,
             contentDescription = label,
-            tint            = if (selected) AccentCyan else TextSecondary,
-            modifier        = Modifier.size(22.dp),
+            tint = if (selected) AccentCyan else TextSecondary,
+            modifier = Modifier.size(22.dp),
         )
     }
 }
