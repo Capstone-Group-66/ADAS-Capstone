@@ -238,7 +238,8 @@ void visualizationThread() {
 
       // Fix: Include proximity_alert in alerting condition so
       // Radar-only alerts are sent
-      bool is_alerting = fcw_alert.has_value() || proximity_alert || rcw_alert.has_value();
+      bool is_alerting =
+          fcw_alert.has_value() || proximity_alert || rcw_alert.has_value();
 
       auto time_since = std::chrono::duration_cast<std::chrono::milliseconds>(
           now_time - last_ble_send);
@@ -253,15 +254,15 @@ void visualizationThread() {
         }
 
         if (fcw_alert.has_value()) {
-          auto alert = adas::FCWAlertAdapter::convert(*fcw_alert,
-                                                      adas::Clock::now_ns());
+          auto alert =
+              adas::FCWAlertAdapter::convert(*fcw_alert, adas::Clock::now_ns());
           alerts_to_send.push_back(alert);
         } else if (proximity_alert) {
           // Synthetic Alert from Proximity Logic
           adas::Alert alert;
           alert.id = "prox_" + std::to_string(adas::Clock::now_ns());
           alert.type = adas::AlertType::FCW; // Map to FCW for Mobile App
-                                              // (turns red)
+                                             // (turns red)
           alert.severity = adas::Severity::Critical;
           alert.rationale = "Proximity Warning (< 1.5m)";
           alerts_to_send.push_back(alert);
@@ -269,7 +270,7 @@ void visualizationThread() {
           // Heartbeat: No alerts
         }
 
-        if (rcw_alert.has_value()){
+        if (rcw_alert.has_value()) {
           alerts_to_send.push_back(rcw_alert);
         }
 
@@ -278,7 +279,7 @@ void visualizationThread() {
 
         // Encode Payload
         auto payload = adas::encodeTickPayloadToCbor(tickId, speed_kmh, 0, 0,
-                                                      alerts_to_send);
+                                                     alerts_to_send);
 
         // Fragment and Send
         auto frames = adas::fragmentPayload(tickId, payload, 185);
@@ -302,10 +303,10 @@ void visualizationThread() {
       bool triggered = fcw_alert.has_value() || proximity_alert;
 
       g_metrics_logger->logFrame(now_ns / 1e6, // timestamp_ms
-                                  batch.h.seq,
-                                  batch.inference_time_us /
-                                      1000.0, // convert to ms
-                                  ttc, range, triggered, e2e_latency_ms);
+                                 batch.h.seq,
+                                 batch.inference_time_us /
+                                     1000.0, // convert to ms
+                                 ttc, range, triggered, e2e_latency_ms);
     }
 
     // ── Step 10: OpenCV Visualization (only when display is enabled) ──
@@ -329,9 +330,8 @@ void visualizationThread() {
         bool found = false;
         for (auto &[stored_obj, timestamp] : persistent_dets) {
           cv::Rect2f intersection = stored_obj.box_px & obj.box_px;
-          float overlap =
-              intersection.area() /
-              std::max(stored_obj.box_px.area(), obj.box_px.area());
+          float overlap = intersection.area() /
+                          std::max(stored_obj.box_px.area(), obj.box_px.area());
           if (overlap > 0.3f && stored_obj.object_class == obj.object_class) {
             // Update existing detection
             stored_obj = obj;
@@ -348,9 +348,9 @@ void visualizationThread() {
       // Remove stale detections
       persistent_dets.erase(
           std::remove_if(persistent_dets.begin(), persistent_dets.end(),
-                          [&](const auto &item) {
-                            return now_time - item.second > det_hold_duration;
-                          }),
+                         [&](const auto &item) {
+                           return now_time - item.second > det_hold_duration;
+                         }),
           persistent_dets.end());
 
       // Draw persistent detections (instead of just current frame)
@@ -370,28 +370,28 @@ void visualizationThread() {
         cv::Rect safe_box(x, y, w, h);
         cv::Point safe_centroid(
             std::max(0, std::min(static_cast<int>(obj.centroid_px.x),
-                                  vis_width - 1)),
+                                 vis_width - 1)),
             std::max(0, std::min(static_cast<int>(obj.centroid_px.y),
-                                  vis_height - 1)));
+                                 vis_height - 1)));
 
         cv::Scalar color((obj.object_class * 50) % 255,
-                          (obj.object_class * 80 + 100) % 255,
-                          (obj.object_class * 120 + 200) % 255);
+                         (obj.object_class * 80 + 100) % 255,
+                         (obj.object_class * 120 + 200) % 255);
 
         cv::rectangle(vis, safe_box, color, 2);
 
         std::string class_name =
             adas::ObjectDetector::getClassName(obj.object_class);
-        std::string label =
-            class_name + " " +
-            std::to_string(static_cast<int>(obj.score * 100)) + "%";
+        std::string label = class_name + " " +
+                            std::to_string(static_cast<int>(obj.score * 100)) +
+                            "%";
 
         // Add TTC if radar matched
         if (obj.has_radar) {
           if (obj.ttc_s < 100.0f) {
             label += " R:" + std::to_string(static_cast<int>(obj.range_m)) +
-                      "m TTC:" + std::to_string(static_cast<int>(obj.ttc_s)) +
-                      "s";
+                     "m TTC:" + std::to_string(static_cast<int>(obj.ttc_s)) +
+                     "s";
           } else {
             label +=
                 " R:" + std::to_string(static_cast<int>(obj.range_m)) + "m";
@@ -399,15 +399,15 @@ void visualizationThread() {
         }
 
         int baseLine;
-        cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX,
-                                              0.5, 1, &baseLine);
+        cv::Size labelSize =
+            cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.5, 1, &baseLine);
 
         int label_y = std::max(labelSize.height + 2, y);
 
         cv::rectangle(
             vis, cv::Point(x, label_y - labelSize.height - 2),
-            cv::Point(std::min(x + labelSize.width, vis_width), label_y),
-            color, cv::FILLED);
+            cv::Point(std::min(x + labelSize.width, vis_width), label_y), color,
+            cv::FILLED);
 
         cv::putText(vis, label, cv::Point(x, label_y - 2),
                     cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
@@ -443,8 +443,8 @@ void visualizationThread() {
       frame_count++;
       auto now = std::chrono::steady_clock::now();
       auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                          now - last_fps_time)
-                          .count();
+                         now - last_fps_time)
+                         .count();
       if (elapsed >= 1000) {
         fps = frame_count * 1000.0 / elapsed;
         frame_count = 0;

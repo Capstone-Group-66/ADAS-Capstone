@@ -198,26 +198,29 @@ void NetworkReceiver::cameraThread() {
     }
     last_cam_seq_ = header.sequence;
 
-    #pragma pack(push, 1) // Remove padding between floats and ints to match python struct
+#pragma pack(                                                                  \
+    push, 1) // Remove padding between floats and ints to match python struct
     struct RCWPayload {
       float ttc;
       float distance;
       int class_id;
     };
-    #pragma pack(pop)
+#pragma pack(pop)
 
     if (header.payload_size < sizeof(RCWPayload)) {
       stats_.errors++;
       continue;
     }
-    
+
     // Parse rcw payload
     RCWPayload rcw_payload;
-    std::memcpy(&rcw_payload, buffer.data() + sizeof(PiMessageHeader), sizeof(RCWPayload));
+    std::memcpy(&rcw_payload, buffer.data() + sizeof(PiMessageHeader),
+                sizeof(RCWPayload));
 
     // Create alert and push to queue
     if (cam_queue_) {
-      Alert alert = rearCamConvert(rcw_payload.ttc, rcw_payload.distance, rcw_payload.class_id);
+      Alert alert = rearCamConvert(rcw_payload.ttc, rcw_payload.distance,
+                                   rcw_payload.class_id);
       cam_queue_->try_push(std::move(alert));
     }
 
@@ -707,7 +710,7 @@ static Alert rearCamConvert(float ttc_s, float range_m, int object_class) {
   float timestamp_ns = Clock::now_ns();
 
   // Timestamp in milliseconds
-  alert.t_ms = timestamp_ns / 1'000'000; //TODO set outside
+  alert.t_ms = timestamp_ns / 1'000'000; // TODO set outside
 
   // Unique ID (tick based, no track_id in FCWAlert)
   std::ostringstream id;
@@ -721,11 +724,11 @@ static Alert rearCamConvert(float ttc_s, float range_m, int object_class) {
 
   // Severity based on TTC
   if (ttc_s < 1.0f) {
-      alert.severity = Severity::Critical;
+    alert.severity = Severity::Critical;
   } else if (ttc_s < 2.0f) {
-      alert.severity = Severity::Warning;
+    alert.severity = Severity::Warning;
   } else {
-      alert.severity = Severity::Info;
+    alert.severity = Severity::Info;
   }
 
   // TTL: 1 second
@@ -734,8 +737,8 @@ static Alert rearCamConvert(float ttc_s, float range_m, int object_class) {
   // Rationale as JSON
   std::ostringstream rationale;
   rationale << std::fixed << std::setprecision(2);
-  rationale << "{\"ttc_s\":" << ttc_s << ",\"range_m\":" << range_m << ",\"class\":\""
-            << object_class << "\"}";
+  rationale << "{\"ttc_s\":" << ttc_s << ",\"range_m\":" << range_m
+            << ",\"class\":\"" << object_class << "\"}";
   alert.rationale = rationale.str();
 
   // Object ID (use object_class since track_id not available)
