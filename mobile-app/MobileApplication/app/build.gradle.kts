@@ -52,6 +52,9 @@ jacoco {
 dependencies {
     implementation(libs.androidx.rules)
     implementation(libs.androidx.ui)
+    implementation(libs.androidx.material3.adaptive.navigation.suite)
+    implementation(libs.androidx.ui.graphics)
+    implementation(libs.androidx.compose.animation.core)
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation(libs.androidx.core.ktx)
