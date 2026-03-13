@@ -201,18 +201,16 @@ std::vector<Detection> postProcess(ncnn::Mat& output) {
 }
 
 // Get the earliest ttc from tracks
-float computeTTC(std::vector<Track>& tracks){
-    float earliest_ttc = -1.0f;
+Track* computeTTC(std::vector<Track>& tracks){
+    float earliest_ttc = 5; //TODO kinda arbitraty just don't want to spam jetson with alerts
+    Track* earliest_track = nullptr;
     for (auto& track : tracks) {
-        if (track.ttc > 0.0f){
-            if (earliest_ttc == -1.0f) {
-                earliest_ttc = track.ttc;
-            } else if (track.ttc < earliest_ttc){
-                earliest_ttc = track.ttc;
-            }
+        if (track.ttc > 0.0f && track.ttc < earliest_ttc){
+            earliest_ttc = track.ttc;
+            earliest_track = &track;
         }
     }
-    return earliest_ttc;
+    return earliest_track;
 }
 
 int main(){
@@ -276,12 +274,15 @@ int main(){
             std::vector<Detection> detections = postProcess(output);
             updateTracks(tracks, detections);
 
-            float ttc = computeTTC(tracks);
-            if(ttc < 2.5 && ttc > 0) {
-                std::cout << "1,2" << std::endl; //true,on //TODO
-            } else {
-                std::cout << "0,2" << std::endl; //false,on //TODO
+            Track* track = computeTTC(tracks);
+            if(track != nullptr){
+                std::cout << track.ttc << "," << track.long_distance_m << "," << track.class_id << std::endl;
             }
+            // if(ttc < 2.5 && ttc > 0) {
+            //     std::cout << "1,2" << std::endl; //true,on //TODO
+            // } else {
+            //     std::cout << "0,2" << std::endl; //false,on //TODO
+            // }
             
             // Draw tracks
             if (draw){

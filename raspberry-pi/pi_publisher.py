@@ -49,7 +49,7 @@ STATUS_OK = 0
 HEADER_STRUCT = struct.Struct("<IHHIIQII")
 
 # --- REFACTORED PAYLOAD STRUCTS ---
-RCW_STRUCT = struct.Struct("<BB")  # alert (0/1), status (0/1/2)
+RCW_STRUCT = struct.Struct("<ffi")  # ttc, range_m, class_id
 BSD_STRUCT = struct.Struct("<B")   # presence flag (0/1)
 IMU_STRUCT = struct.Struct("<ff")  # pitch (theta), roll (phi)
 # ----------------------------------
@@ -237,7 +237,6 @@ def rcw_worker(args, ctx, health, stats, stop_event):
         bufsize=1
     )
     
-    
     fd = rcw_process.stdout.fileno()
     flags = fcntl.fcntl(fd, fcntl.F_GETFL)
     fcntl.fcntl(fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
@@ -245,10 +244,6 @@ def rcw_worker(args, ctx, health, stats, stop_event):
     while not stop_event.is_set():
         start_time = time.monotonic()
 
-        # Hardcoded payload stub 
-        rcw_alert = 0   # false
-        rcw_status = 1  # off
-        
         try:
             raw_data = rcw_process.stdout.read()
             
@@ -256,14 +251,15 @@ def rcw_worker(args, ctx, health, stats, stop_event):
                 lines = raw_data.strip().split("\n")
                 if lines:
                     rcw_message = lines[-1].split(",")
-                    if len(rcw_message) >= 2:
-                        rcw_alert = int(rcw_message[0])
-                        rcw_status = int(rcw_message[1])
+                    if len(rcw_message) >= 3:
+                        ttc = float(rcw_message[0])
+                        range = float(rcw_message[1])
+                        class_id = int(rcw_message[2])
                             
-                payload = RCW_STRUCT.pack(rcw_alert, rcw_status)
-                header = build_header(MSG_REAR_CAM, len(payload), seq, time.time_ns())
-                
-                sock.send(header + payload, zmq.NOBLOCK)
+                    payload = RCW_STRUCT.pack(ttc, range, class_id)
+                    header = build_header(MSG_REAR_CAM, len(payload), seq, time.time_ns())
+                    
+                    sock.send(header + payload, zmq.NOBLOCK)
         except (IOError, TypeError, zmq.Again):
             pass
             

@@ -166,9 +166,25 @@ void visualizationThread() {
       }
     }
 
+    // Get latest rear camera alerts from IngestManager
+    std::optional<adas::Alert> rcw_alert;
+    if (g_ingest_manager) {
+      try {
+        auto &rear_cam_queue =
+            g_ingest_manager->getCameraQueue(adas::Mount::RearCam);
+        while (rear_cam_queue.try_pop(rcw_alert)) {
+          // Keep draining to get latest
+        }
+      } catch (...) {
+      }
+    }
+
+    std::optional<adas::FCWAlert> fcw_alert;
+    bool proximity_alert = false;
+    auto now_time = std::chrono::steady_clock::now();
+    std::vector<adas::FusedObject> fused;
     if (got_frame && !batch.frame.empty()) {
       // Run Stage E fusion
-      std::vector<adas::FusedObject> fused;
       if (g_sensor_fusion) {
         fused = g_sensor_fusion->fuse(batch, radar);
       }
@@ -183,13 +199,11 @@ void visualizationThread() {
       }
 
       // Check for FCW alerts (TTC-based)
-      std::optional<adas::FCWAlert> fcw_alert;
       if (g_fcw_monitor && !fused.empty()) {
         fcw_alert = g_fcw_monitor->check(fused, adas::Clock::now_ns());
       }
 
       // Also check for proximity-based FCW (any object within 1.5m)
-      bool proximity_alert = false;
       float closest_range = 999.0f;
       const adas::FusedObject *prox_obj =
           nullptr; // Capture the object causing the alert
@@ -206,7 +220,6 @@ void visualizationThread() {
       }
 
       // Update FCW hold timer if we have an alert
-      auto now_time = std::chrono::steady_clock::now();
       if (fcw_alert.has_value() || proximity_alert) {
         fcw_alert_until = now_time + fcw_hold_duration;
         if (fcw_alert.has_value()) {
@@ -217,238 +230,242 @@ void visualizationThread() {
           last_fcw_range = closest_range;
         }
       }
-
-      // BLE Transmission: Heartbeat (1Hz) + Alerts (Immediate)
-      if (g_ble_server && g_ble_server->isConnected()) {
-        static auto last_ble_send = std::chrono::steady_clock::time_point();
-
-        // Fix: Include proximity_alert in alerting condition so
-        // Radar-only alerts are sent
-        bool is_alerting = fcw_alert.has_value() || proximity_alert;
-
-        auto time_since = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now_time - last_ble_send);
-
-        if (is_alerting || time_since.count() > 1000) {
-          std::vector<adas::Alert> alerts_to_send;
-
-          // Use GPS-corrected ego speed for the phone dashboard
-          int speed_kmh = 0;
-          if (g_ego_frame) {
-            speed_kmh = static_cast<int>(g_ego_frame->getSpeed_mps() * 3.6f);
-          }
-
-          if (fcw_alert.has_value()) {
-            auto alert = adas::FCWAlertAdapter::convert(*fcw_alert,
-                                                        adas::Clock::now_ns());
-            alerts_to_send.push_back(alert);
-          } else if (proximity_alert) {
-            // Synthetic Alert from Proximity Logic
-            adas::Alert alert;
-            alert.id = "prox_" + std::to_string(adas::Clock::now_ns());
-            alert.type = adas::AlertType::FCW; // Map to FCW for Mobile App
-                                               // (turns red)
-            alert.severity = adas::Severity::Critical;
-            alert.rationale = "Proximity Warning (< 1.5m)";
-            alerts_to_send.push_back(alert);
-          } else {
-            // Heartbeat: No alerts
-          }
-
-          uint16_t tickId =
-              static_cast<uint16_t>(adas::Clock::now_ns() / 50'000'000);
-
-          // Encode Payload
-          auto payload = adas::encodeTickPayloadToCbor(tickId, speed_kmh, 0, 0,
-                                                       alerts_to_send);
-
-          // Fragment and Send
-          auto frames = adas::fragmentPayload(tickId, payload, 185);
-          for (const auto &frame : frames) {
-            g_ble_server->notifyAlertStream(frame);
-            std::this_thread::sleep_for(std::chrono::milliseconds(20));
-          }
-
-          last_ble_send = now_time;
-        }
-      }
-
-      // Log metrics if enabled
-      if (g_metrics_logger && g_metrics_logger->isEnabled()) {
-        uint64_t now_ns = adas::Clock::now_ns();
-        double e2e_latency_ms = (now_ns - batch.h.t_ingest_ns) / 1e6;
-
-        // Capture TTC and range from FCW alert if present
-        float ttc = fcw_alert.has_value() ? fcw_alert->ttc_s : -1.0f;
-        float range = fcw_alert.has_value() ? fcw_alert->range_m : -1.0f;
-        bool triggered = fcw_alert.has_value() || proximity_alert;
-
-        g_metrics_logger->logFrame(now_ns / 1e6, // timestamp_ms
-                                   batch.h.seq,
-                                   batch.inference_time_us /
-                                       1000.0, // convert to ms
-                                   ttc, range, triggered, e2e_latency_ms);
-      }
-
-      // ── Step 10: OpenCV Visualization (only when display is enabled) ──
-      if (display_enabled) {
-        // CRITICAL: Clone the frame to get our own memory buffer
-        // The original batch.frame may be reused by ingest thread
-        cv::Mat vis = batch.frame.clone();
-        int vis_width = vis.cols;
-        int vis_height = vis.rows;
-
-        // Detection persistence: Hold detections for 500ms to reduce jitter
-        // Uses a static buffer that persists across frames
-        static std::vector<
-            std::pair<adas::FusedObject, std::chrono::steady_clock::time_point>>
-            persistent_dets;
-        const auto det_hold_duration = std::chrono::milliseconds(500);
-
-        // Add/update current detections in buffer
-        for (const auto &obj : fused) {
-          // Check if similar detection exists (overlap > 50%)
-          bool found = false;
-          for (auto &[stored_obj, timestamp] : persistent_dets) {
-            cv::Rect2f intersection = stored_obj.box_px & obj.box_px;
-            float overlap =
-                intersection.area() /
-                std::max(stored_obj.box_px.area(), obj.box_px.area());
-            if (overlap > 0.3f && stored_obj.object_class == obj.object_class) {
-              // Update existing detection
-              stored_obj = obj;
-              timestamp = now_time;
-              found = true;
-              break;
-            }
-          }
-          if (!found) {
-            persistent_dets.push_back({obj, now_time});
-          }
-        }
-
-        // Remove stale detections
-        persistent_dets.erase(
-            std::remove_if(persistent_dets.begin(), persistent_dets.end(),
-                           [&](const auto &item) {
-                             return now_time - item.second > det_hold_duration;
-                           }),
-            persistent_dets.end());
-
-        // Draw persistent detections (instead of just current frame)
-        for (const auto &[obj, timestamp] : persistent_dets) {
-          // Bounds check - skip invalid detections
-          int x = static_cast<int>(obj.box_px.x);
-          int y = static_cast<int>(obj.box_px.y);
-          int w = static_cast<int>(obj.box_px.width);
-          int h = static_cast<int>(obj.box_px.height);
-
-          // Clamp to frame bounds
-          x = std::max(0, std::min(x, vis_width - 1));
-          y = std::max(0, std::min(y, vis_height - 1));
-          w = std::max(1, std::min(w, vis_width - x));
-          h = std::max(1, std::min(h, vis_height - y));
-
-          cv::Rect safe_box(x, y, w, h);
-          cv::Point safe_centroid(
-              std::max(0, std::min(static_cast<int>(obj.centroid_px.x),
-                                   vis_width - 1)),
-              std::max(0, std::min(static_cast<int>(obj.centroid_px.y),
-                                   vis_height - 1)));
-
-          cv::Scalar color((obj.object_class * 50) % 255,
-                           (obj.object_class * 80 + 100) % 255,
-                           (obj.object_class * 120 + 200) % 255);
-
-          cv::rectangle(vis, safe_box, color, 2);
-
-          std::string class_name =
-              adas::ObjectDetector::getClassName(obj.object_class);
-          std::string label =
-              class_name + " " +
-              std::to_string(static_cast<int>(obj.score * 100)) + "%";
-
-          // Add TTC if radar matched
-          if (obj.has_radar) {
-            if (obj.ttc_s < 100.0f) {
-              label += " R:" + std::to_string(static_cast<int>(obj.range_m)) +
-                       "m TTC:" + std::to_string(static_cast<int>(obj.ttc_s)) +
-                       "s";
-            } else {
-              label +=
-                  " R:" + std::to_string(static_cast<int>(obj.range_m)) + "m";
-            }
-          }
-
-          int baseLine;
-          cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX,
-                                               0.5, 1, &baseLine);
-
-          int label_y = std::max(labelSize.height + 2, y);
-
-          cv::rectangle(
-              vis, cv::Point(x, label_y - labelSize.height - 2),
-              cv::Point(std::min(x + labelSize.width, vis_width), label_y),
-              color, cv::FILLED);
-
-          cv::putText(vis, label, cv::Point(x, label_y - 2),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
-
-          cv::circle(vis, safe_centroid, 3, cv::Scalar(0, 255, 0), -1);
-        }
-
-        // Draw FCW alert overlay if active (with 2-second hold)
-        if (now_time < fcw_alert_until) {
-          g_fcw_alert_active.store(true);
-          g_fcw_ttc_ms.store(static_cast<int>(last_fcw_ttc * 1000.0f));
-
-          // Red border
-          if (vis.cols > 10 && vis.rows > 10) {
-            cv::rectangle(vis, cv::Point(4, 4),
-                          cv::Point(vis.cols - 5, vis.rows - 5),
-                          cv::Scalar(0, 0, 255), 8);
-          }
-
-          // FCW warning text with range
-          std::string fcw_text =
-              "FCW ALERT! Range:" +
-              std::to_string(static_cast<int>(last_fcw_range * 10) / 10) + "." +
-              std::to_string(static_cast<int>(last_fcw_range * 10) % 10) + "m";
-          int text_x = std::max(10, vis.cols / 2 - 150);
-          cv::putText(vis, fcw_text, cv::Point(text_x, 60),
-                      cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 0, 255), 3);
-        } else {
-          g_fcw_alert_active.store(false);
-        }
-
-        // Calculate FPS
-        frame_count++;
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-                           now - last_fps_time)
-                           .count();
-        if (elapsed >= 1000) {
-          fps = frame_count * 1000.0 / elapsed;
-          frame_count = 0;
-          last_fps_time = now;
-        }
-
-        // Draw info overlay
-        std::string info =
-            "Inf: " +
-            std::to_string(static_cast<int>(batch.inference_time_us / 1000)) +
-            "ms | FPS: " + std::to_string(static_cast<int>(fps));
-        cv::putText(vis, info, cv::Point(10, 25), cv::FONT_HERSHEY_SIMPLEX, 0.6,
-                    cv::Scalar(0, 255, 0), 2);
-
-        // Rate-limit display to 20 FPS to reduce stuttering
-        auto now_display = std::chrono::steady_clock::now();
-        if (now_display - last_display_time >= display_interval) {
-          cv::imshow("Stage B: FrontCam", vis);
-          last_display_time = now_display;
-        }
-      } // end if (display_enabled) — Step 10
     }
+
+    // BLE Transmission: Heartbeat (1Hz) + Alerts (Immediate)
+    if (g_ble_server && g_ble_server->isConnected()) {
+      static auto last_ble_send = std::chrono::steady_clock::time_point();
+
+      // Fix: Include proximity_alert in alerting condition so
+      // Radar-only alerts are sent
+      bool is_alerting = fcw_alert.has_value() || proximity_alert || rcw_alert.has_value();
+
+      auto time_since = std::chrono::duration_cast<std::chrono::milliseconds>(
+          now_time - last_ble_send);
+
+      if (is_alerting || time_since.count() > 1000) {
+        std::vector<adas::Alert> alerts_to_send;
+
+        // Use GPS-corrected ego speed for the phone dashboard
+        int speed_kmh = 0;
+        if (g_ego_frame) {
+          speed_kmh = static_cast<int>(g_ego_frame->getSpeed_mps() * 3.6f);
+        }
+
+        if (fcw_alert.has_value()) {
+          auto alert = adas::FCWAlertAdapter::convert(*fcw_alert,
+                                                      adas::Clock::now_ns());
+          alerts_to_send.push_back(alert);
+        } else if (proximity_alert) {
+          // Synthetic Alert from Proximity Logic
+          adas::Alert alert;
+          alert.id = "prox_" + std::to_string(adas::Clock::now_ns());
+          alert.type = adas::AlertType::FCW; // Map to FCW for Mobile App
+                                              // (turns red)
+          alert.severity = adas::Severity::Critical;
+          alert.rationale = "Proximity Warning (< 1.5m)";
+          alerts_to_send.push_back(alert);
+        } else {
+          // Heartbeat: No alerts
+        }
+
+        if (rcw_alert.has_value()){
+          alerts_to_send.push_back(rcw_alert);
+        }
+
+        uint16_t tickId =
+            static_cast<uint16_t>(adas::Clock::now_ns() / 50'000'000);
+
+        // Encode Payload
+        auto payload = adas::encodeTickPayloadToCbor(tickId, speed_kmh, 0, 0,
+                                                      alerts_to_send);
+
+        // Fragment and Send
+        auto frames = adas::fragmentPayload(tickId, payload, 185);
+        for (const auto &frame : frames) {
+          g_ble_server->notifyAlertStream(frame);
+          std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        }
+
+        last_ble_send = now_time;
+      }
+    }
+
+    // Log metrics if enabled
+    if (g_metrics_logger && g_metrics_logger->isEnabled()) {
+      uint64_t now_ns = adas::Clock::now_ns();
+      double e2e_latency_ms = (now_ns - batch.h.t_ingest_ns) / 1e6;
+
+      // Capture TTC and range from FCW alert if present
+      float ttc = fcw_alert.has_value() ? fcw_alert->ttc_s : -1.0f;
+      float range = fcw_alert.has_value() ? fcw_alert->range_m : -1.0f;
+      bool triggered = fcw_alert.has_value() || proximity_alert;
+
+      g_metrics_logger->logFrame(now_ns / 1e6, // timestamp_ms
+                                  batch.h.seq,
+                                  batch.inference_time_us /
+                                      1000.0, // convert to ms
+                                  ttc, range, triggered, e2e_latency_ms);
+    }
+
+    // ── Step 10: OpenCV Visualization (only when display is enabled) ──
+    if (display_enabled) {
+      // CRITICAL: Clone the frame to get our own memory buffer
+      // The original batch.frame may be reused by ingest thread
+      cv::Mat vis = batch.frame.clone();
+      int vis_width = vis.cols;
+      int vis_height = vis.rows;
+
+      // Detection persistence: Hold detections for 500ms to reduce jitter
+      // Uses a static buffer that persists across frames
+      static std::vector<
+          std::pair<adas::FusedObject, std::chrono::steady_clock::time_point>>
+          persistent_dets;
+      const auto det_hold_duration = std::chrono::milliseconds(500);
+
+      // Add/update current detections in buffer
+      for (const auto &obj : fused) {
+        // Check if similar detection exists (overlap > 50%)
+        bool found = false;
+        for (auto &[stored_obj, timestamp] : persistent_dets) {
+          cv::Rect2f intersection = stored_obj.box_px & obj.box_px;
+          float overlap =
+              intersection.area() /
+              std::max(stored_obj.box_px.area(), obj.box_px.area());
+          if (overlap > 0.3f && stored_obj.object_class == obj.object_class) {
+            // Update existing detection
+            stored_obj = obj;
+            timestamp = now_time;
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          persistent_dets.push_back({obj, now_time});
+        }
+      }
+
+      // Remove stale detections
+      persistent_dets.erase(
+          std::remove_if(persistent_dets.begin(), persistent_dets.end(),
+                          [&](const auto &item) {
+                            return now_time - item.second > det_hold_duration;
+                          }),
+          persistent_dets.end());
+
+      // Draw persistent detections (instead of just current frame)
+      for (const auto &[obj, timestamp] : persistent_dets) {
+        // Bounds check - skip invalid detections
+        int x = static_cast<int>(obj.box_px.x);
+        int y = static_cast<int>(obj.box_px.y);
+        int w = static_cast<int>(obj.box_px.width);
+        int h = static_cast<int>(obj.box_px.height);
+
+        // Clamp to frame bounds
+        x = std::max(0, std::min(x, vis_width - 1));
+        y = std::max(0, std::min(y, vis_height - 1));
+        w = std::max(1, std::min(w, vis_width - x));
+        h = std::max(1, std::min(h, vis_height - y));
+
+        cv::Rect safe_box(x, y, w, h);
+        cv::Point safe_centroid(
+            std::max(0, std::min(static_cast<int>(obj.centroid_px.x),
+                                  vis_width - 1)),
+            std::max(0, std::min(static_cast<int>(obj.centroid_px.y),
+                                  vis_height - 1)));
+
+        cv::Scalar color((obj.object_class * 50) % 255,
+                          (obj.object_class * 80 + 100) % 255,
+                          (obj.object_class * 120 + 200) % 255);
+
+        cv::rectangle(vis, safe_box, color, 2);
+
+        std::string class_name =
+            adas::ObjectDetector::getClassName(obj.object_class);
+        std::string label =
+            class_name + " " +
+            std::to_string(static_cast<int>(obj.score * 100)) + "%";
+
+        // Add TTC if radar matched
+        if (obj.has_radar) {
+          if (obj.ttc_s < 100.0f) {
+            label += " R:" + std::to_string(static_cast<int>(obj.range_m)) +
+                      "m TTC:" + std::to_string(static_cast<int>(obj.ttc_s)) +
+                      "s";
+          } else {
+            label +=
+                " R:" + std::to_string(static_cast<int>(obj.range_m)) + "m";
+          }
+        }
+
+        int baseLine;
+        cv::Size labelSize = cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX,
+                                              0.5, 1, &baseLine);
+
+        int label_y = std::max(labelSize.height + 2, y);
+
+        cv::rectangle(
+            vis, cv::Point(x, label_y - labelSize.height - 2),
+            cv::Point(std::min(x + labelSize.width, vis_width), label_y),
+            color, cv::FILLED);
+
+        cv::putText(vis, label, cv::Point(x, label_y - 2),
+                    cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 0), 1);
+
+        cv::circle(vis, safe_centroid, 3, cv::Scalar(0, 255, 0), -1);
+      }
+
+      // Draw FCW alert overlay if active (with 2-second hold)
+      if (now_time < fcw_alert_until) {
+        g_fcw_alert_active.store(true);
+        g_fcw_ttc_ms.store(static_cast<int>(last_fcw_ttc * 1000.0f));
+
+        // Red border
+        if (vis.cols > 10 && vis.rows > 10) {
+          cv::rectangle(vis, cv::Point(4, 4),
+                        cv::Point(vis.cols - 5, vis.rows - 5),
+                        cv::Scalar(0, 0, 255), 8);
+        }
+
+        // FCW warning text with range
+        std::string fcw_text =
+            "FCW ALERT! Range:" +
+            std::to_string(static_cast<int>(last_fcw_range * 10) / 10) + "." +
+            std::to_string(static_cast<int>(last_fcw_range * 10) % 10) + "m";
+        int text_x = std::max(10, vis.cols / 2 - 150);
+        cv::putText(vis, fcw_text, cv::Point(text_x, 60),
+                    cv::FONT_HERSHEY_SIMPLEX, 1.0, cv::Scalar(0, 0, 255), 3);
+      } else {
+        g_fcw_alert_active.store(false);
+      }
+
+      // Calculate FPS
+      frame_count++;
+      auto now = std::chrono::steady_clock::now();
+      auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                          now - last_fps_time)
+                          .count();
+      if (elapsed >= 1000) {
+        fps = frame_count * 1000.0 / elapsed;
+        frame_count = 0;
+        last_fps_time = now;
+      }
+
+      // Draw info overlay
+      std::string info =
+          "Inf: " +
+          std::to_string(static_cast<int>(batch.inference_time_us / 1000)) +
+          "ms | FPS: " + std::to_string(static_cast<int>(fps));
+      cv::putText(vis, info, cv::Point(10, 25), cv::FONT_HERSHEY_SIMPLEX, 0.6,
+                  cv::Scalar(0, 255, 0), 2);
+
+      // Rate-limit display to 20 FPS to reduce stuttering
+      auto now_display = std::chrono::steady_clock::now();
+      if (now_display - last_display_time >= display_interval) {
+        cv::imshow("Stage B: FrontCam", vis);
+        last_display_time = now_display;
+      }
+    } // end if (display_enabled) — Step 10
 
     if (display_enabled) {
       // Non-blocking waitKey with minimal delay

@@ -3,6 +3,7 @@
 #include "adas/stage_a/NetworkReceiver.hpp"
 #include "adas/common/Clock.hpp"
 #include "adas/common/Globals.hpp"
+#include "adas/main_brain/Alert.hpp"
 #include "adas/recording/Recorder.hpp"
 
 #include <opencv2/imgcodecs.hpp>
@@ -36,7 +37,7 @@ std::string NetworkReceiver::buildAddr(int port) const {
   return "tcp://" + pi_ip_ + ":" + std::to_string(port);
 }
 
-bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
+bool NetworkReceiver::start(SPSCQueue<Alert, 8> *cam_queue,
                             SPSCQueue<ImuSample, 32> *imu_queue,
                             SPSCQueue<RadarTargets, 8> *radar_l_queue,
                             SPSCQueue<RadarTargets, 8> *radar_r_queue) {
@@ -168,7 +169,7 @@ void NetworkReceiver::stop() {
 }
 
 void NetworkReceiver::cameraThread() {
-  std::vector<uint8_t> buffer(1024 * 1024); // 1MB buffer
+  std::vector<uint8_t> buffer(4096); // Expect json from pi
 
   while (running_.load()) {
     int len = zmq_recv(cam_socket_, buffer.data(), buffer.size(), 0);
@@ -176,8 +177,7 @@ void NetworkReceiver::cameraThread() {
       continue; // Timeout or error
     }
 
-    if (static_cast<size_t>(len) <
-        sizeof(PiMessageHeader) + sizeof(CameraPayloadHeader)) {
+    if (static_cast<size_t>(len) < sizeof(PiMessageHeader)) {
       stats_.errors++;
       continue;
     }
@@ -198,50 +198,27 @@ void NetworkReceiver::cameraThread() {
     }
     last_cam_seq_ = header.sequence;
 
-    // Parse camera payload
-    CameraPayloadHeader cam_header;
-    std::memcpy(&cam_header, buffer.data() + sizeof(PiMessageHeader),
-                sizeof(cam_header));
+    #pragma pack(push, 1) // Remove padding between floats and ints to match python struct
+    struct RCWPayload {
+      float ttc;
+      float distance;
+      int class_id;
+    };
+    #pragma pack(pop)
 
-    // Decode MJPEG to cv::Mat
-    size_t jpeg_offset = sizeof(PiMessageHeader) + sizeof(CameraPayloadHeader);
-    size_t jpeg_size = header.payload_size - sizeof(CameraPayloadHeader);
-
-    std::vector<uint8_t> jpeg_data(buffer.data() + jpeg_offset,
-                                   buffer.data() + jpeg_offset + jpeg_size);
-    cv::Mat frame = cv::imdecode(jpeg_data, cv::IMREAD_COLOR);
-
-    if (frame.empty()) {
+    if (header.payload_size < sizeof(RCWPayload)) {
       stats_.errors++;
       continue;
     }
+    
+    // Parse rcw payload
+    RCWPayload rcw_payload;
+    std::memcpy(&rcw_payload, buffer.data() + sizeof(PiMessageHeader), sizeof(RCWPayload));
 
-    // Timestamp this frame with the Jetson clock at the moment of arrival.
-    // Do NOT use the Pi's header.timestamp_ns here — the Pi runs its own
-    // (potentially unsynchronised) clock. All recording timestamps must use
-    // the Jetson's CLOCK_MONOTONIC_RAW so they are aligned with USB-camera
-    // and radar events recorded on the same timeline.
-    const uint64_t jetson_arrival_ns = Clock::now_ns();
-
-    // Create CameraFrameData and push to queue
+    // Create alert and push to queue
     if (cam_queue_) {
-      CameraFrameData frame_data;
-      frame_data.h.mount = Mount::RearCam;
-      frame_data.h.seq = header.sequence;
-      frame_data.h.t_device_ns =
-          header.timestamp_ns; // Pi's original timestamp (for reference only)
-      frame_data.h.t_ingest_ns = jetson_arrival_ns; // Jetson authoritative time
-      frame_data.frame = frame.clone();
-
-      // Record pre-decode JPEG with Jetson arrival time
-      if (auto *rec = recorder_.load(std::memory_order_acquire)) {
-        rec->recordCameraJpeg(jpeg_data.data(), jpeg_data.size(),
-                              jetson_arrival_ns, Mount::RearCam,
-                              static_cast<uint16_t>(frame.cols),
-                              static_cast<uint16_t>(frame.rows));
-      }
-
-      cam_queue_->try_push(std::move(frame_data));
+      Alert alert = rearCamConvert(rcw_payload.ttc, rcw_payload.distance, rcw_payload.class_id);
+      cam_queue_->try_push(std::move(alert));
     }
 
     stats_.cam_frames++;
@@ -722,6 +699,58 @@ double NetworkReceiver::measureRTT(const std::string &pi_ip) {
   }
 
   return std::chrono::duration<double, std::milli>(end - start).count();
+}
+
+// Converts rcw payload to alert
+static Alert rearCamConvert(float ttc_s, float range_m, int object_class) {
+  Alert alert;
+  float timestamp_ns = Clock::now_ns();
+
+  // Timestamp in milliseconds
+  alert.t_ms = timestamp_ns / 1'000'000; //TODO set outside
+
+  // Unique ID (tick based, no track_id in FCWAlert)
+  std::ostringstream id;
+  id << "fcw-" << (timestamp_ns / 50'000'000) << "-" << object_class;
+  alert.id = id.str();
+
+  alert.type = AlertType::RCW;
+
+  // Direction is front
+  alert.direction = "rear";
+
+  // Severity based on TTC
+  if (ttc_s < 1.0f) {
+      alert.severity = Severity::Critical;
+  } else if (ttc_s < 2.0f) {
+      alert.severity = Severity::Warning;
+  } else {
+      alert.severity = Severity::Info;
+  }
+
+  // TTL: 1 second
+  alert.ttl_ms = 1000;
+
+  // Rationale as JSON
+  std::ostringstream rationale;
+  rationale << std::fixed << std::setprecision(2);
+  rationale << "{\"ttc_s\":" << ttc_s << ",\"range_m\":" << range_m << ",\"class\":\""
+            << object_class << "\"}";
+  alert.rationale = rationale.str();
+
+  // Object ID (use object_class since track_id not available)
+  alert.object_id = object_class;
+
+  // Sources
+  alert.sources = {"RearCam"};
+
+  // Schema version
+  alert.schemaVersion = "v1.0";
+
+  // Confidence (default) //TODO can add conf to tracks
+  alert.confidence = 0.9f;
+
+  return alert;
 }
 
 } // namespace adas
