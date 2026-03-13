@@ -169,7 +169,7 @@ void NetworkReceiver::stop() {
 }
 
 void NetworkReceiver::cameraThread() {
-  std::vector<uint8_t> buffer(4096); // Expect json from pi
+  std::vector<uint8_t> buffer(4096);
 
   while (running_.load()) {
     int len = zmq_recv(cam_socket_, buffer.data(), buffer.size(), 0);
@@ -711,7 +711,7 @@ static Alert rearCamConvert(float ttc_s, float range_m, int object_class) {
 
   // Unique ID (tick based, no track_id in FCWAlert)
   std::ostringstream id;
-  id << "fcw-" << (timestamp_ns / 50'000'000) << "-" << object_class;
+  id << "rcw-" << (timestamp_ns / 50'000'000) << "-" << object_class;
   alert.id = id.str();
 
   alert.type = AlertType::RCW;
