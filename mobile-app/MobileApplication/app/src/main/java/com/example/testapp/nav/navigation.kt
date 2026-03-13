@@ -8,8 +8,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.example.testapp.model.BleTickRepository
 import com.example.testapp.screens.Drive
+<<<<<<< HEAD
 import com.example.testapp.screens.Home
 import com.example.testapp.screens.settings
+=======
+import com.example.testapp.screens.home
+import com.example.testapp.screens.Settings
+>>>>>>> 9a6a6fc (settings update)
 import com.example.testapp.viewmodel.VehicleStatusViewModel
 import com.example.testapp.viewmodel.VehicleStatusViewModelFactory
 import kotlinx.coroutines.launch
@@ -50,7 +55,7 @@ fun Navigation(
             val vm: VehicleStatusViewModel =
                 viewModel(factory = factory)
 
-            settings(vm)
+            Settings(vm)
         }
     }
 }

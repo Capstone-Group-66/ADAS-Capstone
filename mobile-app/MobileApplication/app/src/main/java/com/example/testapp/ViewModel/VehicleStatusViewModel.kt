@@ -6,6 +6,7 @@ import com.example.testapp.UpdateUIstate
 import com.example.testapp.model.BleTickRepository
 import com.example.testapp.model.SonarColor
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -16,6 +17,28 @@ class VehicleStatusViewModel(
     scope: CoroutineScope? = null,
 ) : ViewModel() {
     private val vmScope = scope ?: viewModelScope
+
+    private val _bluetoothEnabled = MutableStateFlow(true)
+    val bluetoothEnabled: StateFlow<Boolean> = _bluetoothEnabled
+
+    fun setBluetoothEnabled(enabled: Boolean) {
+        _bluetoothEnabled.value = enabled
+    }
+
+    val bleLogs: StateFlow<List<String>> =
+        (repository.bleLogs ?: MutableStateFlow(emptyList())).stateIn(
+            scope = vmScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = emptyList(),
+        )
+
+    val connectionStatus: StateFlow<String> =
+        (repository.bleConnectionState ?: MutableStateFlow("Disconnected")).stateIn(
+            scope = vmScope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = "Disconnected",
+        )
+
     val driveState: StateFlow<UpdateUIstate> =
         repository.dashboardState
             .map { vehicleAlert ->
