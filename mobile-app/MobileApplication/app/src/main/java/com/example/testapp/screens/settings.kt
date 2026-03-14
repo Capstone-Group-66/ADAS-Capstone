@@ -63,17 +63,19 @@ fun Settings(viewModel: VehicleStatusViewModel) {
     val alertSoundsEnabled by viewModel.alertSoundsEnabled.collectAsState()
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Charcoal)
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(Charcoal),
     ) {
         SettingsGridBackground()
 
         LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp, vertical = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
             item {
                 SettingsTitleSection()
@@ -82,19 +84,19 @@ fun Settings(viewModel: VehicleStatusViewModel) {
             item {
                 SettingsSectionCard(
                     icon = Icons.Default.Settings,
-                    title = "SYSTEM SETTINGS"
+                    title = "SYSTEM SETTINGS",
                 ) {
                     SettingsSwitchRowStyled(
                         title = "Alert Sounds",
                         description = "Enable or disable in-app ADAS warning sounds.",
                         checked = alertSoundsEnabled,
-                        onCheckedChange = viewModel::setAlertSoundsEnabled
+                        onCheckedChange = viewModel::setAlertSoundsEnabled,
                     )
 
                     HorizontalDivider(
                         color = DividerColor,
                         thickness = 0.6.dp,
-                        modifier = Modifier.padding(vertical = 2.dp)
+                        modifier = Modifier.padding(vertical = 2.dp),
                     )
                 }
             }
@@ -102,16 +104,17 @@ fun Settings(viewModel: VehicleStatusViewModel) {
             item {
                 SettingsSectionCard(
                     icon = Icons.Default.Bluetooth,
-                    title = "BLE EVENT LOG"
+                    title = "BLE EVENT LOG",
                 ) {
                     Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 100.dp, max = 220.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color(0xFF181A1E))
-                            .border(1.dp, DividerColor, RoundedCornerShape(10.dp))
-                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 100.dp, max = 220.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFF181A1E))
+                                .border(1.dp, DividerColor, RoundedCornerShape(10.dp))
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
                     ) {
                         if (logs.isEmpty()) {
                             Text(
@@ -119,11 +122,11 @@ fun Settings(viewModel: VehicleStatusViewModel) {
                                 color = TextSecondary.copy(alpha = 0.55f),
                                 fontSize = 12.sp,
                                 fontStyle = FontStyle.Italic,
-                                modifier = Modifier.align(Alignment.Center)
+                                modifier = Modifier.align(Alignment.Center),
                             )
                         } else {
                             LazyColumn(
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 items(logs) { log ->
                                     Row(verticalAlignment = Alignment.Top) {
@@ -131,14 +134,14 @@ fun Settings(viewModel: VehicleStatusViewModel) {
                                             text = "›",
                                             color = AccentCyan.copy(alpha = 0.7f),
                                             fontSize = 12.sp,
-                                            modifier = Modifier.padding(end = 6.dp)
+                                            modifier = Modifier.padding(end = 6.dp),
                                         )
                                         Text(
                                             text = log,
                                             color = TextPrimary.copy(alpha = 0.9f),
                                             fontSize = 11.sp,
                                             lineHeight = 15.sp,
-                                            fontFamily = FontFamily.Monospace
+                                            fontFamily = FontFamily.Monospace,
                                         )
                                     }
                                 }
@@ -151,11 +154,11 @@ fun Settings(viewModel: VehicleStatusViewModel) {
             item {
                 SettingsSectionCard(
                     icon = Icons.Default.Groups,
-                    title = "CREDITS"
+                    title = "CREDITS",
                 ) {
                     SettingsInfoRowStyled(
                         title = "Group",
-                        value = "66"
+                        value = "66",
                     )
 
                     HorizontalDivider(color = DividerColor, thickness = 0.6.dp)
@@ -176,18 +179,18 @@ fun Settings(viewModel: VehicleStatusViewModel) {
             item {
                 SettingsSectionCard(
                     icon = Icons.Default.Info,
-                    title = "APP INFO"
+                    title = "APP INFO",
                 ) {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
                         Text(
                             text = "ADAS Dashboard",
                             color = TextPrimary,
                             fontSize = 15.sp,
                             fontWeight = FontWeight.SemiBold,
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
                         )
 
                         Spacer(modifier = Modifier.height(6.dp))
@@ -198,7 +201,7 @@ fun Settings(viewModel: VehicleStatusViewModel) {
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.5.sp,
-                            textAlign = TextAlign.Center
+                            textAlign = TextAlign.Center,
                         )
 
                         Spacer(modifier = Modifier.height(8.dp))
@@ -208,7 +211,7 @@ fun Settings(viewModel: VehicleStatusViewModel) {
                             color = TextSecondary,
                             fontSize = 12.sp,
                             textAlign = TextAlign.Center,
-                            lineHeight = 17.sp
+                            lineHeight = 17.sp,
                         )
                     }
                 }
@@ -220,36 +223,38 @@ fun Settings(viewModel: VehicleStatusViewModel) {
 @Composable
 private fun SettingsGridBackground() {
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .drawBehind {
-                val dotColor = Color(0x18FFFFFF)
-                val spacing = 28.dp.toPx()
-                val radius = 1.2.dp.toPx()
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .drawBehind {
+                    val dotColor = Color(0x18FFFFFF)
+                    val spacing = 28.dp.toPx()
+                    val radius = 1.2.dp.toPx()
 
-                var x = spacing
-                while (x < size.width) {
-                    var y = spacing
-                    while (y < size.height) {
-                        drawCircle(
-                            color = dotColor,
-                            radius = radius,
-                            center = Offset(x, y)
-                        )
-                        y += spacing
+                    var x = spacing
+                    while (x < size.width) {
+                        var y = spacing
+                        while (y < size.height) {
+                            drawCircle(
+                                color = dotColor,
+                                radius = radius,
+                                center = Offset(x, y),
+                            )
+                            y += spacing
+                        }
+                        x += spacing
                     }
-                    x += spacing
-                }
 
-                drawLine(
-                    brush = Brush.horizontalGradient(
-                        listOf(Color.Transparent, AccentCyan.copy(alpha = 0.25f), Color.Transparent)
-                    ),
-                    start = Offset(0f, 0f),
-                    end = Offset(size.width, 0f),
-                    strokeWidth = 2.dp.toPx()
-                )
-            }
+                    drawLine(
+                        brush =
+                            Brush.horizontalGradient(
+                                listOf(Color.Transparent, AccentCyan.copy(alpha = 0.25f), Color.Transparent),
+                            ),
+                        start = Offset(0f, 0f),
+                        end = Offset(size.width, 0f),
+                        strokeWidth = 2.dp.toPx(),
+                    )
+                },
     )
 }
 
@@ -257,18 +262,20 @@ private fun SettingsGridBackground() {
 private fun SettingsTitleSection() {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
-            modifier = Modifier
-                .width(48.dp)
-                .height(3.dp)
-                .background(
-                    brush = Brush.horizontalGradient(
-                        listOf(AccentCyanDim, AccentCyan, AccentCyanDim)
+            modifier =
+                Modifier
+                    .width(48.dp)
+                    .height(3.dp)
+                    .background(
+                        brush =
+                            Brush.horizontalGradient(
+                                listOf(AccentCyanDim, AccentCyan, AccentCyanDim),
+                            ),
+                        shape = RoundedCornerShape(2.dp),
                     ),
-                    shape = RoundedCornerShape(2.dp)
-                )
         )
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -278,7 +285,7 @@ private fun SettingsTitleSection() {
             color = AccentCyan,
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
-            letterSpacing = 5.sp
+            letterSpacing = 5.sp,
         )
 
         Spacer(modifier = Modifier.height(6.dp))
@@ -289,7 +296,7 @@ private fun SettingsTitleSection() {
             fontSize = 26.sp,
             fontWeight = FontWeight.ExtraBold,
             lineHeight = 32.sp,
-            textAlign = TextAlign.Center
+            textAlign = TextAlign.Center,
         )
 
         Spacer(modifier = Modifier.height(10.dp))
@@ -297,25 +304,26 @@ private fun SettingsTitleSection() {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
         ) {
             HorizontalDivider(
                 modifier = Modifier.weight(1f),
                 color = DividerColor,
-                thickness = 1.dp
+                thickness = 1.dp,
             )
 
             Box(
-                modifier = Modifier
-                    .padding(horizontal = 10.dp)
-                    .size(6.dp)
-                    .background(AccentCyan, CircleShape)
+                modifier =
+                    Modifier
+                        .padding(horizontal = 10.dp)
+                        .size(6.dp)
+                        .background(AccentCyan, CircleShape),
             )
 
             HorizontalDivider(
                 modifier = Modifier.weight(1f),
                 color = DividerColor,
-                thickness = 1.dp
+                thickness = 1.dp,
             )
         }
     }
@@ -325,34 +333,36 @@ private fun SettingsTitleSection() {
 private fun SettingsSectionCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
-    content: @Composable ColumnScope.() -> Unit
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(CardBackground)
-            .border(1.dp, DividerColor, RoundedCornerShape(14.dp))
-            .padding(16.dp)
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(14.dp))
+                .background(CardBackground)
+                .border(1.dp, DividerColor, RoundedCornerShape(14.dp))
+                .padding(16.dp),
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(bottom = 14.dp)
+            modifier = Modifier.padding(bottom = 14.dp),
         ) {
             Box(
                 contentAlignment = Alignment.Center,
-                modifier = Modifier
-                    .size(30.dp)
-                    .background(
-                        AccentCyan.copy(alpha = 0.12f),
-                        RoundedCornerShape(7.dp)
-                    )
+                modifier =
+                    Modifier
+                        .size(30.dp)
+                        .background(
+                            AccentCyan.copy(alpha = 0.12f),
+                            RoundedCornerShape(7.dp),
+                        ),
             ) {
                 Icon(
                     imageVector = icon,
                     contentDescription = null,
                     tint = AccentCyan,
-                    modifier = Modifier.size(16.dp)
+                    modifier = Modifier.size(16.dp),
                 )
             }
 
@@ -363,21 +373,23 @@ private fun SettingsSectionCard(
                 color = TextPrimary,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 2.sp
+                letterSpacing = 2.sp,
             )
 
             Spacer(modifier = Modifier.weight(1f))
 
             Box(
-                modifier = Modifier
-                    .width(24.dp)
-                    .height(2.dp)
-                    .background(
-                        brush = Brush.horizontalGradient(
-                            listOf(AccentCyan.copy(alpha = 0.6f), Color.Transparent)
+                modifier =
+                    Modifier
+                        .width(24.dp)
+                        .height(2.dp)
+                        .background(
+                            brush =
+                                Brush.horizontalGradient(
+                                    listOf(AccentCyan.copy(alpha = 0.6f), Color.Transparent),
+                                ),
+                            shape = RoundedCornerShape(1.dp),
                         ),
-                        shape = RoundedCornerShape(1.dp)
-                    )
             )
         }
 
@@ -393,34 +405,36 @@ private fun SettingsSwitchRowStyled(
     onCheckedChange: (Boolean) -> Unit,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = title,
                 color = TextPrimary,
                 fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold
+                fontWeight = FontWeight.SemiBold,
             )
             Text(
                 text = description,
                 color = TextSecondary,
-                fontSize = 12.sp
+                fontSize = 12.sp,
             )
         }
 
         Switch(
             checked = checked,
             onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(
-                checkedThumbColor = Charcoal,
-                checkedTrackColor = AccentCyan,
-                uncheckedThumbColor = TextSecondary,
-                uncheckedTrackColor = DividerColor
-            )
+            colors =
+                SwitchDefaults.colors(
+                    checkedThumbColor = Charcoal,
+                    checkedTrackColor = AccentCyan,
+                    uncheckedThumbColor = TextSecondary,
+                    uncheckedTrackColor = DividerColor,
+                ),
         )
     }
 }
@@ -429,20 +443,21 @@ private fun SettingsSwitchRowStyled(
 private fun SettingsInfoRowStyled(
     title: String,
     value: String,
-    valueColor: Color = TextSecondary
+    valueColor: Color = TextSecondary,
 ) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             text = title,
             color = TextPrimary,
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.weight(1f)
+            modifier = Modifier.weight(1f),
         )
 
         Text(
@@ -450,7 +465,7 @@ private fun SettingsInfoRowStyled(
             color = valueColor,
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
-            textAlign = TextAlign.End
+            textAlign = TextAlign.End,
         )
     }
 }
@@ -458,15 +473,17 @@ private fun SettingsInfoRowStyled(
 @Composable
 private fun CreditRowStyled(name: String) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            modifier = Modifier
-                .size(8.dp)
-                .background(AccentCyan.copy(alpha = 0.85f), CircleShape)
+            modifier =
+                Modifier
+                    .size(8.dp)
+                    .background(AccentCyan.copy(alpha = 0.85f), CircleShape),
         )
 
         Spacer(modifier = Modifier.width(10.dp))
@@ -475,7 +492,7 @@ private fun CreditRowStyled(name: String) {
             text = name,
             color = TextPrimary,
             fontSize = 14.sp,
-            fontWeight = FontWeight.Medium
+            fontWeight = FontWeight.Medium,
         )
     }
 }
