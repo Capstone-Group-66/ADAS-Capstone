@@ -14,7 +14,7 @@ data class VehicleAlert(
     val lastTickId: Int = -1,
     val timestampMs: Long = System.currentTimeMillis(),
     val activeAlerts: List<com.example.testapp.model.AlertDto> = emptyList(),
-    val fcwExpiry: Long = 0,
+    val expiries: Expiries,
 )
 
 data class CameraHealth(
@@ -49,6 +49,14 @@ data class SonarColors(
 data class BlindSpotStatus(
     val leftActive: Boolean,
     val rightActive: Boolean,
+)
+
+data class Expiries(
+    val fcw: Long,
+    val rcw: Long,
+    val bsd_l: Long,
+    val bsd_r: Long,
+    val ldw: Long,
 )
 
 sealed class ObjectDetection {

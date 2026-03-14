@@ -27,8 +27,9 @@ class VehicleStatusViewModel(
                     sonarValue = vehicleAlert.sonar.front,
                     leftBlindspotValue = vehicleAlert.sonar.left,
                     rightBlindspotValue = vehicleAlert.sonar.right,
+                    rearValue = vehicleAlert.sonar.rear,
                     timestamp = vehicleAlert.timestampMs,
-                    fcwExpiry = vehicleAlert.fcwExpiry,
+                    fcwExpiry = vehicleAlert.expiries.fcw,
                 )
             }.stateIn(
                 scope = vmScope,
@@ -42,6 +43,7 @@ class VehicleStatusViewModel(
                         sonarValue = SonarColor.GREEN,
                         leftBlindspotValue = SonarColor.GREEN,
                         rightBlindspotValue = SonarColor.GREEN,
+                        rearValue = SonarColor.GREEN,
                     ),
             )
 }
