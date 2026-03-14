@@ -38,15 +38,16 @@ object VehicleAlertReducer {
         val hasIncomingFcw = tick.alerts.any { it.type == 0 }
         val now = System.currentTimeMillis()
         val newFcwExpiry = if (hasIncomingFcw) now + 3000 else prev.expiries.fcw
-        val newRcwExpiry = if (tick.alerts.any { it.type == 2 && it.severity > 0}) now + 3000 else prev.expiries.rcw
+        val newRcwExpiry = if (tick.alerts.any { it.type == 2 && it.severity > 0 }) now + 3000 else prev.expiries.rcw
 
         // Determine active state based on Latch
         val isLatched = now < newFcwExpiry
 
-        val sonar = prev.sonar.copy(
-            front = if (isLatched) SonarColor.RED else SonarColor.GREEN,
-            rear = if (now < newRcwExpiry) SonarColor.RED else SonarColor.GREEN
-        )
+        val sonar =
+            prev.sonar.copy(
+                front = if (isLatched) SonarColor.RED else SonarColor.GREEN,
+                rear = if (now < newRcwExpiry) SonarColor.RED else SonarColor.GREEN,
+            )
 
         val detection =
             if (isLatched) {
@@ -69,13 +70,14 @@ object VehicleAlertReducer {
             activeAlerts = tick.alerts,
             lastTickId = newLastTickId,
             timestampMs = now,
-            expiries = Expiries(
-                fcw = newFcwExpiry,
-                rcw = newRcwExpiry,
-                bsd_r = 0,
-                bsd_l = 0,
-                ldw = 0,
-            ),
+            expiries =
+                Expiries(
+                    fcw = newFcwExpiry,
+                    rcw = newRcwExpiry,
+                    bsd_r = 0,
+                    bsd_l = 0,
+                    ldw = 0,
+                ),
         )
     }
 

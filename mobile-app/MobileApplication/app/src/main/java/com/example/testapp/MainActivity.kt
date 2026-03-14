@@ -91,13 +91,14 @@ fun TestAppAppPreview() {
             telemetry = VehicleTelemetry(speedKmh = 50),
             detection = ObjectDetection.None,
             bsd = BlindSpotStatus(leftActive = true, rightActive = true),
-            expiries = Expiries(
-                fcw = 0,
-                rcw = 0,
-                bsd_r = 0,
-                bsd_l = 0,
-                ldw = 0,
-            ),
+            expiries =
+                Expiries(
+                    fcw = 0,
+                    rcw = 0,
+                    bsd_r = 0,
+                    bsd_l = 0,
+                    ldw = 0,
+                ),
         )
 
     val fakeRepository1 = FakeBleTickRepositoryRL(vehicleAlert)
