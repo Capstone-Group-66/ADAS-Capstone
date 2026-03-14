@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 
@@ -18,11 +19,11 @@ class VehicleStatusViewModel(
 ) : ViewModel() {
     private val vmScope = scope ?: viewModelScope
 
-    private val _bluetoothEnabled = MutableStateFlow(true)
-    val bluetoothEnabled: StateFlow<Boolean> = _bluetoothEnabled
+    private val _alertSoundsEnabled = MutableStateFlow(true)
+    val alertSoundsEnabled: StateFlow<Boolean> = _alertSoundsEnabled.asStateFlow()
 
-    fun setBluetoothEnabled(enabled: Boolean) {
-        _bluetoothEnabled.value = enabled
+    fun setAlertSoundsEnabled(enabled: Boolean) {
+        _alertSoundsEnabled.value = enabled
     }
 
     val bleLogs: StateFlow<List<String>> =
