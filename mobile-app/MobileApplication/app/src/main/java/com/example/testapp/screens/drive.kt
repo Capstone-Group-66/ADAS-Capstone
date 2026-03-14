@@ -3,6 +3,7 @@ package com.example.testapp.screens
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
@@ -32,14 +34,14 @@ import com.example.testapp.viewmodel.VehicleStatusViewModel
 @Composable
 fun Drive(
     vehicleStatusViewModel: VehicleStatusViewModel,
-    onDebugFcw: () -> Unit,
+    onDebugTrigger: () -> Unit,
     onDebugClear: () -> Unit,
 ) {
     val state by vehicleStatusViewModel.driveState.collectAsState()
 
     DriveContent(
         state = state,
-        onDebugFcw = onDebugFcw,
+        onDebugTrigger = onDebugTrigger,
         onDebugClear = onDebugClear,
     )
 }
@@ -47,63 +49,87 @@ fun Drive(
 @Composable
 fun DriveContent(
     state: UpdateUIstate,
-    onDebugFcw: () -> Unit,
+    onDebugTrigger: () -> Unit,
     onDebugClear: () -> Unit,
 ) {
-    // Wrap everything in a Surface that fills the screen
+    val laneActive =
+        laneWarningActive(
+            expiry = state.fcwExpiry,
+            timestamp = state.timestamp,
+        )
     androidx.compose.material3.Surface(
         modifier = Modifier.fillMaxSize(),
-        color = Color(0xFF121212), // Example: Dark Charcoal color
+        color = Color(0xFF121212),
     ) {
-        Column(Modifier.padding(16.dp)) {
-            Text("drive page")
+        Box(modifier = Modifier.fillMaxSize()) {
+            Column(
+                modifier =
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding(16.dp),
+            ) {
+                Text("drive page")
+
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(top = 16.dp),
+                ) {
+                    androidx.compose.material3.Button(onClick = onDebugTrigger) {
+                        Text("TRIGGER ALERTS")
+                    }
+                    androidx.compose.material3.Button(onClick = onDebugClear) {
+                        Text("CLEAR")
+                    }
+                }
+            }
+
+            SpeedDisplay(
+                speedText = "72 km/h",
+                modifier =
+                    Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 24.dp, end = 20.dp),
+            )
+
+            CenteredCar()
+            FrontDetection(state.sonarValue)
+            RearDetection(state.rearValue)
+            WarningOverlay(state)
+            BsdLeft(state.sonarValue)
+            BsdRight(state.sonarValue)
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                LaneDepartureDetection(
+                    count = 9,
+                    modifier = Modifier.offset(x = 85.dp, y = 100.dp),
+                    lane = R.drawable.ic_right_lane,
+                    detectionLR = laneActive,
+                )
+
+                LaneDepartureDetection(
+                    count = 9,
+                    modifier = Modifier.offset(x = 270.dp, y = 100.dp),
+                    lane = R.drawable.ic_right_lane,
+                    detectionLR = laneActive,
+                )
+            }
 
             StatusRow(
                 s1 = state.status1,
                 s2 = state.status2,
                 s3 = state.status3,
                 s4 = state.status4,
-            )
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.padding(top = 16.dp),
-            ) {
-                androidx.compose.material3.Button(onClick = onDebugFcw) {
-                    Text("TRIGGER FCW")
-                }
-                androidx.compose.material3.Button(onClick = onDebugClear) {
-                    Text("CLEAR")
-                }
-            }
-        }
-
-        CenteredCar()
-        FrontDetection(state.sonarValue)
-        RearDetection(state.rearValue)
-        FcwWarningOverlay(state)
-        BsdLeft(state.sonarValue)
-        BsdRight(state.sonarValue)
-        Box(modifier = Modifier.fillMaxSize()) {
-            LaneDepartureDetection(
-                count = 9,
-                modifier = Modifier.offset(x = 85.dp, y = 100.dp),
-                lane = R.drawable.ic_right_lane,
-                0,
-            )
-
-            LaneDepartureDetection(
-                count = 9,
-                modifier = Modifier.offset(x = 270.dp, y = 100.dp),
-                lane = R.drawable.ic_right_lane,
-                0,
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 3.dp),
             )
         }
     }
 }
 
 @Composable
-fun FcwWarningOverlay(state: UpdateUIstate) {
+fun WarningOverlay(state: UpdateUIstate) {
     // Logic: Latch is 3s. Animation is 2s.
     // StartTime is derived from (Expiry - 3000).
     // If receiving continuous alerts, Expiry extends, StartTime advances, elapsed stays ~0 (Solid).
@@ -126,16 +152,34 @@ fun FcwWarningOverlay(state: UpdateUIstate) {
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = "Collision Warning!",
-                    color = Color.Red.copy(alpha = alpha),
-                    fontSize = 32.sp,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                    modifier = Modifier.offset(y = (-250).dp),
-                )
+                Box(
+                    modifier =
+                        Modifier
+                            .shadow(10.dp)
+                            .background(Color(0xFFF3F3F3).copy(alpha = alpha))
+                            .border(2.dp, Color.Red.copy(alpha = alpha))
+                            .padding(horizontal = 44.dp, vertical = 20.dp),
+                ) {
+                    Text(
+                        text = "BRAKE",
+                        color = Color.Red.copy(alpha = alpha),
+                        fontSize = 52.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold,
+                    )
+                }
             }
         }
     }
+}
+
+fun laneWarningActive(
+    expiry: Long,
+    timestamp: Long,
+): Int {
+    val startTime = expiry - 3000
+    val elapsed = timestamp - startTime
+
+    return if (timestamp < expiry && elapsed < 2000) 1 else 0
 }
 
 @Composable
@@ -150,7 +194,7 @@ fun CenteredCar() {
             modifier =
                 Modifier
                     .size(320.dp)
-                    .offset(x = -5.dp, y = 100.dp),
+                    .offset(x = -5.dp, y = 70.dp),
         )
     }
 }
@@ -180,7 +224,7 @@ fun FrontDetection(detectionValue: SonarColor) {
             colorFilter = ColorFilter.tint(detectionValue.color),
             modifier =
                 Modifier
-                    .offset(y = -100.dp)
+                    .offset(y = -130.dp)
                     .size(200.dp)
                     .rotate(-90f),
         )
@@ -200,7 +244,7 @@ fun RearDetection(detectionValue: SonarColor) {
             colorFilter = ColorFilter.tint(detectionValue.color),
             modifier =
                 Modifier
-                    .offset(x = -5.dp, y = 320.dp)
+                    .offset(x = -5.dp, y = 270.dp)
                     .size(200.dp)
                     .rotate(-272f),
         )
@@ -220,6 +264,7 @@ fun StatusItem(
         Text(
             text = label,
             fontSize = 12.sp,
+            color = Color.White,
         )
     }
 }
@@ -230,9 +275,10 @@ fun StatusRow(
     s2: Boolean,
     s3: Boolean,
     s4: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = Modifier.padding(16.dp),
+        modifier = modifier.padding(16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -256,7 +302,7 @@ fun BsdLeft(detectionValue: SonarColor) {
             modifier =
                 Modifier
                     .size(150.dp)
-                    .offset(x = -110.dp, y = 190.dp)
+                    .offset(x = -110.dp, y = 160.dp)
                     .rotate(135f),
         )
     }
@@ -275,7 +321,7 @@ fun BsdRight(detectionValue: SonarColor) {
             modifier =
                 Modifier
                     .size(150.dp)
-                    .offset(x = 110.dp, y = 190.dp)
+                    .offset(x = 110.dp, y = 160.dp)
                     .rotate(45f),
         )
     }
@@ -292,7 +338,7 @@ fun LaneDepartureDetection(
         if (detectionLR == 1) {
             Color.Red
         } else {
-            Color.White
+            Color.Transparent
         }
 
     Column(
@@ -311,4 +357,18 @@ fun LaneDepartureDetection(
             )
         }
     }
+}
+
+@Composable
+fun SpeedDisplay(
+    speedText: String,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        text = speedText,
+        color = Color.White,
+        fontSize = 36.sp,
+        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+        modifier = modifier,
+    )
 }

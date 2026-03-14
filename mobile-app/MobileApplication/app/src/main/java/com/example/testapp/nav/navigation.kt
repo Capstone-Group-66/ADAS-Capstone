@@ -8,7 +8,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.example.testapp.model.BleTickRepository
 import com.example.testapp.screens.Drive
-import com.example.testapp.screens.home
+import com.example.testapp.screens.Home
 import com.example.testapp.screens.settings
 import com.example.testapp.viewmodel.VehicleStatusViewModel
 import com.example.testapp.viewmodel.VehicleStatusViewModelFactory
@@ -33,7 +33,7 @@ fun Navigation(
         startDestination = "home",
     ) {
         composable("home") {
-            home(logs, status)
+            Home(logs, status)
         }
         composable("drive") { backStackEntry ->
             val vm: VehicleStatusViewModel =
@@ -41,7 +41,7 @@ fun Navigation(
 
             Drive(
                 vehicleStatusViewModel = vm,
-                onDebugFcw = { scope.launch { repository.simulateFcwAlert() } },
+                onDebugTrigger = { scope.launch { repository.simulateFcwAlert() } },
                 onDebugClear = { scope.launch { repository.simulateClear() } },
             )
         }
