@@ -1,4 +1,4 @@
-package com.example.testapp
+package com.example.testapp.ui.components
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -56,7 +56,6 @@ import com.example.testapp.model.SonarColors
 import com.example.testapp.model.VehicleAlert
 import com.example.testapp.model.VehicleTelemetry
 import com.example.testapp.nav.Navigation
-import com.example.testapp.ui.components.TestAppApp
 import com.example.testapp.ui.theme.AccentCyan
 import com.example.testapp.ui.theme.AccentCyanDim
 import com.example.testapp.ui.theme.CardBackground
@@ -67,43 +66,78 @@ import com.example.testapp.ui.theme.TextSecondary
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.StateFlow
 
-class MainActivity : ComponentActivity() {
+@Composable
+fun TestAppApp(
+    repository: BleTickRepository,
+    logs: StateFlow<List<String>>,
+    status: StateFlow<String>,
+) {
+    var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
+    val navController = rememberNavController()
 
-    private val appScope =
-        CoroutineScope(
-            SupervisorJob() + Dispatchers.Default,
+    val navColors = adasNavColors
+    val itemColors = adasItemColors
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Charcoal)
+    ) {
+        AppNavigationUI(
+            navController = navController,
+            repository = repository,
+            logs = logs,
+            status = status,
+            currentDestination = currentDestination,
+            onDestinationChange = { currentDestination = it },
+            navColors = navColors,
+            itemColors = itemColors,
         )
-
-    private lateinit var repository: BleTickRepository
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-
-        val bleManager = BleManager(this)
-
-        repository =
-            BleTickRepository(
-                blePackets = bleManager.packetFlow,
-                scope = appScope,
-            )
-
-        if (checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT)
-            == android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            bleManager.initialize()
-        }
-
-        enableEdgeToEdge()
-
-        setContent {
-            TestAppTheme {
-                TestAppApp(
-                    repository,
-                    logs = bleManager.logFlow,
-                    status = bleManager.connectionState,
-                )
-            }
-        }
     }
 }
+
+enum class AppDestinations(
+    val label: String,
+    val icon: ImageVector,
+) {
+    HOME("Home", Icons.Default.Home),
+    DRIVE("drive", Icons.Default.Warning),
+    SETTINGS("Settings", Icons.Default.Settings),
+}
+
+private val adasItemColors
+    @Composable get() = NavigationSuiteItemColors(
+        navigationBarItemColors = NavigationBarItemDefaults.colors(
+            selectedIconColor    = AccentCyan,
+            selectedTextColor    = AccentCyan,
+            unselectedIconColor  = TextSecondary,
+            unselectedTextColor  = TextSecondary,
+            indicatorColor       = AccentCyan.copy(alpha = 0.15f),
+        ),
+        navigationRailItemColors = NavigationRailItemDefaults.colors(
+            selectedIconColor    = AccentCyan,
+            selectedTextColor    = AccentCyan,
+            unselectedIconColor  = TextSecondary,
+            unselectedTextColor  = TextSecondary,
+            indicatorColor       = AccentCyan.copy(alpha = 0.15f),
+        ),
+        navigationDrawerItemColors = NavigationDrawerItemDefaults.colors(
+            selectedContainerColor   = AccentCyan.copy(alpha = 0.12f),
+            selectedIconColor        = AccentCyan,
+            selectedTextColor        = AccentCyan,
+            unselectedIconColor      = TextSecondary,
+            unselectedTextColor      = TextSecondary,
+        ),
+    )
+
+private val adasNavColors
+    @Composable get() = NavigationSuiteDefaults.colors(
+        // Bottom nav bar / rail container
+        navigationBarContainerColor  = CardBackground,
+        navigationRailContainerColor = CardBackground,
+        navigationDrawerContainerColor = CharcoalLight,
+
+
+        )
