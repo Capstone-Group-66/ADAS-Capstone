@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -13,28 +14,30 @@ import kotlinx.coroutines.launch
 open class BleTickRepository(
     blePackets: Flow<ByteArray>,
     scope: CoroutineScope,
+    logs: StateFlow<List<String>>? = null,
+    connectionState: StateFlow<String>? = null,
 ) {
     private val debugFlow = kotlinx.coroutines.flow.MutableSharedFlow<TickPayload>()
 
+    val bleLogs: StateFlow<List<String>>? = logs
+    val bleConnectionState: StateFlow<String>? = connectionState
+
     open val dashboardState: StateFlow<VehicleAlert> =
-        kotlinx.coroutines.flow
-            .merge(
-                blePackets.map { TickDecoder.decode(it) },
-                debugFlow,
-            ).runningFold(VehicleAlertReducer.initial()) { state, tick ->
-                VehicleAlertReducer.reduce(state, tick) ?: state
-            }.stateIn(
-                scope = scope,
-                started = SharingStarted.WhileSubscribed(5_000),
-                initialValue = VehicleAlertReducer.initial(),
-            )
+        merge(
+            blePackets.map { TickDecoder.decode(it) },
+            debugFlow,
+        ).runningFold(VehicleAlertReducer.initial()) { state, tick ->
+            VehicleAlertReducer.reduce(state, tick) ?: state
+        }.stateIn(
+            scope = scope,
+            started = SharingStarted.WhileSubscribed(5_000),
+            initialValue = VehicleAlertReducer.initial(),
+        )
 
     init {
-        // Start a 1Hz heartbeat loop to refresh UI (handle Latch timing)
         scope.launch {
             while (true) {
                 delay(1000)
-                // Emit heartbeat tick (id=-1 means local update)
                 val heartbeat =
                     TickPayload(
                         tickId = -1,
@@ -48,10 +51,8 @@ open class BleTickRepository(
         }
     }
 
-    // Manual triggers for testing UI
     suspend fun simulateFcwAlert() {
         val alert = AlertDto(type = 0, severity = 2, rationale = "Debug FCW")
-        // Use -2 to bypass sequence check and avoid corrupting state
         val tick =
             TickPayload(
                 tickId = -2,
