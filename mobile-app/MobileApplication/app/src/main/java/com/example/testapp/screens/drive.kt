@@ -20,7 +20,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
@@ -33,17 +32,17 @@ import com.example.testapp.model.SonarColor
 import com.example.testapp.viewmodel.VehicleStatusViewModel
 
 // ── Palette (mirrors Home.kt / theme) ────────────────────────────────────────
-private val Charcoal       = Color(0xFF1C1E22)
+private val Charcoal = Color(0xFF1C1E22)
 private val CardBackground = Color(0xFF252830)
-private val CharcoalMid    = Color(0xFF23262B)
-private val DividerColor   = Color(0xFF3A3F47)
-private val AccentCyan     = Color(0xFF00D4FF)
-private val AccentCyanDim  = Color(0xFF0099BB)
-private val TextPrimary    = Color(0xFFECEFF4)
-private val TextSecondary  = Color(0xFF8A9BB0)
-private val StatusGreen    = Color(0xFF00E676)
-private val StatusRed      = Color(0xFFFF5252)
-private val StatusAmber    = Color(0xFFFFB300)
+private val CharcoalMid = Color(0xFF23262B)
+private val DividerColor = Color(0xFF3A3F47)
+private val AccentCyan = Color(0xFF00D4FF)
+private val AccentCyanDim = Color(0xFF0099BB)
+private val TextPrimary = Color(0xFFECEFF4)
+private val TextSecondary = Color(0xFF8A9BB0)
+private val StatusGreen = Color(0xFF00E676)
+private val StatusRed = Color(0xFFFF5252)
+private val StatusAmber = Color(0xFFFFB300)
 
 // ── Entry ─────────────────────────────────────────────────────────────────────
 @Composable
@@ -65,24 +64,25 @@ fun DriveContent(
     val laneActive = laneWarningActive(expiry = state.fcwExpiry, timestamp = state.timestamp)
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Charcoal)
-            .drawBehind {
-                // Dot-grid texture (matches Home)
-                val dotColor = Color(0x18FFFFFF)
-                val spacing = 28.dp.toPx()
-                val r = 1.2.dp.toPx()
-                var x = spacing
-                while (x < size.width) {
-                    var y = spacing
-                    while (y < size.height) {
-                        drawCircle(color = dotColor, radius = r, center = Offset(x, y))
-                        y += spacing
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(Charcoal)
+                .drawBehind {
+                    // Dot-grid texture (matches Home)
+                    val dotColor = Color(0x18FFFFFF)
+                    val spacing = 28.dp.toPx()
+                    val r = 1.2.dp.toPx()
+                    var x = spacing
+                    while (x < size.width) {
+                        var y = spacing
+                        while (y < size.height) {
+                            drawCircle(color = dotColor, radius = r, center = Offset(x, y))
+                            y += spacing
+                        }
+                        x += spacing
                     }
-                    x += spacing
-                }
-            }
+                },
     ) {
         // ── Car + sensor overlays (all original, untouched) ───────────────────
         CenteredCar()
@@ -110,20 +110,22 @@ fun DriveContent(
         // ── Speed chip (top-end) ──────────────────────────────────────────────
         SpeedDisplay(
             speedText = "72 km/h",
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(top = 20.dp, end = 16.dp),
+            modifier =
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 20.dp, end = 16.dp),
         )
 
         // ── Debug controls (top-start) ────────────────────────────────────────
         Row(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = 16.dp, top = 20.dp),
+            modifier =
+                Modifier
+                    .align(Alignment.TopStart)
+                    .padding(start = 16.dp, top = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             DebugButton(label = "TRIGGER", onClick = onDebugTrigger, tint = StatusAmber)
-            DebugButton(label = "CLEAR",   onClick = onDebugClear,   tint = AccentCyan)
+            DebugButton(label = "CLEAR", onClick = onDebugClear, tint = AccentCyan)
         }
 
         // ── Status bar (bottom) ───────────────────────────────────────────────
@@ -132,22 +134,28 @@ fun DriveContent(
             s2 = state.status2,
             s3 = state.status3,
             s4 = state.status4,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 3.dp),
+            modifier =
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 3.dp),
         )
     }
 }
 
 // ── Debug button styled to palette ───────────────────────────────────────────
 @Composable
-private fun DebugButton(label: String, onClick: () -> Unit, tint: Color) {
+private fun DebugButton(
+    label: String,
+    onClick: () -> Unit,
+    tint: Color,
+) {
     Button(
         onClick = onClick,
-        colors = ButtonDefaults.buttonColors(
-            containerColor = tint.copy(alpha = 0.12f),
-            contentColor   = tint,
-        ),
+        colors =
+            ButtonDefaults.buttonColors(
+                containerColor = tint.copy(alpha = 0.12f),
+                contentColor = tint,
+            ),
         border = androidx.compose.foundation.BorderStroke(1.dp, tint.copy(alpha = 0.4f)),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
         shape = RoundedCornerShape(7.dp),
@@ -160,35 +168,37 @@ private fun DebugButton(label: String, onClick: () -> Unit, tint: Color) {
 @Composable
 fun WarningOverlay(state: UpdateUIstate) {
     val startTime = state.fcwExpiry - 3000
-    val elapsed   = state.timestamp - startTime
+    val elapsed = state.timestamp - startTime
 
     if (state.timestamp < state.fcwExpiry && elapsed < 2000) {
-        val alpha = when {
-            elapsed < 500  -> 1.0f
-            elapsed < 2000 -> 1.0f - ((elapsed - 500) / 1500.0f).coerceIn(0f, 1f)
-            else           -> 0.0f
-        }
+        val alpha =
+            when {
+                elapsed < 500 -> 1.0f
+                elapsed < 2000 -> 1.0f - ((elapsed - 500) / 1500.0f).coerceIn(0f, 1f)
+                else -> 0.0f
+            }
         if (alpha > 0) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
                 Box(
-                    modifier = Modifier
-                        .shadow(12.dp, RoundedCornerShape(8.dp))
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(CardBackground.copy(alpha = alpha * 0.95f))
-                        .border(
-                            2.dp,
-                            StatusRed.copy(alpha = alpha),
-                            RoundedCornerShape(8.dp)
-                        )
-                        .padding(horizontal = 44.dp, vertical = 20.dp),
+                    modifier =
+                        Modifier
+                            .shadow(12.dp, RoundedCornerShape(8.dp))
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(CardBackground.copy(alpha = alpha * 0.95f))
+                            .border(
+                                2.dp,
+                                StatusRed.copy(alpha = alpha),
+                                RoundedCornerShape(8.dp),
+                            )
+                            .padding(horizontal = 44.dp, vertical = 20.dp),
                 ) {
                     Text(
-                        text       = "BRAKE",
-                        color      = StatusRed.copy(alpha = alpha),
-                        fontSize   = 52.sp,
+                        text = "BRAKE",
+                        color = StatusRed.copy(alpha = alpha),
+                        fontSize = 52.sp,
                         fontWeight = FontWeight.ExtraBold,
                         letterSpacing = 4.sp,
                     )
@@ -201,41 +211,49 @@ fun WarningOverlay(state: UpdateUIstate) {
 // ── Status bar ────────────────────────────────────────────────────────────────
 @Composable
 fun StatusRow(
-    s1: Boolean, s2: Boolean, s3: Boolean, s4: Boolean,
+    s1: Boolean,
+    s2: Boolean,
+    s3: Boolean,
+    s4: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Row(
-        modifier = modifier
-            .padding(horizontal = 16.dp, vertical = 10.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(CardBackground)
-            .border(1.dp, DividerColor, RoundedCornerShape(10.dp))
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+        modifier =
+            modifier
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(CardBackground)
+                .border(1.dp, DividerColor, RoundedCornerShape(10.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
-        verticalAlignment     = Alignment.CenterVertically,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
-        StatusItem("Rear Cam",  s1)
-        StatusItem("Radar",     s2)
+        StatusItem("Rear Cam", s1)
+        StatusItem("Radar", s2)
         StatusItem("Blindspot", s3)
         StatusItem("Front Cam", s4)
     }
 }
 
 @Composable
-fun StatusItem(label: String, isGood: Boolean) {
+fun StatusItem(
+    label: String,
+    isGood: Boolean,
+) {
     Row(
-        verticalAlignment     = Alignment.CenterVertically,
+        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
         // Dot with subtle glow via drawBehind
         Box(
-            modifier = Modifier
-                .size(9.dp)
-                .drawBehind {
-                    val c = if (isGood) StatusGreen else StatusRed
-                    drawCircle(color = c.copy(alpha = 0.35f), radius = size.minDimension)
-                    drawCircle(color = c, radius = size.minDimension / 2f)
-                }
+            modifier =
+                Modifier
+                    .size(9.dp)
+                    .drawBehind {
+                        val c = if (isGood) StatusGreen else StatusRed
+                        drawCircle(color = c.copy(alpha = 0.35f), radius = size.minDimension)
+                        drawCircle(color = c, radius = size.minDimension / 2f)
+                    },
         )
         Text(text = label, fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
     }
@@ -245,34 +263,39 @@ fun StatusItem(label: String, isGood: Boolean) {
 @Composable
 fun StatusBadge(isGood: Boolean) {
     Box(
-        modifier = Modifier
-            .size(10.dp)
-            .background(if (isGood) StatusGreen else StatusRed, CircleShape)
+        modifier =
+            Modifier
+                .size(10.dp)
+                .background(if (isGood) StatusGreen else StatusRed, CircleShape),
     )
 }
 
 // ── Speed display ─────────────────────────────────────────────────────────────
 @Composable
-fun SpeedDisplay(speedText: String, modifier: Modifier = Modifier) {
+fun SpeedDisplay(
+    speedText: String,
+    modifier: Modifier = Modifier,
+) {
     Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(CardBackground)
-            .border(1.dp, DividerColor, RoundedCornerShape(10.dp))
-            .padding(horizontal = 14.dp, vertical = 8.dp),
+        modifier =
+            modifier
+                .clip(RoundedCornerShape(10.dp))
+                .background(CardBackground)
+                .border(1.dp, DividerColor, RoundedCornerShape(10.dp))
+                .padding(horizontal = 14.dp, vertical = 8.dp),
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text       = "SPEED",
-                color      = AccentCyan,
-                fontSize   = 9.sp,
+                text = "SPEED",
+                color = AccentCyan,
+                fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 2.sp,
             )
             Text(
-                text       = speedText,
-                color      = TextPrimary,
-                fontSize   = 28.sp,
+                text = speedText,
+                color = TextPrimary,
+                fontSize = 28.sp,
                 fontWeight = FontWeight.ExtraBold,
             )
         }
@@ -359,7 +382,10 @@ fun LaneDepartureDetection(
     }
 }
 
-fun laneWarningActive(expiry: Long, timestamp: Long): Int {
+fun laneWarningActive(
+    expiry: Long,
+    timestamp: Long,
+): Int {
     val elapsed = timestamp - (expiry - 3000)
     return if (timestamp < expiry && elapsed < 2000) 1 else 0
 }

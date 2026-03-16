@@ -28,11 +28,9 @@ fun AppNavigationUI(
     navColors: NavigationSuiteColors,
     itemColors: NavigationSuiteItemColors,
 ) {
-
     NavigationSuiteScaffold(
         navigationSuiteColors = navColors,
         navigationSuiteItems = {
-
             AppDestinations.entries.forEach { destination ->
 
                 item(
@@ -61,19 +59,18 @@ fun AppNavigationUI(
                             AppDestinations.DRIVE -> navController.navigate("drive")
                             AppDestinations.SETTINGS -> navController.navigate("settings")
                         }
-                    }
+                    },
                 )
             }
         },
         modifier = Modifier.background(Charcoal),
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-
             Navigation(
                 navController,
                 repository,
                 logs,
-                status
+                status,
             )
 
             TopAccentLine()

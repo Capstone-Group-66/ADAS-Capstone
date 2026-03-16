@@ -28,25 +28,27 @@ import com.example.testapp.ui.theme.TextSecondary
 @Composable
 fun TopAccentLine() {
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(1.dp)
-            .drawBehind {
-                drawLine(
-                    brush = Brush.horizontalGradient(
-                        listOf(
-                            Color.Transparent,
-                            AccentCyan.copy(alpha = 0.5f),
-                            AccentCyanDim.copy(alpha = 0.8f),
-                            AccentCyan.copy(alpha = 0.5f),
-                            Color.Transparent,
-                        )
-                    ),
-                    start = Offset(0f, 0f),
-                    end = Offset(size.width, 0f),
-                    strokeWidth = size.height,
-                )
-            }
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .drawBehind {
+                    drawLine(
+                        brush =
+                            Brush.horizontalGradient(
+                                listOf(
+                                    Color.Transparent,
+                                    AccentCyan.copy(alpha = 0.5f),
+                                    AccentCyanDim.copy(alpha = 0.8f),
+                                    AccentCyan.copy(alpha = 0.5f),
+                                    Color.Transparent,
+                                ),
+                            ),
+                        start = Offset(0f, 0f),
+                        end = Offset(size.width, 0f),
+                        strokeWidth = size.height,
+                    )
+                },
     )
 }
 
@@ -57,34 +59,36 @@ fun NavItemIcon(
     selected: Boolean,
 ) {
     Box(contentAlignment = Alignment.Center) {
-
         if (selected) {
             val infiniteTransition = rememberInfiniteTransition(label = "navGlow")
 
             val glowAlpha by infiniteTransition.animateFloat(
                 initialValue = 0.2f,
                 targetValue = 0.55f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1000, easing = EaseInOutSine),
-                    repeatMode = RepeatMode.Reverse,
-                ),
+                animationSpec =
+                    infiniteRepeatable(
+                        animation = tween(1000, easing = EaseInOutSine),
+                        repeatMode = RepeatMode.Reverse,
+                    ),
                 label = "glowAlpha",
             )
 
             Box(
-                modifier = Modifier
-                    .size(32.dp)
-                    .drawBehind {
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                listOf(
-                                    AccentCyan.copy(alpha = glowAlpha),
-                                    Color.Transparent,
-                                )
-                            ),
-                            radius = size.minDimension / 1.4f,
-                        )
-                    }
+                modifier =
+                    Modifier
+                        .size(32.dp)
+                        .drawBehind {
+                            drawCircle(
+                                brush =
+                                    Brush.radialGradient(
+                                        listOf(
+                                            AccentCyan.copy(alpha = glowAlpha),
+                                            Color.Transparent,
+                                        ),
+                                    ),
+                                radius = size.minDimension / 1.4f,
+                            )
+                        },
             )
         }
 
