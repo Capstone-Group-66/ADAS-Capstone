@@ -14,13 +14,14 @@ data class VehicleAlert(
     val lastTickId: Int = -1,
     val timestampMs: Long = System.currentTimeMillis(),
     val activeAlerts: List<com.example.testapp.model.AlertDto> = emptyList(),
-    val expiries: Expiries = Expiries(
-        fcw = 0,
-        rcw = 0,
-        bsd_l = 0,
-        bsd_r = 0,
-        ldw = 0,
-    ),
+    val expiries: Expiries =
+        Expiries(
+            fcw = 0,
+            rcw = 0,
+            bsd_l = 0,
+            bsd_r = 0,
+            ldw = 0,
+        ),
 )
 
 data class CameraHealth(
