@@ -16,13 +16,14 @@ object VehicleAlertReducer {
             detection = ObjectDetection.None,
             bsd = BlindSpotStatus(leftActive = false, rightActive = false),
             lastTickId = -1,
-            expiries = Expiries(
-                fcw = 0,
-                rcw = 0,
-                bsd_l = 0,
-                bsd_r = 0,
-                ldw = 0,
-            )
+            expiries =
+                Expiries(
+                    fcw = 0,
+                    rcw = 0,
+                    bsd_l = 0,
+                    bsd_r = 0,
+                    ldw = 0,
+                ),
         )
 
     /**
