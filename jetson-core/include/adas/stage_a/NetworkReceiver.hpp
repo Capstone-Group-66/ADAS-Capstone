@@ -97,6 +97,8 @@ class NetworkReceiver {
     /// @return RTT in milliseconds, or -1 if failed
     static double measureRTT(const std::string &pi_ip);
 
+    static Alert rearCamConvert(float ttc_s, float range_m, int object_class):
+
   private:
     /// Thread functions
     void cameraThread();
@@ -123,7 +125,7 @@ class NetworkReceiver {
     void *heartbeat_socket_ = nullptr;
 
     // Output queues (not owned)
-    SPSCQueue<CameraFrameData, 8> *cam_queue_ = nullptr;
+    SPSCQueue<Alert, 8> *cam_queue_ = nullptr;
     SPSCQueue<ImuSample, 32> *imu_queue_ = nullptr;
     SPSCQueue<RadarTargets, 8> *radar_l_queue_ = nullptr;
     SPSCQueue<RadarTargets, 8> *radar_r_queue_ = nullptr;

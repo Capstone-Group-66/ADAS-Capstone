@@ -5,6 +5,7 @@
 #include "adas/common/Config.hpp"
 #include "adas/common/Types.hpp"
 #include "adas/queues/SPSCQueue.hpp"
+#include "adas/main_brain/Alert.hpp"
 #include "adas/stage_a/CameraIngest.hpp"
 #include "adas/stage_a/NetworkIngest.hpp"
 #include "adas/stage_a/RadarIngest.hpp"
@@ -116,7 +117,8 @@ class IngestManager {
     SPSCQueue<CameraFrameData, 8> cam_front_queue_;
     SPSCQueue<CameraFrameData, 8> cam_side_l_queue_;
     SPSCQueue<CameraFrameData, 8> cam_side_r_queue_;
-    SPSCQueue<CameraFrameData, 8> cam_rear_queue_;
+    // SPSCQueue<CameraFrameData, 8> cam_rear_queue_;
+    SPSCQueue<Alert, 8> cam_rear_queue_;
 
     // Radar queues (capacity 8 each per spec)
     SPSCQueue<RadarTargets, 8> radar_front_queue_;

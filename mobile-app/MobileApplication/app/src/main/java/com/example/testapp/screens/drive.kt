@@ -93,7 +93,7 @@ fun DriveContent(
 
             CenteredCar()
             FrontDetection(state.sonarValue)
-            RearDetection(state.sonarValue)
+            RearDetection(state.rearValue)
             WarningOverlay(state)
             BsdLeft(state.sonarValue)
             BsdRight(state.sonarValue)
