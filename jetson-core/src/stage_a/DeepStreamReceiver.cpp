@@ -4,7 +4,9 @@
 #include "adas/common/DeepStreamIPC.hpp"
 #include <chrono>
 #include <cstring>
+#include <iomanip>
 #include <iostream>
+#include <sstream>
 
 namespace adas {
 
@@ -25,6 +27,21 @@ struct LegacyDeepStreamDet {
 #pragma pack(pop)
 static_assert(sizeof(LegacyDeepStreamDet) == 40,
               "LegacyDeepStreamDet must be 40 bytes");
+
+void logRoadSignDetection(const Det &det) {
+  std::ostringstream ss;
+  ss << std::fixed << std::setprecision(2)
+     << "[RoadSignDet] ID " << det.object_id << " | cls: " << det.cls
+     << " | score: " << det.score << " | sign: ";
+  if (det.hasSignLabel()) {
+    ss << det.signLabelString();
+  } else {
+    ss << "<unset>";
+  }
+  ss << " | box: [" << det.box_px.x << ", " << det.box_px.y << ", "
+     << det.box_px.width << ", " << det.box_px.height << "]";
+  std::cout << ss.str() << "\n";
+}
 
 } // namespace
 
@@ -169,6 +186,11 @@ void DeepStreamReceiver::dsThread() {
           det.cls = ds_det.cls;
           det.score = ds_det.score;
           det.object_id = ds_det.object_id;
+          det.setSignLabel(ds_det.sign_type);
+
+          if (det.cls == 3 || det.hasSignLabel()) {
+            logRoadSignDetection(det);
+          }
         } else {
           LegacyDeepStreamDet ds_det{};
           std::memcpy(&ds_det, buffer.data() + offset, legacy_det_size);

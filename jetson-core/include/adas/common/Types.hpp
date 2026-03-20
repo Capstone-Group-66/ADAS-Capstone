@@ -5,6 +5,8 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
+#include <string>
 #include <vector>
 
 #include <opencv2/core.hpp>
@@ -216,22 +218,40 @@ struct Det {
     float       score;      // Confidence score [0, 1]
     uint64_t    object_id;  // Persistent tracker ID from nvtracker (DeepStream).
                             // UINT64_MAX = untracked (YOLO/non-DS path).
-                            // Used by Stage E radar–camera fusion to match
+                            // Used by Stage E radar-camera fusion to match
                             // the same physical object across frames.
+    std::array<char, 32> sign_label; // Optional DeepStream SGIE road-sign label.
 
     Det()
         : box_px(), centroid(),
           cls(static_cast<int>(ObjectClass::Unknown)),
           score(0.0f),
-          object_id(UINT64_MAX) {}
+          object_id(UINT64_MAX),
+          sign_label{} {}
 
     Det(const cv::Rect2f& box, int class_id, float confidence,
-        uint64_t track_id = UINT64_MAX)
+        uint64_t track_id = UINT64_MAX, const char *sign_text = nullptr)
         : box_px(box),
           centroid(box.x + box.width / 2.0f, box.y + box.height / 2.0f),
           cls(class_id),
           score(confidence),
-          object_id(track_id) {}
+          object_id(track_id),
+          sign_label{} {
+        setSignLabel(sign_text);
+    }
+
+    void setSignLabel(const char *label) {
+        sign_label.fill('\0');
+        if (!label) {
+            return;
+        }
+        std::strncpy(sign_label.data(), label, sign_label.size() - 1);
+        sign_label[sign_label.size() - 1] = '\0';
+    }
+
+    bool hasSignLabel() const { return sign_label[0] != '\0'; }
+
+    std::string signLabelString() const { return std::string(sign_label.data()); }
 };
 
 /// Batch of detections from a single frame
@@ -279,3 +299,4 @@ struct NetPacketHeader {
 static_assert(sizeof(NetPacketHeader) == 24, "NetPacketHeader must be 24 bytes");
 
 } // namespace adas
+
