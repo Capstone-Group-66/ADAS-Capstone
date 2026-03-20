@@ -1,9 +1,3 @@
-"""
-Lane Detection and Lane Departure Warning Module
-Extracted from Advanced Driver-Assistance System
-Author: Kostantinos Katsanos
-"""
-
 import cv2
 import numpy as np
 from threading import Thread
