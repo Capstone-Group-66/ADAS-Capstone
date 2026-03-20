@@ -548,6 +548,112 @@ void printBanner() {
   std::this_thread::sleep_for(std::chrono::seconds(2));
 }
 
+std::vector<std::string> enumerateActiveUsbCameraNodes() {
+  std::vector<std::string> active_devices;
+  const auto devices = adas::DeviceWizard::enumerateVideoDevices();
+
+  for (const auto &device : devices) {
+    if (adas::DeviceWizard::testVideoDevice(device)) {
+      active_devices.push_back(device);
+    }
+  }
+
+  return active_devices;
+}
+
+void runUbuntuCameraNodeSwapHotfix() {
+#ifndef __linux__
+  std::cout << "[Swap] Ubuntu camera node swap is only supported on Linux.\n";
+  return;
+#else
+  if (g_pipeline_running.load()) {
+    std::cout << "[Swap] Please stop the pipeline first.\n";
+    return;
+  }
+
+  const auto active_devices = enumerateActiveUsbCameraNodes();
+  if (active_devices.size() < 2) {
+    std::cout << "[Swap] Need at least 2 active USB camera nodes. Found "
+              << active_devices.size() << ".\n";
+    return;
+  }
+
+  std::cout << "\n[Swap] Active USB camera nodes (camera mapper method):\n";
+  for (size_t i = 0; i < active_devices.size(); ++i) {
+    std::cout << "  " << (i + 1) << ") " << active_devices[i] << "\n";
+  }
+
+  int choice_a = 0;
+  int choice_b = 0;
+  std::cout << "  Select first node to swap [1-" << active_devices.size()
+            << "]: ";
+  std::cin >> choice_a;
+  if (std::cin.fail() || choice_a < 1 ||
+      choice_a > static_cast<int>(active_devices.size())) {
+    std::cin.clear();
+    std::cin.ignore(10000, '\n');
+    std::cout << "[Swap] Invalid first selection.\n";
+    return;
+  }
+
+  std::cout << "  Select second node to swap [1-" << active_devices.size()
+            << "]: ";
+  std::cin >> choice_b;
+  if (std::cin.fail() || choice_b < 1 ||
+      choice_b > static_cast<int>(active_devices.size())) {
+    std::cin.clear();
+    std::cin.ignore(10000, '\n');
+    std::cout << "[Swap] Invalid second selection.\n";
+    return;
+  }
+  std::cin.ignore(10000, '\n');
+
+  if (choice_a == choice_b) {
+    std::cout << "[Swap] Select two different nodes.\n";
+    return;
+  }
+
+  const std::string dev_a = active_devices[choice_a - 1];
+  const std::string dev_b = active_devices[choice_b - 1];
+  const std::string tmp_dev = "/dev/video_temp_swap";
+
+  if (::access(tmp_dev.c_str(), F_OK) == 0) {
+    std::cout << "[Swap] Temp node already exists at " << tmp_dev
+              << ". Remove it first, then retry.\n";
+    return;
+  }
+
+  std::cout << "\n[Swap] Selected nodes:\n";
+  std::cout << "  A: " << dev_a << "\n";
+  std::cout << "  B: " << dev_b << "\n";
+  std::cout << "  Temp: " << tmp_dev << "\n";
+  std::cout << "  Continue with sudo node swap? (y/N): ";
+
+  std::string confirm;
+  std::getline(std::cin, confirm);
+  if (confirm != "y" && confirm != "Y") {
+    std::cout << "[Swap] Cancelled.\n";
+    return;
+  }
+
+  const std::string command = "sudo mv \"" + dev_a + "\" \"" + tmp_dev +
+                              "\" && sudo mv \"" + dev_b + "\" \"" + dev_a +
+                              "\" && sudo mv \"" + tmp_dev + "\" \"" + dev_b +
+                              "\"";
+
+  std::cout << "[Swap] Executing: " << command << "\n";
+  const int ret = std::system(command.c_str());
+  if (ret != 0) {
+    std::cout << "[Swap] Node swap command failed (code " << ret
+              << "). Check sudo permissions and node availability.\n";
+    return;
+  }
+
+  std::cout << "[Swap] Camera nodes swapped successfully:\n";
+  std::cout << "  " << dev_a << " <-> " << dev_b << "\n";
+#endif
+}
+
 void printMenu(const adas::Config &config) {
   std::cout << "\n";
   std::cout
@@ -590,6 +696,7 @@ void printMenu(const adas::Config &config) {
                 << g_fcw_min_trigger_object_speed_gate_mps;
   std::cout << " 17) Set FCW Min Trigger Object Speed Gate ["
             << speed_gate_ss.str() << " m/s]\n";
+  std::cout << " 18) Ubuntu Camera Node Swap Hotfix\n";
   std::cout << "  h) Set Camera Height On-The-Fly\n";
   std::cout << "  0) Exit\n";
   std::cout
@@ -1436,6 +1543,10 @@ int main(int argc, char **argv) {
         }
         std::cout << "\n";
       } break;
+
+      case 18: // Ubuntu Camera Node Swap Hotfix
+        runUbuntuCameraNodeSwapHotfix();
+        break;
 
       case 14: // Toggle RTSP Server
       {
