@@ -8,6 +8,26 @@
 
 namespace adas {
 
+namespace {
+
+#pragma pack(push, 1)
+struct LegacyDeepStreamDet {
+  float x;
+  float y;
+  float w;
+  float h;
+  float centroid_x;
+  float centroid_y;
+  int32_t cls;
+  float score;
+  uint64_t object_id;
+};
+#pragma pack(pop)
+static_assert(sizeof(LegacyDeepStreamDet) == 40,
+              "LegacyDeepStreamDet must be 40 bytes");
+
+} // namespace
+
 DeepStreamReceiver::DeepStreamReceiver() { context_ = zmq_ctx_new(); }
 
 DeepStreamReceiver::~DeepStreamReceiver() {
@@ -86,13 +106,45 @@ void DeepStreamReceiver::dsThread() {
     ipc::DeepStreamDetBatchHeader header;
     std::memcpy(&header, buffer.data(), sizeof(header));
 
-    size_t expected_size = sizeof(ipc::DeepStreamDetBatchHeader) +
-                           header.num_detections * sizeof(ipc::DeepStreamDet);
+    const size_t payload_size =
+        static_cast<size_t>(len) - sizeof(ipc::DeepStreamDetBatchHeader);
+    const size_t modern_det_size = sizeof(ipc::DeepStreamDet); // 72 bytes
+    const size_t legacy_det_size = sizeof(LegacyDeepStreamDet); // 40 bytes
+    size_t det_record_size = 0;
 
-    if (static_cast<size_t>(len) < expected_size) {
-      std::cerr << "[DeepStream] Dropped packet: incomplete batch (" << len
-                << " bytes, expected " << expected_size << ")\n";
+    if (header.num_detections == 0) {
       continue;
+    }
+
+    if (payload_size == header.num_detections * modern_det_size) {
+      det_record_size = modern_det_size;
+    } else if (payload_size == header.num_detections * legacy_det_size) {
+      det_record_size = legacy_det_size;
+    } else if (payload_size % header.num_detections == 0) {
+      const size_t inferred_size = payload_size / header.num_detections;
+      if (inferred_size >= legacy_det_size) {
+        det_record_size = inferred_size;
+      }
+    }
+
+    if (det_record_size == 0) {
+      std::cerr << "[DeepStream] Dropped packet: layout mismatch (total=" << len
+                << " payload=" << payload_size
+                << " num_detections=" << header.num_detections
+                << " modern_det_size=" << modern_det_size
+                << " legacy_det_size=" << legacy_det_size << ")\n";
+      continue;
+    }
+
+    static size_t last_logged_det_size = 0;
+    if (det_record_size != last_logged_det_size) {
+      std::cout << "[DeepStreamReceiver] Det record layout detected: "
+                << det_record_size << " bytes"
+                << (det_record_size == modern_det_size ? " (modern)" :
+                    det_record_size == legacy_det_size ? " (legacy)" :
+                                                         " (inferred)")
+                << "\n";
+      last_logged_det_size = det_record_size;
     }
 
     if (ds_queue_) {
@@ -108,19 +160,27 @@ void DeepStreamReceiver::dsThread() {
       size_t offset = sizeof(ipc::DeepStreamDetBatchHeader);
       std::string ids = "";
       for (uint32_t i = 0; i < header.num_detections; ++i) {
-        ipc::DeepStreamDet ds_det;
-        std::memcpy(&ds_det, buffer.data() + offset,
-                    sizeof(ipc::DeepStreamDet));
-
         Det det;
-        det.box_px = cv::Rect2f(ds_det.x, ds_det.y, ds_det.w, ds_det.h);
-        det.centroid = cv::Point2f(ds_det.centroid_x, ds_det.centroid_y);
-        det.cls = ds_det.cls;
-        det.score = ds_det.score;
-        det.object_id = ds_det.object_id;
+        if (det_record_size >= modern_det_size) {
+          ipc::DeepStreamDet ds_det{};
+          std::memcpy(&ds_det, buffer.data() + offset, modern_det_size);
+          det.box_px = cv::Rect2f(ds_det.x, ds_det.y, ds_det.w, ds_det.h);
+          det.centroid = cv::Point2f(ds_det.centroid_x, ds_det.centroid_y);
+          det.cls = ds_det.cls;
+          det.score = ds_det.score;
+          det.object_id = ds_det.object_id;
+        } else {
+          LegacyDeepStreamDet ds_det{};
+          std::memcpy(&ds_det, buffer.data() + offset, legacy_det_size);
+          det.box_px = cv::Rect2f(ds_det.x, ds_det.y, ds_det.w, ds_det.h);
+          det.centroid = cv::Point2f(ds_det.centroid_x, ds_det.centroid_y);
+          det.cls = ds_det.cls;
+          det.score = ds_det.score;
+          det.object_id = ds_det.object_id;
+        }
 
         batch.dets.push_back(det);
-        offset += sizeof(ipc::DeepStreamDet);
+        offset += det_record_size;
 
         ids += std::to_string(det.object_id) +
                (i < header.num_detections - 1 ? ", " : "");
