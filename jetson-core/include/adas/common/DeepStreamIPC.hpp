@@ -1,6 +1,7 @@
 // File: include/adas/common/DeepStreamIPC.hpp
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 namespace adas {
@@ -29,9 +30,12 @@ struct DeepStreamDet {
     int32_t cls;
     float score;
     uint64_t object_id;
+    char sign_type[32]; // Must match DeepStream sender layout exactly.
 };
 #pragma pack(pop)
-static_assert(sizeof(DeepStreamDet) == 40, "DeepStreamDet must be 40 bytes");
+static_assert(offsetof(DeepStreamDet, sign_type) == 40,
+              "DeepStreamDet::sign_type offset must be 40 bytes");
+static_assert(sizeof(DeepStreamDet) == 72, "DeepStreamDet must be 72 bytes");
 
 } // namespace ipc
 } // namespace adas
