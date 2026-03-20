@@ -636,10 +636,9 @@ void runUbuntuCameraNodeSwapHotfix() {
     return;
   }
 
-  const std::string command = "sudo mv \"" + dev_a + "\" \"" + tmp_dev +
-                              "\" && sudo mv \"" + dev_b + "\" \"" + dev_a +
-                              "\" && sudo mv \"" + tmp_dev + "\" \"" + dev_b +
-                              "\"";
+  const std::string command =
+      "sudo mv \"" + dev_a + "\" \"" + tmp_dev + "\" && sudo mv \"" + dev_b +
+      "\" \"" + dev_a + "\" && sudo mv \"" + tmp_dev + "\" \"" + dev_b + "\"";
 
   std::cout << "[Swap] Executing: " << command << "\n";
   const int ret = std::system(command.c_str());
