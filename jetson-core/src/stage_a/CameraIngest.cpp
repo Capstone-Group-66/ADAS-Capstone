@@ -187,11 +187,9 @@ bool CameraIngest::captureFrame() {
     recorder_->recordCamera(frame_data, mount_);
   }
 
-  // Push to queue
-  if (!queue_.try_push(std::move(frame_data))) {
-    // Queue full - frame dropped (counter in queue tracks this)
-    return true; // Still "successful" capture
-  }
+  // Push to queue. On overflow the queue evicts the oldest queued frame and
+  // keeps this newest sample, while incrementing its drop counter.
+  queue_.try_push(std::move(frame_data));
 
   // Track frame times for FPS calculation
   frame_times_[frame_time_idx_] = t_ingest;
