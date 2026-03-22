@@ -2,6 +2,7 @@
 #include "adas/stage_a/DeepStreamReceiver.hpp"
 #include "adas/common/Clock.hpp"
 #include "adas/common/DeepStreamIPC.hpp"
+#include "adas/recording/Recorder.hpp"
 #include <chrono>
 #include <cstring>
 #include <iomanip>
@@ -183,7 +184,7 @@ void DeepStreamReceiver::dsThread() {
           std::memcpy(&ds_det, buffer.data() + offset, modern_det_size);
           det.box_px = cv::Rect2f(ds_det.x, ds_det.y, ds_det.w, ds_det.h);
           det.centroid = cv::Point2f(ds_det.centroid_x, ds_det.centroid_y);
-          det.cls = ds_det.cls;
+          det.cls = static_cast<int>(deepStreamToObjectClass(ds_det.cls));
           det.score = ds_det.score;
           det.object_id = ds_det.object_id;
           det.setSignLabel(ds_det.sign_type);
@@ -196,7 +197,7 @@ void DeepStreamReceiver::dsThread() {
           std::memcpy(&ds_det, buffer.data() + offset, legacy_det_size);
           det.box_px = cv::Rect2f(ds_det.x, ds_det.y, ds_det.w, ds_det.h);
           det.centroid = cv::Point2f(ds_det.centroid_x, ds_det.centroid_y);
-          det.cls = ds_det.cls;
+          det.cls = static_cast<int>(deepStreamToObjectClass(ds_det.cls));
           det.score = ds_det.score;
           det.object_id = ds_det.object_id;
         }
@@ -206,6 +207,10 @@ void DeepStreamReceiver::dsThread() {
 
         ids += std::to_string(det.object_id) +
                (i < header.num_detections - 1 ? ", " : "");
+      }
+
+      if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+        rec->recordFrontDetections(batch);
       }
 
       ds_queue_->try_push(std::move(batch));

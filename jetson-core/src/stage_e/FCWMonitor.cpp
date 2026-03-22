@@ -68,15 +68,12 @@ float FCWMonitor::getMinTriggerObjectSpeedGateMps() const {
 }
 
 bool FCWMonitor::isRelevantClass(int cls) {
-  // COCO classes relevant for FCW:
-  // 0 = person, 1 = bicycle, 2 = car, 3 = motorcycle, 5 = bus, 7 = truck
+  // Canonical front-camera classes relevant for FCW:
+  // 0 = Car, 1 = Bicycle, 2 = Person, 3 = RoadSign
   switch (cls) {
   case 0:
   case 1:
   case 2:
-  case 3:
-  case 5:
-  case 7:
     return true;
   default:
     return false;

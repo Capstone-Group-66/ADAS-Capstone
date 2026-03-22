@@ -248,6 +248,44 @@ void Recorder::recordGPS(float speed_mps, uint64_t ts_ms) {
   enqueue(std::move(event));
 }
 
+void Recorder::recordFrontDetections(const DetBatch &batch) {
+  if (!recording_.load(std::memory_order_relaxed))
+    return;
+
+  RecordEvent event;
+  event.type = RecEventType::FrontDetBatch;
+  event.timestamp_ns = batch.h.t_ingest_ns;
+
+  const size_t payload_size = sizeof(RecFrontDetBatchHeader) +
+                              batch.dets.size() * sizeof(RecFrontDet);
+  event.payload.resize(payload_size, 0);
+
+  RecFrontDetBatchHeader batch_header{};
+  batch_header.num_detections = static_cast<uint32_t>(batch.dets.size());
+  batch_header.inference_time_us = batch.inference_time_us;
+  std::memcpy(event.payload.data(), &batch_header, sizeof(batch_header));
+
+  size_t offset = sizeof(batch_header);
+  for (const auto &det : batch.dets) {
+    RecFrontDet rec_det;
+    rec_det.x = det.box_px.x;
+    rec_det.y = det.box_px.y;
+    rec_det.w = det.box_px.width;
+    rec_det.h = det.box_px.height;
+    rec_det.centroid_x = det.centroid.x;
+    rec_det.centroid_y = det.centroid.y;
+    rec_det.cls = det.cls;
+    rec_det.score = det.score;
+    rec_det.object_id = det.object_id;
+    std::memcpy(rec_det.sign_label, det.sign_label.data(),
+                sizeof(rec_det.sign_label));
+    std::memcpy(event.payload.data() + offset, &rec_det, sizeof(rec_det));
+    offset += sizeof(rec_det);
+  }
+
+  enqueue(std::move(event));
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 //                           INTERNAL METHODS
 // ═══════════════════════════════════════════════════════════════════════════════

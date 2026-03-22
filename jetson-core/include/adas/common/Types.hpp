@@ -113,7 +113,7 @@ struct Header {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// Camera frame payload
-/// Raw frame data - undistorting happens in Stage B
+/// Raw frame data from camera ingest paths
 /// Contains either raw byte data or cv::Mat (OpenCV)
 struct CameraFrameData {
     Header h;
@@ -174,47 +174,88 @@ struct ImuSample {
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
-//                              DETECTION STRUCTURES (Stage B Output)
+//                              DETECTION STRUCTURES
 // ══════════════════════════════════════════════════════════════════════════════
 
-/// Semantic class IDs (COCO subset relevant for ADAS)
-/// Per Section 4.2.4 of proposal: car, truck, bus, bike, person
+/// Canonical front-camera class IDs used inside jetson-core.
+/// These follow the active DeepStream / DashCamNet schema so Stage E, replay,
+/// and debug tooling all interpret classes the same way:
+///   0 = Car
+///   1 = Bicycle
+///   2 = Person
+///   3 = RoadSign
+///
+/// Older COCO-style paths must be explicitly bridged into this schema before
+/// populating Det.cls.
 enum class ObjectClass : uint8_t {
-    Person = 0,
+    Car = 0,
     Bicycle = 1,
-    Car = 2,
-    Motorcycle = 3,
-    Bus = 5,
-    Truck = 7,
+    Person = 2,
+    RoadSign = 3,
     Unknown = 255
 };
 
-/// Convert COCO class ID to ObjectClass
-inline ObjectClass cocoToObjectClass(int coco_id) {
-    switch (coco_id) {
+/// Convert a DeepStream / DashCamNet class ID into the canonical front-camera
+/// schema. Unknown / out-of-range values degrade to Unknown safely.
+inline ObjectClass deepStreamToObjectClass(int ds_id) {
+    switch (ds_id) {
     case 0:
-        return ObjectClass::Person;
+        return ObjectClass::Car;
     case 1:
         return ObjectClass::Bicycle;
     case 2:
-        return ObjectClass::Car;
+        return ObjectClass::Person;
     case 3:
-        return ObjectClass::Motorcycle;
-    case 5:
-        return ObjectClass::Bus;
-    case 7:
-        return ObjectClass::Truck;
+        return ObjectClass::RoadSign;
     default:
         return ObjectClass::Unknown;
     }
 }
 
-/// Single detection from camera (Stage B output)
+/// Convert a legacy COCO-style detector class ID into the canonical
+/// DeepStream-aligned schema used by the rest of jetson-core.
+///
+/// Vehicle-like COCO classes (car, motorcycle, bus, truck) are intentionally
+/// collapsed to the canonical `Car` bucket because the active DeepStream path
+/// exposes only one forward-vehicle class.
+inline ObjectClass cocoToObjectClass(int coco_id) {
+    switch (coco_id) {
+    case 2:
+        return ObjectClass::Car;
+    case 1:
+        return ObjectClass::Bicycle;
+    case 0:
+        return ObjectClass::Person;
+    case 3:
+    case 5:
+    case 7:
+        return ObjectClass::Car;
+    default:
+        return ObjectClass::Unknown;
+    }
+}
+
+inline const char *objectClassToString(int class_id) {
+    switch (static_cast<ObjectClass>(class_id)) {
+    case ObjectClass::Car:
+        return "Car";
+    case ObjectClass::Bicycle:
+        return "Bicycle";
+    case ObjectClass::Person:
+        return "Person";
+    case ObjectClass::RoadSign:
+        return "RoadSign";
+    default:
+        return "Unknown";
+    }
+}
+
+/// Single detection from camera
 /// Per Section 4.2.2 of proposal
 struct Det {
     cv::Rect2f  box_px;     // [x, y, w, h] in pixels (after preproc)
     cv::Point2f centroid;   // Center point in pixels (for fusion)
-    int         cls;        // Class ID (ObjectClass enum value)
+    int         cls;        // Class ID (canonical ObjectClass enum value)
     float       score;      // Confidence score [0, 1]
     uint64_t    object_id;  // Persistent tracker ID from nvtracker (DeepStream).
                             // UINT64_MAX = untracked (YOLO/non-DS path).

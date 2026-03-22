@@ -9,7 +9,7 @@
 #include "adas/stage_a/NetworkIngest.hpp"
 #include "adas/stage_a/RadarIngest.hpp"
 #include "adas/recording/ReplayEngine.hpp"
-// Front Camera detections come from local DeepStream IPC.
+// Front-camera detections come from external DeepStream over local IPC.
 #ifdef HAS_ZMQ
 #include "adas/stage_a/NetworkReceiver.hpp"
 #include "adas/stage_a/DeepStreamReceiver.hpp"
@@ -29,7 +29,7 @@ class Recorder; // Forward declaration for recording support
 /// Responsibilities:
 /// - Own and manage all SPSC queues
 /// - Create and start/stop all ingest threads
-/// - Provide queue access for downstream stages (Stage B, C, E)
+/// - Provide queue access for downstream fusion, replay, and diagnostics
 /// - Monitor aggregate health status
 /// - Implement graceful shutdown (FR93)
 ///
@@ -75,9 +75,9 @@ class IngestManager {
     /// Get camera queue by mount.
     SPSCQueue<CameraFrameData, 8> &getCameraQueue(Mount mount);
 
-    /// Get the DeepStream DetBatch output queue for the Front Camera.
-    /// This is what Stage E should consume instead of the old ObjectDetector
-    /// output.  The queue is populated directly by the GStreamer pad probe.
+    /// Get the canonical front detection queue for both live and replay.
+    /// Live mode populates it from DeepStream IPC; replay mode injects
+    /// recorded front detection batches directly into the same queue.
     SPSCQueue<DetBatch, 8> &getFrontCamDetQueue() { return det_front_ds_queue_; }
 
     /// Get radar queue by mount
@@ -117,9 +117,9 @@ class IngestManager {
 
     /// Aggregate health status
     struct HealthStatus {
-        bool all_healthy;
+        bool all_healthy = true;
         std::map<Mount, bool> sensor_health;
-        uint64_t total_drops;
+        uint64_t total_drops = 0;
         std::string summary;
     };
 
@@ -141,14 +141,9 @@ class IngestManager {
     //                    QUEUES (Preallocated, owned by manager)
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // Front Camera: DeepStream outputs DetBatch directly (no CameraFrameData hop)
-    // The queue is passed by reference into FrontCamDeepStream at construction.
+    // Front camera detections are the only front-camera payload consumed by the
+    // current production and replay paths.
     SPSCQueue<DetBatch, 8>        det_front_ds_queue_;
-
-    // REPLAY ONLY: ReplayEngine re-injects recorded CameraFrameData for FrontCam
-    // from .adasrec files. In live mode this queue is never written to.
-    // Kept here so the Recorder/ReplayEngine interface doesn't need changes.
-    SPSCQueue<CameraFrameData, 8> cam_front_queue_;
 
     // Side / rear camera queues (OpenCV CameraIngest path — unchanged)
     SPSCQueue<CameraFrameData, 8> cam_side_l_queue_;
@@ -166,10 +161,6 @@ class IngestManager {
     // ═══════════════════════════════════════════════════════════════════════════
     //                           INGEST INSTANCES
     // ═══════════════════════════════════════════════════════════════════════════
-
-    // Front camera handle retained for replay compatibility.
-    std::unique_ptr<CameraIngest> cam_front_;
-
 
     // Side cameras: unchanged OpenCV CameraIngest
     std::unique_ptr<CameraIngest> cam_side_l_;

@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <stdexcept>
 
 namespace adas {
 
@@ -34,10 +35,10 @@ bool IngestManager::initReplay(const std::string &file_path, float speed) {
   replay_engine_->setSpeed(speed);
 
   // Wire queues
-  replay_engine_->setCameraQueue(Mount::FrontCam, &cam_front_queue_);
   replay_engine_->setCameraQueue(Mount::SideCamL, &cam_side_l_queue_);
   replay_engine_->setCameraQueue(Mount::SideCamR, &cam_side_r_queue_);
   replay_engine_->setCameraQueue(Mount::RearCam, &cam_rear_queue_);
+  replay_engine_->setFrontDetQueue(&det_front_ds_queue_);
   replay_engine_->setRadarQueue(Mount::FrontRadar, &radar_front_queue_);
   replay_engine_->setRadarQueue(Mount::RearCornerRadarL, &radar_rear_l_queue_);
   replay_engine_->setRadarQueue(Mount::RearCornerRadarR, &radar_rear_r_queue_);
@@ -108,10 +109,6 @@ void IngestManager::stop() {
   if (cam_side_l_) {
     cam_side_l_->stop();
   }
-  // Front Camera
-  if (cam_front_) {
-    cam_front_->stop();
-  }
 
   if (replay_engine_) {
     replay_engine_->stop();
@@ -125,8 +122,6 @@ void IngestManager::launchDirectCameras() {
 
   // Front camera is owned by the external DeepStream process.
   // Do not open a CameraIngest here while DeepStream holds /dev/video0.
-  // /dev/video0. cam_front_queue_ is still used in replay mode (ReplayEngine
-  // feeds it).
   std::cout << "[IngestManager] FrontCam: managed by external DeepStream\n";
 
   // SideCamL
@@ -236,7 +231,8 @@ SPSCQueue<CameraFrameData, 8> &IngestManager::getCameraQueue(Mount mount) {
   case Mount::RearCam:
     return cam_rear_queue_;
   case Mount::FrontCam:
-    return cam_front_queue_;
+    throw std::out_of_range(
+        "FrontCam raw frame queue removed; use getFrontCamDetQueue()");
   default:
     throw std::out_of_range("Invalid camera mount");
   }
@@ -376,9 +372,6 @@ void IngestManager::printStatus() const {
 
 void IngestManager::setRecorder(Recorder *recorder) {
   // Propagate to side cameras.
-  // FrontCam is external DeepStream in live mode; no recorder hook needed here.
-  if (cam_front_)
-    cam_front_->setRecorder(recorder);
   if (cam_side_l_)
     cam_side_l_->setRecorder(recorder);
   if (cam_side_r_)
@@ -388,6 +381,8 @@ void IngestManager::setRecorder(Recorder *recorder) {
 #ifdef HAS_ZMQ
   if (zmq_receiver_)
     zmq_receiver_->setRecorder(recorder);
+  if (ds_receiver_)
+    ds_receiver_->setRecorder(recorder);
 #endif
   // NetworkIngest (TCP) not instrumented — deprecated path
 }

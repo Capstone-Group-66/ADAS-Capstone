@@ -10,7 +10,7 @@ namespace {
 adas::Det makeDet(uint64_t id, float cx, float cy, float w, float h) {
   adas::Det d;
   d.object_id = id;
-  d.cls = 0;
+  d.cls = static_cast<int>(adas::ObjectClass::Car);
   d.score = 0.92f;
   d.box_px = cv::Rect2f(cx - w * 0.5f, cy - h * 0.5f, w, h);
   d.centroid = cv::Point2f(cx, cy);

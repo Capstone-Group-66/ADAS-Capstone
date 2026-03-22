@@ -1,5 +1,6 @@
 // File: src/main.cpp
-// ADAS Pipeline Entry Point - Interactive CLI with Stages A, B, E
+// ADAS Pipeline Entry Point - Interactive CLI with Stage A ingest and Stage E
+// fusion/alerting
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -30,14 +31,11 @@
 #include "adas/main_brain/FCWAlertAdapter.hpp"
 #include "adas/main_brain/SimpleBleServer.hpp"
 #include "adas/recording/Recorder.hpp"
-#include "adas/recording/ReplayEngine.hpp"
 #include "adas/stage_a/DeviceWizard.hpp"
 #include "adas/stage_a/IngestManager.hpp"
-#include "adas/stage_b/CameraPipeline.hpp"
 // Front camera detections are provided by external DeepStream IPC.
 
 #include "adas/stage_a/BSDReceiver.hpp"
-#include "adas/stage_b/ObjectDetector.hpp" // For class name lookup
 #include "adas/stage_e/BEVDashboard.hpp"
 #include "adas/stage_e/EgoFrame.hpp"
 #include "adas/stage_e/FCWMonitor.hpp"
@@ -47,7 +45,6 @@ namespace {
 
 // Global managers
 std::unique_ptr<adas::IngestManager> g_ingest_manager;
-std::unique_ptr<adas::StageBManager> g_stage_b_manager;
 std::atomic<bool> g_shutdown_requested{false};
 std::atomic<bool> g_pipeline_running{false};
 std::atomic<bool> g_rtsp_streaming{false};
@@ -111,17 +108,6 @@ std::chrono::steady_clock::time_point g_pipeline_start_time;
 std::thread g_visualizer_thread;
 std::atomic<bool> g_visualizer_running{false};
 
-// Detection output queues (Stage B -> Stage E)
-// Front detection queue is fed by DeepStream IPC receiver.
-// Side queues remain available for future BSD/LCW.
-adas::SPSCQueue<adas::DetBatch, 8> g_det_front_queue; // Fed by DeepStream probe
-adas::SPSCQueue<adas::DetBatch, 8> g_det_side_l_queue;
-adas::SPSCQueue<adas::DetBatch, 8> g_det_side_r_queue;
-adas::SPSCQueue<adas::DetBatch, 8> g_det_rear_queue;
-
-// Radar data queue (Stage A -> Stage E)
-adas::SPSCQueue<adas::RadarTargets, 4> g_radar_front_queue;
-
 // Stage E: Fusion + FCW + EgoFrame
 std::unique_ptr<adas::SensorFusion> g_sensor_fusion;
 std::unique_ptr<adas::FCWMonitor> g_fcw_monitor;
@@ -144,7 +130,6 @@ std::unique_ptr<adas::MetricsLogger> g_metrics_logger;
 
 // Recording and replay
 std::unique_ptr<adas::Recorder> g_recorder;
-std::unique_ptr<adas::ReplayEngine> g_replay_engine;
 std::string g_record_dir = "./recordings";
 std::string g_replay_file;
 float g_replay_speed = 1.0f;
@@ -703,9 +688,8 @@ void printMenu(const adas::Config &config) {
   std::cout << "  Enter choice: ";
 }
 
-void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
-                   const std::string &calib_dir,
-                   const std::string &model_path) {
+void startPipeline(const adas::Config &config,
+                   const adas::HardwareMap &hw_map) {
   if (g_pipeline_running.load()) {
     std::cout << "[Main] Pipeline is already running\n";
     return;
@@ -717,18 +701,11 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
   g_ingest_manager = std::make_unique<adas::IngestManager>(config, hw_map);
   g_ingest_manager->start();
 
-  // Stage B: Camera Preprocessing + Inference
-  g_stage_b_manager =
-      std::make_unique<adas::StageBManager>(calib_dir, model_path);
-
   // ── DeepStream: launch deepstream-app for FrontCam ─────────────────
   // The C application runs nvinfer (DashCamNet) inside GStreamer and shows an
   // nveglglessink window with bounding boxes. It connects to our ZMQ IPC socket
   // to feed detections.
   launchDeepStreamApp();
-
-  // Side cameras can be added to Stage B here in future (BSD/LCW):
-  g_stage_b_manager->start();
 
   // Stage A: BSD Receiver (Pi presence-mode tracking)
   if (g_ingest_manager && !g_ingest_manager->getPiIp().empty()) {
@@ -850,9 +827,7 @@ void startPipeline(const adas::Config &config, const adas::HardwareMap &hw_map,
 
 void startReplayPipeline(const std::string &replay_file, float speed,
                          const adas::Config &config,
-                         const adas::HardwareMap &hw_map,
-                         const std::string &calib_dir,
-                         const std::string &model_path) {
+                         const adas::HardwareMap &hw_map) {
   if (g_pipeline_running.load()) {
     std::cout << "[Main] Pipeline is already running\n";
     return;
@@ -868,19 +843,6 @@ void startReplayPipeline(const std::string &replay_file, float speed,
     return;
   }
   g_ingest_manager->start();
-
-  // Stage B: Camera Preprocessing + Inference
-  g_stage_b_manager =
-      std::make_unique<adas::StageBManager>(calib_dir, model_path);
-
-  // Wire FrontCam queue for inference visualizer
-  if (hw_map.mappings.find(adas::Mount::FrontCam) != hw_map.mappings.end()) {
-    g_stage_b_manager->addCamera(
-        adas::Mount::FrontCam,
-        g_ingest_manager->getCameraQueue(adas::Mount::FrontCam),
-        g_det_front_queue);
-  }
-  g_stage_b_manager->start();
 
   // Stage E: Fusion + FCW + EgoFrame
   adas::FusionConfig replay_fusion_config;
@@ -1041,11 +1003,6 @@ void stopPipeline() {
     g_bsd_receiver.reset();
   }
 
-  if (g_stage_b_manager) {
-    g_stage_b_manager->stop();
-    g_stage_b_manager.reset();
-  }
-
   if (g_ingest_manager) {
     g_ingest_manager->stop();
     g_ingest_manager.reset();
@@ -1064,9 +1021,6 @@ void showStatus() {
   if (g_ingest_manager) {
     g_ingest_manager->printStatus();
   }
-  if (g_stage_b_manager) {
-    g_stage_b_manager->printStatus();
-  }
 }
 
 } // namespace
@@ -1084,8 +1038,6 @@ int main(int argc, char **argv) {
   std::string config_path = "config/componentConfig.yaml";
   std::string hw_map_path = "config/hardware_map.json";
   std::string calib_dir = "config/calibration";
-  std::string model_path =
-      "models/yolov5n.engine"; // Use existing 640x640 engine
   bool auto_start = false;
 
   for (int i = 1; i < argc; ++i) {
@@ -1096,8 +1048,6 @@ int main(int argc, char **argv) {
       hw_map_path = argv[++i];
     } else if (arg == "--calib-dir" && i + 1 < argc) {
       calib_dir = argv[++i];
-    } else if (arg == "--model" && i + 1 < argc) {
-      model_path = argv[++i];
     } else if (arg == "--auto-start") {
       auto_start = true;
     } else if (arg == "--help") {
@@ -1107,7 +1057,6 @@ int main(int argc, char **argv) {
           << "  --config <path>        Path to componentConfig.yaml\n"
           << "  --hardware-map <path>  Path to hardware_map.json\n"
           << "  --calib-dir <path>     Path to calibration directory\n"
-          << "  --model <path>         Path to YOLOv8 ONNX model\n"
           << "  --auto-start           Start pipeline automatically\n"
           << "  --record <dir>         Record sensor data to directory\n"
           << "  --replay <file>        Replay from .adasrec file\n"
@@ -1154,7 +1103,7 @@ int main(int argc, char **argv) {
 
     // Auto-start if requested
     if (auto_start && !hw_map.mappings.empty()) {
-      startPipeline(config, hw_map, calib_dir, model_path);
+      startPipeline(config, hw_map);
     }
 
     // Interactive menu loop
@@ -1212,7 +1161,7 @@ int main(int argc, char **argv) {
                        "Wizard first "
                        "(option 4)\n";
         } else {
-          startPipeline(config, hw_map, calib_dir, model_path);
+          startPipeline(config, hw_map);
         }
         break;
 
@@ -1395,18 +1344,19 @@ int main(int argc, char **argv) {
                     << "\n";
 
           // Hot-reload: if pipeline is running, restart ingest to apply new
-          // camera settings. Stage B and E keep running — only cameras restart.
+          // camera settings. Fusion and alerting keep running; only ingest
+          // restarts.
           if (g_pipeline_running.load() && g_ingest_manager) {
             std::cout << "[Config] Pipeline is running. Restarting camera "
                          "ingest to apply new settings...\n";
             g_ingest_manager->stop();
             g_ingest_manager =
                 std::make_unique<adas::IngestManager>(config, hw_map);
+            g_ingest_manager->start();
             if (g_recorder && g_recorder->isRecording()) {
-              // Re-wire recorder after restart
+              // Re-wire recorder after restart once receivers exist again.
               g_ingest_manager->setRecorder(g_recorder.get());
             }
-            g_ingest_manager->start();
             std::cout << "[Config] Camera ingest restarted with new config.\n";
           } else {
             std::cout << "[Config] Changes will take effect on next pipeline "
@@ -1450,8 +1400,7 @@ int main(int argc, char **argv) {
           if (adas::ConfigLoader::hardwareMapExists(hw_map_path)) {
             hw_map = adas::ConfigLoader::loadHardwareMap(hw_map_path);
           }
-          startReplayPipeline(file_path, speed, config, hw_map, calib_dir,
-                              model_path);
+          startReplayPipeline(file_path, speed, config, hw_map);
         }
       } break;
 

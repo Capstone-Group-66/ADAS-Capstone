@@ -10,6 +10,8 @@
 
 namespace adas {
 
+class Recorder;
+
 class DeepStreamReceiver {
 public:
     DeepStreamReceiver();
@@ -30,6 +32,11 @@ public:
     /// Check if running
     bool isRunning() const { return running_.load(std::memory_order_relaxed); }
 
+    /// Set recorder for front detection batches
+    void setRecorder(Recorder *rec) {
+      recorder_.store(rec, std::memory_order_release);
+    }
+
 private:
     void dsThread();
 
@@ -37,6 +44,7 @@ private:
     void *ds_socket_ = nullptr;
 
     SPSCQueue<DetBatch, 8> *ds_queue_ = nullptr;
+    std::atomic<Recorder *> recorder_{nullptr};
     
     std::thread ds_thread_;
     std::atomic<bool> running_{false};

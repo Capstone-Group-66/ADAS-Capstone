@@ -11,6 +11,17 @@
 
 namespace adas {
 
+namespace {
+
+uint64_t scaledReplayOffsetNs(uint64_t event_offset_ns, float speed) {
+  if (speed <= 0.0f) {
+    return event_offset_ns;
+  }
+  return static_cast<uint64_t>(event_offset_ns / speed);
+}
+
+} // namespace
+
 ReplayEngine::~ReplayEngine() { stop(); }
 
 bool ReplayEngine::load(const std::string &path) {
@@ -26,10 +37,15 @@ bool ReplayEngine::load(const std::string &path) {
     std::cerr << "[ReplayEngine] Invalid magic bytes in: " << path << "\n";
     return false;
   }
-  if (file_header_.version != 1) {
+  if (file_header_.version != 1 && file_header_.version != 2) {
     std::cerr << "[ReplayEngine] Unsupported version: " << file_header_.version
               << "\n";
     return false;
+  }
+  if (file_header_.version == 1) {
+    std::cout << "[ReplayEngine] WARNING: Legacy v1 recording loaded. Front "
+                 "DeepStream detections were not recorded, so replay cannot "
+                 "reproduce the live front-perception path.\n";
   }
 
   // Read all events
@@ -119,9 +135,6 @@ uint64_t ReplayEngine::getDurationNs() const {
 void ReplayEngine::setCameraQueue(Mount mount,
                                   SPSCQueue<CameraFrameData, 8> *queue) {
   switch (mount) {
-  case Mount::FrontCam:
-    cam_front_queue_ = queue;
-    break;
   case Mount::SideCamL:
     cam_side_l_queue_ = queue;
     break;
@@ -134,6 +147,10 @@ void ReplayEngine::setCameraQueue(Mount mount,
   default:
     break;
   }
+}
+
+void ReplayEngine::setFrontDetQueue(SPSCQueue<DetBatch, 8> *queue) {
+  front_det_queue_ = queue;
 }
 
 void ReplayEngine::setRadarQueue(Mount mount,
@@ -219,6 +236,9 @@ void ReplayEngine::dispatchEvent(const RecordEvent &event) {
   case RecEventType::CameraRear:
     dispatchCamera(event);
     break;
+  case RecEventType::FrontDetBatch:
+    dispatchFrontDetBatch(event);
+    break;
   case RecEventType::RadarFront:
   case RecEventType::RadarRearL:
   case RecEventType::RadarRearR:
@@ -237,6 +257,13 @@ void ReplayEngine::dispatchEvent(const RecordEvent &event) {
 }
 
 void ReplayEngine::dispatchCamera(const RecordEvent &event) {
+  if (event.type == RecEventType::CameraFront) {
+    // Legacy v1 recordings may contain raw front-camera JPEG events. The
+    // current production replay path is detection-only, so we intentionally do
+    // not decode or inject those old front frames.
+    return;
+  }
+
   if (event.payload.size() < 5)
     return;
 
@@ -256,7 +283,7 @@ void ReplayEngine::dispatchCamera(const RecordEvent &event) {
   // Calculate synthetic timestamp
   uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
   uint64_t synthetic_ts_ns =
-      replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
+      replay_start_time_ns_ + scaledReplayOffsetNs(event_offset_ns, speed_);
 
   // Build CameraFrameData
   CameraFrameData frame_data;
@@ -270,9 +297,6 @@ void ReplayEngine::dispatchCamera(const RecordEvent &event) {
   // Push to appropriate queue
   SPSCQueue<CameraFrameData, 8> *queue = nullptr;
   switch (event.type) {
-  case RecEventType::CameraFront:
-    queue = cam_front_queue_;
-    break;
   case RecEventType::CameraSideL:
     queue = cam_side_l_queue_;
     break;
@@ -289,6 +313,52 @@ void ReplayEngine::dispatchCamera(const RecordEvent &event) {
   if (queue) {
     queue->try_push(std::move(frame_data));
   }
+}
+
+void ReplayEngine::dispatchFrontDetBatch(const RecordEvent &event) {
+  if (event.payload.size() < sizeof(RecFrontDetBatchHeader) || !front_det_queue_) {
+    return;
+  }
+
+  RecFrontDetBatchHeader batch_header;
+  std::memcpy(&batch_header, event.payload.data(), sizeof(batch_header));
+
+  const size_t expected_size =
+      sizeof(batch_header) +
+      static_cast<size_t>(batch_header.num_detections) * sizeof(RecFrontDet);
+  if (event.payload.size() < expected_size) {
+    return;
+  }
+
+  const uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
+  const uint64_t synthetic_ts_ns =
+      replay_start_time_ns_ + scaledReplayOffsetNs(event_offset_ns, speed_);
+
+  DetBatch batch;
+  batch.h.mount = Mount::FrontCam;
+  batch.h.t_ingest_ns = synthetic_ts_ns;
+  batch.h.t_device_ns = synthetic_ts_ns;
+  batch.h.seq = 0;
+  batch.h.healthy = true;
+  batch.inference_time_us = batch_header.inference_time_us;
+
+  size_t offset = sizeof(batch_header);
+  for (uint32_t i = 0; i < batch_header.num_detections; ++i) {
+    RecFrontDet rec_det;
+    std::memcpy(&rec_det, event.payload.data() + offset, sizeof(rec_det));
+    offset += sizeof(rec_det);
+
+    Det det;
+    det.box_px = cv::Rect2f(rec_det.x, rec_det.y, rec_det.w, rec_det.h);
+    det.centroid = cv::Point2f(rec_det.centroid_x, rec_det.centroid_y);
+    det.cls = rec_det.cls;
+    det.score = rec_det.score;
+    det.object_id = rec_det.object_id;
+    det.setSignLabel(rec_det.sign_label);
+    batch.dets.push_back(det);
+  }
+
+  front_det_queue_->try_push(std::move(batch));
 }
 
 void ReplayEngine::dispatchRadar(const RecordEvent &event) {
@@ -317,7 +387,7 @@ void ReplayEngine::dispatchRadar(const RecordEvent &event) {
   // Calculate synthetic timestamp
   uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
   uint64_t synthetic_ts_ns =
-      replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
+      replay_start_time_ns_ + scaledReplayOffsetNs(event_offset_ns, speed_);
 
   targets.h.t_ingest_ns = synthetic_ts_ns;
   targets.h.t_device_ns = synthetic_ts_ns;
@@ -365,7 +435,7 @@ void ReplayEngine::dispatchIMU(const RecordEvent &event) {
   // Calculate synthetic timestamp
   uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
   uint64_t synthetic_ts_ns =
-      replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
+      replay_start_time_ns_ + scaledReplayOffsetNs(event_offset_ns, speed_);
 
   ImuSample sample;
   sample.t_capture = synthetic_ts_ns;
@@ -399,7 +469,7 @@ void ReplayEngine::dispatchGPS(const RecordEvent &event) {
   // synthetic_ms)
   uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
   uint64_t synthetic_ts_ns =
-      replay_start_time_ns_ + static_cast<uint64_t>(event_offset_ns / speed_);
+      replay_start_time_ns_ + scaledReplayOffsetNs(event_offset_ns, speed_);
   uint64_t synthetic_ts_ms = synthetic_ts_ns / 1000000;
 
   gps_callback_(speed_mps, synthetic_ts_ms);

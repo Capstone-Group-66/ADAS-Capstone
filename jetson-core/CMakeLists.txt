@@ -61,18 +61,9 @@ set(STAGE_A_SOURCES
     src/stage_a/IngestManager.cpp
 )
 
-set(STAGE_B_SOURCES
-    src/stage_b/CameraPreprocessor.cpp
-    src/stage_b/ObjectDetector.cpp
-    src/stage_b/ObjectTracker.cpp
-    src/stage_b/CameraPipeline.cpp
-    # Front camera detections are received through DeepStream IPC.
-)
-
 set(STAGE_E_SOURCES
     src/stage_e/SensorFusion.cpp
     src/stage_e/FCWMonitor.cpp
-    src/stage_e/Track.cpp
     src/stage_e/EgoFrame.cpp
     src/stage_e/BEVDashboard.cpp
 )
@@ -93,7 +84,6 @@ add_executable(jetson_core
     src/main.cpp
     ${COMMON_SOURCES}
     ${STAGE_A_SOURCES}
-    ${STAGE_B_SOURCES}
     ${STAGE_E_SOURCES}
     ${MAIN_BRAIN_SOURCES}
     ${RECORDING_SOURCES}
@@ -107,25 +97,6 @@ target_link_libraries(jetson_core
     Threads::Threads
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:stdc++fs>
 )
-
-# TensorRT support (Jetson only)
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-    find_library(NVINFER_LIB nvinfer HINTS /usr/lib/aarch64-linux-gnu)
-    find_library(CUDA_RT_LIB cudart HINTS /usr/local/cuda/lib64)
-    
-    if(NVINFER_LIB AND CUDA_RT_LIB)
-        message(STATUS "TensorRT found: ${NVINFER_LIB}")
-        target_link_libraries(jetson_core ${NVINFER_LIB} ${CUDA_RT_LIB})
-        target_include_directories(jetson_core PRIVATE 
-            /usr/include/aarch64-linux-gnu
-            /usr/local/cuda/include
-        )
-    else()
-        message(WARNING "TensorRT not found - ObjectDetector will be disabled")
-    endif()
-
-    # DeepStream rendering/running is external; no extra C++ linkage needed here.
-endif()
 
 if(MSVC)
     target_compile_definitions(jetson_core PRIVATE _CRT_SECURE_NO_WARNINGS)
@@ -215,6 +186,17 @@ if(BUILD_TESTS)
     )
     target_link_libraries(test_fcw_monitor_v3 Threads::Threads)
     add_test(NAME test_fcw_monitor_v3 COMMAND test_fcw_monitor_v3)
+
+    # Test replay/record round-trip for front DeepStream detections
+    add_executable(test_replay_front_dets
+        tests/test_replay_front_dets.cpp
+        src/recording/Recorder.cpp
+        src/recording/ReplayEngine.cpp
+        ${COMMON_SOURCES}
+    )
+    target_include_directories(test_replay_front_dets PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
+    target_link_libraries(test_replay_front_dets Threads::Threads ${OpenCV_LIBS})
+    add_test(NAME test_replay_front_dets COMMAND test_replay_front_dets)
 endif()
 
 # ══════════════════════════════════════════════════════════════════════════════

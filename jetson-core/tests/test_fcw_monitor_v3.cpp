@@ -25,7 +25,7 @@ int main() {
 
   adas::FusedObject obj;
   obj.object_id = 7;
-  obj.object_class = 2; // car
+  obj.object_class = static_cast<int>(adas::ObjectClass::Car);
   obj.has_radar = true;
   obj.range_m = 6.0f;
   obj.radial_vel_mps = 4.0f;
@@ -67,7 +67,7 @@ int main() {
 
   adas::FusedObject ttc_obj;
   ttc_obj.object_id = 99;
-  ttc_obj.object_class = 2;
+  ttc_obj.object_class = static_cast<int>(adas::ObjectClass::Car);
   ttc_obj.has_radar = true;
   ttc_obj.range_m = 3.2f;
   ttc_obj.radial_vel_mps = 1.4f;

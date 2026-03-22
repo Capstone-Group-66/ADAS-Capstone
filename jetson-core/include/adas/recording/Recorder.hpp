@@ -17,13 +17,13 @@
 namespace adas {
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//                          .adasrec FILE FORMAT (v1)
+//                        .adasrec FILE FORMAT (v2 current)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// File header: 32 bytes
 struct AdasRecFileHeader {
     char magic[4] = {'A', 'R', 'E', 'C'};
-    uint16_t version = 1;
+    uint16_t version = 2;
     uint16_t reserved1 = 0;
     uint64_t start_time_ns = 0;
     uint16_t sensor_mask = 0;
@@ -42,6 +42,7 @@ enum class RecEventType : uint8_t {
     RadarRearR   = 0x12,
     IMU          = 0x20,
     GPS          = 0x30,
+    FrontDetBatch = 0x40,
 };
 
 /// Event header: 13 bytes (packed)
@@ -53,6 +54,33 @@ struct RecEventHeader {
 };
 #pragma pack(pop)
 static_assert(sizeof(RecEventHeader) == 13, "Event header must be 13 bytes");
+
+#pragma pack(push, 1)
+struct RecFrontDetBatchHeader {
+    uint32_t num_detections = 0;
+    uint32_t reserved = 0;
+    uint64_t inference_time_us = 0;
+};
+#pragma pack(pop)
+static_assert(sizeof(RecFrontDetBatchHeader) == 16,
+              "Front detection batch header must be 16 bytes");
+
+#pragma pack(push, 1)
+struct RecFrontDet {
+    float x = 0.0f;
+    float y = 0.0f;
+    float w = 0.0f;
+    float h = 0.0f;
+    float centroid_x = 0.0f;
+    float centroid_y = 0.0f;
+    int32_t cls = 0;
+    float score = 0.0f;
+    uint64_t object_id = UINT64_MAX;
+    char sign_label[32] = {};
+};
+#pragma pack(pop)
+static_assert(sizeof(RecFrontDet) == 72,
+              "Front detection record must be 72 bytes");
 
 /// Convert Mount enum to RecEventType for cameras
 inline RecEventType mountToCameraEvent(Mount m) {
@@ -135,6 +163,9 @@ class Recorder {
 
     /// Record GPS data
     void recordGPS(float speed_mps, uint64_t ts_ms);
+
+    /// Record canonical front-camera detections received from DeepStream IPC
+    void recordFrontDetections(const DetBatch &batch);
 
   private:
     /// Writer thread loop — drains buffer and writes to disk

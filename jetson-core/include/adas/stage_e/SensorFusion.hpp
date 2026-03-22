@@ -18,7 +18,7 @@ namespace adas {
 
 struct FusedObject {
   uint64_t object_id;
-  int object_class;
+  int object_class; // Canonical ObjectClass value
   float score;
 
   // Camera data
@@ -46,7 +46,9 @@ struct FusedObject {
   bool is_aggressive_mode;
 
   FusedObject()
-      : object_id(UINT64_MAX), object_class(0), score(0.0f), box_px(),
+      : object_id(UINT64_MAX),
+        object_class(static_cast<int>(ObjectClass::Unknown)), score(0.0f),
+        box_px(),
         centroid_px(), z_cam_m(0.0f), v_cam_mps(0.0f), has_radar(false),
         range_m(0.0f), radial_vel_mps(0.0f), x_lateral_m(0.0f),
         fusion_quality(0.0f), speed_fresh(false), speed_age_ms(0),
@@ -144,7 +146,7 @@ public:
 private:
   struct TrackState {
     uint64_t object_id = UINT64_MAX;
-    int object_class = 0;
+    int object_class = static_cast<int>(ObjectClass::Unknown);
     float score = 0.0f;
 
     cv::Rect2f box_px;

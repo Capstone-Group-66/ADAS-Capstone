@@ -17,13 +17,14 @@ struct FCWAlert {
     float ttc_s;            // Time-to-collision
     float range_m;          // Distance to threat
     float velocity_mps;     // Closing velocity
-    int object_class;       // Object type (person, car, etc.)
+    int object_class;       // Canonical ObjectClass value
     uint64_t object_id;     // Track ID for the triggering object
     uint64_t timestamp_ns;  // When alert was generated
     bool physics_triggered; // True if physics-based FCW triggered this alert
 
     FCWAlert()
-        : ttc_s(0), range_m(0), velocity_mps(0), object_class(0),
+        : ttc_s(0), range_m(0), velocity_mps(0),
+          object_class(static_cast<int>(ObjectClass::Unknown)),
           object_id(UINT64_MAX), timestamp_ns(0), physics_triggered(false) {}
 };
 
