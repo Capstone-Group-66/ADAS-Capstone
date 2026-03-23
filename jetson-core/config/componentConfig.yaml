@@ -25,8 +25,6 @@ network:
 cameras:
   width: 960
   height: 540
-  side_width: 640
-  side_height: 480
   target_fps: 20
   use_mjpeg: true
 
@@ -37,6 +35,30 @@ front_radar:
   port: "/dev/ttyACM0"
   baud_rate: 921600
   poll_timeout_ms: 50
+  output_mode: "split_range"
+  speed_ttl_ms: 900
+  speed_mag_threshold: 10
+  range_mag_threshold: 20
+  profile: "combined_hs"
+
+# Stage E front fusion / FCW v3 tuning
+stage_e_fusion:
+  ttc_aggressive_s: 3.0
+  camera_hold_ms: 400
+  radar_hold_ms: 1100
+  track_cleanup_ms: 1600
+  predicted_camera_threshold_ms: 80
+  normal_angle_gate_deg: 12.5
+  aggressive_angle_gate_deg: 18.0
+  aggressive_range_scale: 1.5
+  ekf_q_z: 1.0
+  ekf_q_vz: 1.2
+  ekf_q_theta: 0.04
+  ekf_q_theta_dot: 0.06
+  ekf_r_radar_z: 0.35
+  ekf_r_radar_vz: 0.55
+  ekf_r_cam_theta: 0.018
+  ekf_r_cam_z_weak: 30.0
 
 # ══════════════════════════════════════════════════════════════════════════════
 #                         IMU (BNO085) - SCAFFOLD
@@ -55,15 +77,6 @@ mounts:
   FrontCam:
     xyz_m: [0.85, 0.00, 1.35]
     rpy_deg: [0, -3.0, 0]
-  SideCamL:
-    xyz_m: [0.30, 0.80, 1.10]
-    rpy_deg: [0, 0.0, 5]
-  SideCamR:
-    xyz_m: [0.30, -0.80, 1.10]
-    rpy_deg: [0, 0.0, -5]
-  RearCam:
-    xyz_m: [-1.10, 0.00, 1.10]
-    rpy_deg: [0, 3.0, 0]
   FrontRadar:
     xyz_m: [0.90, 0.00, 0.50]
     rpy_deg: [0, 0.0, 0]

@@ -35,20 +35,24 @@ int main() {
         }
     }
 
-    // Test 2: Queue full (drops)
+    // Test 2: Queue full overwrites oldest and keeps newest
     {
         SPSCQueue<int, 2> q;
         bool ok = true;
         ok &= q.try_push(1);
         ok &= q.try_push(2);
-        ok &= !q.try_push(3); // Should fail, queue full
+        ok &= q.try_push(3); // Should evict 1, keep 2 and 3
         ok &= q.drops() == 1;
+        int val;
+        ok &= q.try_pop(val) && val == 2;
+        ok &= q.try_pop(val) && val == 3;
+        ok &= !q.try_pop(val);
 
         if (ok) {
-            std::cout << "[PASS] Test 2: Queue full (drops)\n";
+            std::cout << "[PASS] Test 2: Queue full overwrites oldest\n";
             ++passed;
         } else {
-            std::cout << "[FAIL] Test 2: Queue full (drops)\n";
+            std::cout << "[FAIL] Test 2: Queue full overwrites oldest\n";
             ++failed;
         }
     }
@@ -76,16 +80,14 @@ int main() {
 
     // Test 4: Concurrent producer/consumer
     {
-        SPSCQueue<int, 64> q;
+        SPSCQueue<int, 16384> q;
         const int N = 10000;
         std::atomic<int> sum_produced{0};
         std::atomic<int> sum_consumed{0};
 
         std::thread producer([&]() {
             for (int i = 0; i < N; ++i) {
-                while (!q.try_push(i)) {
-                    std::this_thread::yield();
-                }
+                q.try_push(i);
                 sum_produced += i;
             }
         });

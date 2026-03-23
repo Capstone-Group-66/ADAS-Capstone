@@ -205,15 +205,8 @@ if __name__ == "__main__":
         print("Invalid selection")
         sys.exit(1)
         
-    print("\nSelect Mount Name (for filename):")
-    print("1) FrontCam")
-    print("2) SideCamL")
-    print("3) SideCamR")
-    print("4) RearCam")
-    
-    m_choice = input("Choice (1-4): ")
-    mount_map = {"1": "FrontCam", "2": "SideCamL", "3": "SideCamR", "4": "RearCam"}
-    mount_name = mount_map.get(m_choice, "FrontCam")
+    print("\nMount Name (final build): FrontCam")
+    mount_name = "FrontCam"
     
     # Defaults (matches physical chessboard: 9x6 squares = 8x5 inner corners, 30mm)
     pattern_w = 8

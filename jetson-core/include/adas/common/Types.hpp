@@ -5,6 +5,8 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
+#include <string>
 #include <vector>
 
 #include <opencv2/core.hpp>
@@ -20,9 +22,9 @@ namespace adas {
 /// These are POSITIONS, not devices - devices are swappable per FR16
 enum class Mount : uint8_t {
     FrontCam = 0,
-    SideCamL = 1,
-    SideCamR = 2,
-    RearCam = 3,
+    SideCamL = 1, // Reserved legacy mount (no active runtime path)
+    SideCamR = 2, // Reserved legacy mount (no active runtime path)
+    RearCam = 3,  // Reserved legacy mount (used only for compatibility)
     FrontRadar = 4,
     RearCornerRadarL = 5,
     RearCornerRadarR = 6,
@@ -67,9 +69,9 @@ inline const char *mountToString(Mount m) {
 enum SensorSource : uint16_t {
     SRC_NONE = 0,
     SRC_CAM_F = 1 << 0, // FrontCam
-    SRC_CAM_L = 1 << 1, // SideCamL
-    SRC_CAM_R = 1 << 2, // SideCamR
-    SRC_CAM_B = 1 << 3, // RearCam
+    SRC_CAM_L = 1 << 1, // Reserved legacy side-camera bit
+    SRC_CAM_R = 1 << 2, // Reserved legacy side-camera bit
+    SRC_CAM_B = 1 << 3, // Reserved legacy rear-camera bit
     SRC_RAD_F = 1 << 4, // FrontRadar
     SRC_RAD_L = 1 << 5, // RearCornerRadarL
     SRC_RAD_R = 1 << 6, // RearCornerRadarR
@@ -111,7 +113,7 @@ struct Header {
 // ══════════════════════════════════════════════════════════════════════════════
 
 /// Camera frame payload
-/// Raw frame data - undistorting happens in Stage B
+/// Raw frame data from camera ingest paths
 /// Contains either raw byte data or cv::Mat (OpenCV)
 struct CameraFrameData {
     Header h;
@@ -129,15 +131,20 @@ struct CameraFrameData {
 struct RadarTarget {
     float range_m;        // Radial distance to target
     float azimuth_rad;    // Angle in radar frame (+left)
-    float radial_vel_mps; // Toward-negative, away-positive
+    float radial_vel_mps; // Toward/inward-positive, away/outward-negative
     float rcs_db;         // Radar cross section (dBsm)
     float sigma_r;        // Measurement stdev for range
     float sigma_az;       // Measurement stdev for azimuth
     float sigma_v;        // Measurement stdev for velocity
+    
+    // Fusion metadata
+    bool is_fused;        // True if part of a fused frame
+    bool speed_fresh;     // True if speed within TTL
+    uint32_t speed_age_ms;// Age of speed measurement
 
     RadarTarget()
         : range_m(0), azimuth_rad(0), radial_vel_mps(0), rcs_db(0), sigma_r(0.5f), sigma_az(0.05f),
-          sigma_v(0.2f) {}
+          sigma_v(0.2f), is_fused(false), speed_fresh(false), speed_age_ms(0) {}
 };
 
 /// Batch of radar targets from a single sensor
@@ -166,55 +173,139 @@ struct ImuSample {
           temperature(0), calibration_status(0) {}
 };
 
+/// Compact rear-collision state received from the Pi over ZMQ port 5555.
+/// `alert != 0` means RCW is active. `status` is preserved verbatim from the
+/// Pi publisher for logging/replay/BLE rationale.
+struct RcwState {
+    Header h;
+    uint8_t alert;
+    uint8_t status;
+
+    RcwState() : h(), alert(0), status(0) {
+        h.mount = Mount::RearCam; // Reserved compatibility provenance slot.
+    }
+};
+
 // ══════════════════════════════════════════════════════════════════════════════
-//                              DETECTION STRUCTURES (Stage B Output)
+//                              DETECTION STRUCTURES
 // ══════════════════════════════════════════════════════════════════════════════
 
-/// Semantic class IDs (COCO subset relevant for ADAS)
-/// Per Section 4.2.4 of proposal: car, truck, bus, bike, person
+/// Canonical front-camera class IDs used inside jetson-core.
+/// These follow the active DeepStream / DashCamNet schema so Stage E, replay,
+/// and debug tooling all interpret classes the same way:
+///   0 = Car
+///   1 = Bicycle
+///   2 = Person
+///   3 = RoadSign
+///
+/// Older COCO-style paths must be explicitly bridged into this schema before
+/// populating Det.cls.
 enum class ObjectClass : uint8_t {
-    Person = 0,
+    Car = 0,
     Bicycle = 1,
-    Car = 2,
-    Motorcycle = 3,
-    Bus = 5,
-    Truck = 7,
+    Person = 2,
+    RoadSign = 3,
     Unknown = 255
 };
 
-/// Convert COCO class ID to ObjectClass
-inline ObjectClass cocoToObjectClass(int coco_id) {
-    switch (coco_id) {
+/// Convert a DeepStream / DashCamNet class ID into the canonical front-camera
+/// schema. Unknown / out-of-range values degrade to Unknown safely.
+inline ObjectClass deepStreamToObjectClass(int ds_id) {
+    switch (ds_id) {
     case 0:
-        return ObjectClass::Person;
+        return ObjectClass::Car;
     case 1:
         return ObjectClass::Bicycle;
     case 2:
-        return ObjectClass::Car;
+        return ObjectClass::Person;
     case 3:
-        return ObjectClass::Motorcycle;
-    case 5:
-        return ObjectClass::Bus;
-    case 7:
-        return ObjectClass::Truck;
+        return ObjectClass::RoadSign;
     default:
         return ObjectClass::Unknown;
     }
 }
 
-/// Single detection from camera (Stage B output)
+/// Convert a legacy COCO-style detector class ID into the canonical
+/// DeepStream-aligned schema used by the rest of jetson-core.
+///
+/// Vehicle-like COCO classes (car, motorcycle, bus, truck) are intentionally
+/// collapsed to the canonical `Car` bucket because the active DeepStream path
+/// exposes only one forward-vehicle class.
+inline ObjectClass cocoToObjectClass(int coco_id) {
+    switch (coco_id) {
+    case 2:
+        return ObjectClass::Car;
+    case 1:
+        return ObjectClass::Bicycle;
+    case 0:
+        return ObjectClass::Person;
+    case 3:
+    case 5:
+    case 7:
+        return ObjectClass::Car;
+    default:
+        return ObjectClass::Unknown;
+    }
+}
+
+inline const char *objectClassToString(int class_id) {
+    switch (static_cast<ObjectClass>(class_id)) {
+    case ObjectClass::Car:
+        return "Car";
+    case ObjectClass::Bicycle:
+        return "Bicycle";
+    case ObjectClass::Person:
+        return "Person";
+    case ObjectClass::RoadSign:
+        return "RoadSign";
+    default:
+        return "Unknown";
+    }
+}
+
+/// Single detection from camera
 /// Per Section 4.2.2 of proposal
 struct Det {
-    cv::Rect2f box_px;    // [x, y, w, h] in pixels (after preproc)
-    cv::Point2f centroid; // Center point in pixels (for fusion)
-    int cls;              // Class ID (ObjectClass enum value)
-    float score;          // Confidence score [0, 1]
+    cv::Rect2f  box_px;     // [x, y, w, h] in pixels (after preproc)
+    cv::Point2f centroid;   // Center point in pixels (for fusion)
+    int         cls;        // Class ID (canonical ObjectClass enum value)
+    float       score;      // Confidence score [0, 1]
+    uint64_t    object_id;  // Persistent tracker ID from nvtracker (DeepStream).
+                            // UINT64_MAX = untracked (YOLO/non-DS path).
+                            // Used by Stage E radar-camera fusion to match
+                            // the same physical object across frames.
+    std::array<char, 32> sign_label; // Optional DeepStream SGIE road-sign label.
 
-    Det() : box_px(), centroid(), cls(static_cast<int>(ObjectClass::Unknown)), score(0.0f) {}
+    Det()
+        : box_px(), centroid(),
+          cls(static_cast<int>(ObjectClass::Unknown)),
+          score(0.0f),
+          object_id(UINT64_MAX),
+          sign_label{} {}
 
-    Det(const cv::Rect2f &box, int class_id, float confidence)
-        : box_px(box), centroid(box.x + box.width / 2.0f, box.y + box.height / 2.0f), cls(class_id),
-          score(confidence) {}
+    Det(const cv::Rect2f& box, int class_id, float confidence,
+        uint64_t track_id = UINT64_MAX, const char *sign_text = nullptr)
+        : box_px(box),
+          centroid(box.x + box.width / 2.0f, box.y + box.height / 2.0f),
+          cls(class_id),
+          score(confidence),
+          object_id(track_id),
+          sign_label{} {
+        setSignLabel(sign_text);
+    }
+
+    void setSignLabel(const char *label) {
+        sign_label.fill('\0');
+        if (!label) {
+            return;
+        }
+        std::strncpy(sign_label.data(), label, sign_label.size() - 1);
+        sign_label[sign_label.size() - 1] = '\0';
+    }
+
+    bool hasSignLabel() const { return sign_label[0] != '\0'; }
+
+    std::string signLabelString() const { return std::string(sign_label.data()); }
 };
 
 /// Batch of detections from a single frame
@@ -232,10 +323,10 @@ struct DetBatch {
 //                              NETWORK PROTOCOL (Pi4 → Jetson)
 // ══════════════════════════════════════════════════════════════════════════════
 
-/// Network packet types from Raspberry Pi 4
-/// Used by NetworkIngest to demultiplex incoming stream
+/// Legacy TCP packet types from Raspberry Pi 4.
+/// Kept only for compatibility with deprecated tooling.
 enum class NetPacketType : uint8_t {
-    RearCamera = 0x01, // MJPEG-encoded frame
+    RearCamera = 0x01, // Legacy rear-video packet (deprecated)
     RearRadarL = 0x02, // Left rear corner radar data
     RearRadarR = 0x03, // Right rear corner radar data
     Heartbeat = 0xFE,  // Keep-alive ping
@@ -262,3 +353,4 @@ struct NetPacketHeader {
 static_assert(sizeof(NetPacketHeader) == 24, "NetPacketHeader must be 24 bytes");
 
 } // namespace adas
+

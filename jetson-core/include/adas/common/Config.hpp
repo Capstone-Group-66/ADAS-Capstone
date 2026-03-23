@@ -37,8 +37,6 @@ struct TimeConfig {
 struct CameraConfig {
     int width = 960;
     int height = 540;
-    int side_width = 640; // Default downscale for side cameras (USB bandwidth safe)
-    int side_height = 480;
     int target_fps = 20;
     bool use_mjpeg = true;
 };
@@ -50,11 +48,22 @@ struct NetworkConfig {
     int reconnect_timeout_ms = 5000;
 };
 
-/// Front radar configuration (OPS243-A)
+/// Front radar configuration (OPS243-A/C)
 struct RadarConfig {
     std::string port = "/dev/ttyACM0";
     int baud_rate = 921600;
     int poll_timeout_ms = 50;
+    
+    // Radar output stream mode:
+    // - split_range: speed/range split stream (legacy behavior)
+    // - combined_native: native combined speed+range packets (OY)
+    std::string output_mode = "split_range";
+
+    // Fusion holding parameters
+    int speed_ttl_ms = 900;
+    int speed_mag_threshold = 10;
+    int range_mag_threshold = 20;
+    std::string profile = "combined_hs";
 };
 
 /// IMU configuration (BNO085 on Pi, received via ZMQ)
@@ -62,6 +71,30 @@ struct IMUConfig {
     std::string bus = "/dev/i2c-1";
     int rate_hz = 100;
     bool use_uart = false;
+};
+
+/// Stage E front-fusion and FCW tuning
+struct StageEFusionConfig {
+    float ttc_aggressive_s = 3.0f;
+    int camera_hold_ms = 400;
+    int radar_hold_ms = 1100;
+    int track_cleanup_ms = 1600;
+    int predicted_camera_threshold_ms = 80;
+    float normal_angle_gate_deg = 12.5f;
+    float aggressive_angle_gate_deg = 18.0f;
+    float aggressive_range_scale = 1.5f;
+
+    // EKF process noise
+    float ekf_q_z = 1.0f;
+    float ekf_q_vz = 1.2f;
+    float ekf_q_theta = 0.04f;
+    float ekf_q_theta_dot = 0.06f;
+
+    // EKF measurement noise
+    float ekf_r_radar_z = 0.35f;
+    float ekf_r_radar_vz = 0.55f;
+    float ekf_r_cam_theta = 0.018f;
+    float ekf_r_cam_z_weak = 30.0f;
 };
 
 /// Complete pipeline configuration
@@ -74,6 +107,7 @@ struct Config {
     NetworkConfig network;
     RadarConfig front_radar;
     IMUConfig imu;
+    StageEFusionConfig stage_e_fusion;
 
     std::map<Mount, MountExtrinsics> mounts;
 };
@@ -97,6 +131,11 @@ class ConfigLoader {
     /// @return Parsed configuration
     /// @throws std::runtime_error if file cannot be read or parsed
     static Config loadConfig(const std::string &path);
+
+    /// Save componentConfig.yaml (updates mounts section)
+    /// @param path Path to YAML config file
+    /// @param config Configuration to save
+    static void saveConfig(const std::string &path, const Config &config);
 
     /// Load hardware_map.json
     /// @param path Path to JSON mapping file

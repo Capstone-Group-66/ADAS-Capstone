@@ -7,7 +7,6 @@
 #include <ctime>
 #include <filesystem>
 #include <iostream>
-#include <opencv2/imgcodecs.hpp>
 
 namespace adas {
 
@@ -103,67 +102,6 @@ void Recorder::stop() {
 //                       RECORDING METHODS (producer threads)
 // ═══════════════════════════════════════════════════════════════════════════════
 
-void Recorder::recordCamera(const CameraFrameData &frame, Mount mount) {
-  if (!recording_.load(std::memory_order_relaxed))
-    return;
-
-  // JPEG encode the frame on the caller thread
-  // (for USB cameras, frame.data contains raw BGR pixels)
-  std::vector<uint8_t> jpeg_buf;
-  cv::Mat mat;
-
-  if (!frame.frame.empty()) {
-    mat = frame.frame;
-  } else if (!frame.data.empty()) {
-    mat = cv::Mat(frame.height, frame.width, CV_8UC3,
-                  const_cast<uint8_t *>(frame.data.data()));
-  }
-
-  if (mat.empty())
-    return;
-
-  std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, 85};
-  cv::imencode(".jpg", mat, jpeg_buf, params);
-
-  // Build payload: mount(1B) + width(2B) + height(2B) + jpeg_bytes
-  RecordEvent event;
-  event.type = mountToCameraEvent(mount);
-  event.timestamp_ns = frame.h.t_ingest_ns;
-
-  size_t header_size = 1 + 2 + 2; // mount + w + h
-  event.payload.resize(header_size + jpeg_buf.size());
-
-  event.payload[0] = static_cast<uint8_t>(mount);
-  uint16_t w = static_cast<uint16_t>(frame.width);
-  uint16_t h = static_cast<uint16_t>(frame.height);
-  std::memcpy(&event.payload[1], &w, 2);
-  std::memcpy(&event.payload[3], &h, 2);
-  std::memcpy(&event.payload[5], jpeg_buf.data(), jpeg_buf.size());
-
-  enqueue(std::move(event));
-}
-
-void Recorder::recordCameraJpeg(const uint8_t *jpeg, size_t len,
-                                uint64_t timestamp_ns, Mount mount,
-                                uint16_t width, uint16_t height) {
-  if (!recording_.load(std::memory_order_relaxed))
-    return;
-
-  RecordEvent event;
-  event.type = mountToCameraEvent(mount);
-  event.timestamp_ns = timestamp_ns;
-
-  size_t header_size = 1 + 2 + 2;
-  event.payload.resize(header_size + len);
-
-  event.payload[0] = static_cast<uint8_t>(mount);
-  std::memcpy(&event.payload[1], &width, 2);
-  std::memcpy(&event.payload[3], &height, 2);
-  std::memcpy(&event.payload[5], jpeg, len);
-
-  enqueue(std::move(event));
-}
-
 void Recorder::recordRadar(const RadarTargets &targets) {
   if (!recording_.load(std::memory_order_relaxed))
     return;
@@ -244,6 +182,61 @@ void Recorder::recordGPS(float speed_mps, uint64_t ts_ms) {
   event.payload.resize(32, 0);
   std::memcpy(&event.payload[0], &speed_mps, 4);
   std::memcpy(&event.payload[4], &ts_ms, 8);
+
+  enqueue(std::move(event));
+}
+
+void Recorder::recordFrontDetections(const DetBatch &batch) {
+  if (!recording_.load(std::memory_order_relaxed))
+    return;
+
+  RecordEvent event;
+  event.type = RecEventType::FrontDetBatch;
+  event.timestamp_ns = batch.h.t_ingest_ns;
+
+  const size_t payload_size =
+      sizeof(RecFrontDetBatchHeader) + batch.dets.size() * sizeof(RecFrontDet);
+  event.payload.resize(payload_size, 0);
+
+  RecFrontDetBatchHeader batch_header{};
+  batch_header.num_detections = static_cast<uint32_t>(batch.dets.size());
+  batch_header.inference_time_us = batch.inference_time_us;
+  std::memcpy(event.payload.data(), &batch_header, sizeof(batch_header));
+
+  size_t offset = sizeof(batch_header);
+  for (const auto &det : batch.dets) {
+    RecFrontDet rec_det;
+    rec_det.x = det.box_px.x;
+    rec_det.y = det.box_px.y;
+    rec_det.w = det.box_px.width;
+    rec_det.h = det.box_px.height;
+    rec_det.centroid_x = det.centroid.x;
+    rec_det.centroid_y = det.centroid.y;
+    rec_det.cls = det.cls;
+    rec_det.score = det.score;
+    rec_det.object_id = det.object_id;
+    std::memcpy(rec_det.sign_label, det.sign_label.data(),
+                sizeof(rec_det.sign_label));
+    std::memcpy(event.payload.data() + offset, &rec_det, sizeof(rec_det));
+    offset += sizeof(rec_det);
+  }
+
+  enqueue(std::move(event));
+}
+
+void Recorder::recordRcwState(const RcwState &state) {
+  if (!recording_.load(std::memory_order_relaxed))
+    return;
+
+  RecordEvent event;
+  event.type = RecEventType::RCWState;
+  event.timestamp_ns = state.h.t_ingest_ns;
+  event.payload.resize(sizeof(RecRcwStatePayload));
+
+  RecRcwStatePayload payload{};
+  payload.alert = state.alert;
+  payload.status = state.status;
+  std::memcpy(event.payload.data(), &payload, sizeof(payload));
 
   enqueue(std::move(event));
 }

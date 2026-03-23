@@ -5,13 +5,12 @@
 #include "adas/common/Config.hpp"
 #include "adas/common/Types.hpp"
 #include "adas/queues/SPSCQueue.hpp"
-#include "adas/stage_a/CameraIngest.hpp"
-#include "adas/stage_a/NetworkIngest.hpp"
 #include "adas/stage_a/RadarIngest.hpp"
 #include "adas/recording/ReplayEngine.hpp"
-
+// Front-camera detections come from external DeepStream over local IPC.
 #ifdef HAS_ZMQ
 #include "adas/stage_a/NetworkReceiver.hpp"
+#include "adas/stage_a/DeepStreamReceiver.hpp"
 #endif
 
 #include <map>
@@ -28,7 +27,7 @@ class Recorder; // Forward declaration for recording support
 /// Responsibilities:
 /// - Own and manage all SPSC queues
 /// - Create and start/stop all ingest threads
-/// - Provide queue access for downstream stages (Stage B, C, E)
+/// - Provide queue access for downstream fusion, replay, and diagnostics
 /// - Monitor aggregate health status
 /// - Implement graceful shutdown (FR93)
 ///
@@ -71,9 +70,13 @@ class IngestManager {
     //                        QUEUE ACCESS FOR DOWNSTREAM
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /// Get camera queue by mount
-    /// @throws std::out_of_range if mount is not a camera
-    SPSCQueue<CameraFrameData, 8> &getCameraQueue(Mount mount);
+    /// Get the canonical front detection queue for both live and replay.
+    /// Live mode populates it from DeepStream IPC; replay mode injects
+    /// recorded front detection batches directly into the same queue.
+    SPSCQueue<DetBatch, 8> &getFrontCamDetQueue() { return det_front_ds_queue_; }
+
+    /// Get the compact rear-collision state queue populated from Pi port 5555.
+    SPSCQueue<RcwState, 16> &getRcwQueue() { return rcw_queue_; }
 
     /// Get radar queue by mount
     /// @throws std::out_of_range if mount is not a radar
@@ -82,15 +85,39 @@ class IngestManager {
     /// Get IMU queue
     SPSCQueue<ImuSample, 32> &getIMUQueue() { return imu_queue_; }
 
+    /// Get the most recent pitch angle received via ZMQ from the Pi.
+    /// Returns 0.0f in replay mode or when no ZMQ receiver is active.
+    float getLatestPitch() const {
+#ifdef HAS_ZMQ
+        if (zmq_receiver_) {
+            return zmq_receiver_->getLatestPitch();
+        }
+#endif
+        return 0.0f;
+    }
+
+    /// Get the most recent roll angle received via ZMQ from the Pi.
+    float getLatestRoll() const {
+#ifdef HAS_ZMQ
+        if (zmq_receiver_) {
+            return zmq_receiver_->getLatestRoll();
+        }
+#endif
+        return 0.0f;
+    }
+
+    /// Return the Pi IP address extracted from the hardware map, or "".
+    const std::string& getPiIp() const { return pi_ip_; }
+
     // ═══════════════════════════════════════════════════════════════════════════
     //                             HEALTH MONITORING
     // ═══════════════════════════════════════════════════════════════════════════
 
     /// Aggregate health status
     struct HealthStatus {
-        bool all_healthy;
+        bool all_healthy = true;
         std::map<Mount, bool> sensor_health;
-        uint64_t total_drops;
+        uint64_t total_drops = 0;
         std::string summary;
     };
 
@@ -101,8 +128,7 @@ class IngestManager {
     void printStatus() const;
 
   private:
-    void launchDirectCameras();
-    void launchNetworkIngest();
+    void launchPiReceiver();
     void launchFrontRadar();
 
     Config config_;
@@ -112,11 +138,10 @@ class IngestManager {
     //                    QUEUES (Preallocated, owned by manager)
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // Camera queues (capacity 8 each per spec)
-    SPSCQueue<CameraFrameData, 8> cam_front_queue_;
-    SPSCQueue<CameraFrameData, 8> cam_side_l_queue_;
-    SPSCQueue<CameraFrameData, 8> cam_side_r_queue_;
-    SPSCQueue<CameraFrameData, 8> cam_rear_queue_;
+    // Front camera detections are the only front-camera payload consumed by the
+    // current production and replay paths.
+    SPSCQueue<DetBatch, 8>        det_front_ds_queue_;
+    SPSCQueue<RcwState, 16>       rcw_queue_;
 
     // Radar queues (capacity 8 each per spec)
     SPSCQueue<RadarTargets, 8> radar_front_queue_;
@@ -130,17 +155,11 @@ class IngestManager {
     //                           INGEST INSTANCES
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // Direct USB cameras
-    std::unique_ptr<CameraIngest> cam_front_;
-    std::unique_ptr<CameraIngest> cam_side_l_;
-    std::unique_ptr<CameraIngest> cam_side_r_;
-
-    // Network ingest (rear sector from Pi4)
-    std::unique_ptr<NetworkIngest> network_;
-
 #ifdef HAS_ZMQ
-    // ZMQ-based network receiver (preferred over TCP NetworkIngest)
+    // ZMQ-based network receiver for Pi RCW/radar/IMU streams.
     std::unique_ptr<NetworkReceiver> zmq_receiver_;
+    // ZMQ-based IPC receiver for DeepStream local detections
+    std::unique_ptr<DeepStreamReceiver> ds_receiver_;
 #endif
 
     // Direct front radar
@@ -151,6 +170,7 @@ class IngestManager {
 
     std::atomic<bool> running_{false};
     bool is_replay_mode_{false};
+    std::string pi_ip_;  ///< Pi IP extracted from hw_map (zmq://IP:PORT format)
 };
 
 } // namespace adas

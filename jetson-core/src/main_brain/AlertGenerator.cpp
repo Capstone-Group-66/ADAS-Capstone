@@ -58,14 +58,13 @@ Alert generateTestAlert(AlertType type, uint32_t sequenceNum) {
 
   case AlertType::RCW:
     alert.direction = "rear";
-    alert.rationale = R"({"ttc_s": 2.1, "in_path": true, "closing": true})";
-    alert.object_id = 17;
-    alert.sources = {"RearCam", "RearCornerRadarL", "RearCornerRadarR"};
+    alert.rationale = R"({"alert": 1, "status": 2})";
+    alert.sources = {"RearRCW"};
     break;
 
   case AlertType::BSD:
     alert.rationale = R"({"zone": "L", "entering": true})";
-    alert.sources = {"SideCamL", "RearCornerRadarL"};
+    alert.sources = {"RearCornerRadarL"};
     break;
   }
 
@@ -143,8 +142,7 @@ json alertToCompactJson(const Alert &alert) {
  *
  * @param tickId Tick counter (wraps at 65536)
  * @param speedKmh Current vehicle speed in km/h
- * @param healthMask Sensor health bitmask (bit0=frontCam, bit1=rearCam,
- * bit2=radar)
+ * @param healthMask Sensor health bitmask (application-defined compact flags)
  * @param bsdMask BSD zone bitmask (bit0=left, bit1=right)
  * @param alerts Vector of alerts to include
  */

@@ -32,7 +32,7 @@ class ReplayEngine {
     bool load(const std::string &path);
 
     /// Start replay (launches replay thread)
-    /// Must call setQueues() first
+    /// Must connect the required queues/callbacks first
     void start();
 
     /// Stop replay
@@ -60,7 +60,8 @@ class ReplayEngine {
     //                    QUEUE CONNECTIONS (set before start())
     // ═════════════════════════════════════════════════════════════════════════
 
-    void setCameraQueue(Mount mount, SPSCQueue<CameraFrameData, 8> *queue);
+    void setFrontDetQueue(SPSCQueue<DetBatch, 8> *queue);
+    void setRcwQueue(SPSCQueue<RcwState, 16> *queue);
     void setRadarQueue(Mount mount, SPSCQueue<RadarTargets, 8> *queue);
     void setIMUQueue(SPSCQueue<ImuSample, 32> *queue);
     void setGpsCallback(std::function<void(float, uint64_t)> cb);
@@ -72,8 +73,14 @@ class ReplayEngine {
     /// Dispatch a single event to the appropriate queue
     void dispatchEvent(const RecordEvent &event);
 
-    /// Decode camera event payload → CameraFrameData and push to queue
+    /// Legacy camera events are ignored; kept only for v1 compatibility.
     void dispatchCamera(const RecordEvent &event);
+
+    /// Decode front detection payload → DetBatch and push to queue
+    void dispatchFrontDetBatch(const RecordEvent &event);
+
+    /// Decode compact RCW payload → RcwState and push to queue
+    void dispatchRcwState(const RecordEvent &event);
 
     /// Decode radar event payload → RadarTargets and push to queue
     void dispatchRadar(const RecordEvent &event);
@@ -91,10 +98,8 @@ class ReplayEngine {
     uint64_t first_event_ts_ = 0;
 
     // Queue pointers
-    SPSCQueue<CameraFrameData, 8> *cam_front_queue_ = nullptr;
-    SPSCQueue<CameraFrameData, 8> *cam_side_l_queue_ = nullptr;
-    SPSCQueue<CameraFrameData, 8> *cam_side_r_queue_ = nullptr;
-    SPSCQueue<CameraFrameData, 8> *cam_rear_queue_ = nullptr;
+    SPSCQueue<DetBatch, 8> *front_det_queue_ = nullptr;
+    SPSCQueue<RcwState, 16> *rcw_queue_ = nullptr;
     SPSCQueue<RadarTargets, 8> *radar_front_queue_ = nullptr;
     SPSCQueue<RadarTargets, 8> *radar_rear_l_queue_ = nullptr;
     SPSCQueue<RadarTargets, 8> *radar_rear_r_queue_ = nullptr;

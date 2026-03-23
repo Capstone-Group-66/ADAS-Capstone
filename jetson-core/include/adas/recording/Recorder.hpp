@@ -17,13 +17,13 @@
 namespace adas {
 
 // ═══════════════════════════════════════════════════════════════════════════════
-//                          .adasrec FILE FORMAT (v1)
+//                        .adasrec FILE FORMAT (v3 current)
 // ═══════════════════════════════════════════════════════════════════════════════
 
 /// File header: 32 bytes
 struct AdasRecFileHeader {
     char magic[4] = {'A', 'R', 'E', 'C'};
-    uint16_t version = 1;
+    uint16_t version = 3;
     uint16_t reserved1 = 0;
     uint64_t start_time_ns = 0;
     uint16_t sensor_mask = 0;
@@ -33,15 +33,17 @@ static_assert(sizeof(AdasRecFileHeader) == 32, "File header must be 32 bytes");
 
 /// Event types — sensor stream IDs
 enum class RecEventType : uint8_t {
-    CameraFront  = 0x01,
-    CameraSideL  = 0x02,
-    CameraSideR  = 0x03,
-    CameraRear   = 0x04,
+    CameraFront  = 0x01, // Legacy v1 only
+    CameraSideL  = 0x02, // Legacy v1 only
+    CameraSideR  = 0x03, // Legacy v1 only
+    CameraRear   = 0x04, // Legacy v1 only
     RadarFront   = 0x10,
     RadarRearL   = 0x11,
     RadarRearR   = 0x12,
     IMU          = 0x20,
     GPS          = 0x30,
+    FrontDetBatch = 0x40,
+    RCWState     = 0x50,
 };
 
 /// Event header: 13 bytes (packed)
@@ -54,16 +56,41 @@ struct RecEventHeader {
 #pragma pack(pop)
 static_assert(sizeof(RecEventHeader) == 13, "Event header must be 13 bytes");
 
-/// Convert Mount enum to RecEventType for cameras
-inline RecEventType mountToCameraEvent(Mount m) {
-    switch (m) {
-    case Mount::FrontCam:  return RecEventType::CameraFront;
-    case Mount::SideCamL:  return RecEventType::CameraSideL;
-    case Mount::SideCamR:  return RecEventType::CameraSideR;
-    case Mount::RearCam:   return RecEventType::CameraRear;
-    default:               return RecEventType::CameraFront;
-    }
-}
+#pragma pack(push, 1)
+struct RecFrontDetBatchHeader {
+    uint32_t num_detections = 0;
+    uint32_t reserved = 0;
+    uint64_t inference_time_us = 0;
+};
+#pragma pack(pop)
+static_assert(sizeof(RecFrontDetBatchHeader) == 16,
+              "Front detection batch header must be 16 bytes");
+
+#pragma pack(push, 1)
+struct RecFrontDet {
+    float x = 0.0f;
+    float y = 0.0f;
+    float w = 0.0f;
+    float h = 0.0f;
+    float centroid_x = 0.0f;
+    float centroid_y = 0.0f;
+    int32_t cls = 0;
+    float score = 0.0f;
+    uint64_t object_id = UINT64_MAX;
+    char sign_label[32] = {};
+};
+#pragma pack(pop)
+static_assert(sizeof(RecFrontDet) == 72,
+              "Front detection record must be 72 bytes");
+
+#pragma pack(push, 1)
+struct RecRcwStatePayload {
+    uint8_t alert = 0;
+    uint8_t status = 0;
+};
+#pragma pack(pop)
+static_assert(sizeof(RecRcwStatePayload) == 2,
+              "RCW state payload must be 2 bytes");
 
 /// Convert Mount enum to RecEventType for radars
 inline RecEventType mountToRadarEvent(Mount m) {
@@ -119,14 +146,6 @@ class Recorder {
     //                    RECORDING METHODS (called from producer threads)
     // ═════════════════════════════════════════════════════════════════════════
 
-    /// Record a camera frame (will be JPEG-encoded on writer thread)
-    void recordCamera(const CameraFrameData &frame, Mount mount);
-
-    /// Record pre-encoded JPEG bytes (for ZMQ path — avoids re-encoding)
-    void recordCameraJpeg(const uint8_t *jpeg, size_t len,
-                          uint64_t timestamp_ns, Mount mount,
-                          uint16_t width, uint16_t height);
-
     /// Record radar targets
     void recordRadar(const RadarTargets &targets);
 
@@ -135,6 +154,12 @@ class Recorder {
 
     /// Record GPS data
     void recordGPS(float speed_mps, uint64_t ts_ms);
+
+    /// Record canonical front-camera detections received from DeepStream IPC
+    void recordFrontDetections(const DetBatch &batch);
+
+    /// Record compact RCW state received from the Pi ZMQ bridge
+    void recordRcwState(const RcwState &state);
 
   private:
     /// Writer thread loop — drains buffer and writes to disk

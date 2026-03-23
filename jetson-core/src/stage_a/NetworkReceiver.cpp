@@ -5,8 +5,6 @@
 #include "adas/common/Globals.hpp"
 #include "adas/recording/Recorder.hpp"
 
-#include <opencv2/imgcodecs.hpp>
-
 #include <chrono>
 #include <cstring>
 #include <iostream>
@@ -36,7 +34,7 @@ std::string NetworkReceiver::buildAddr(int port) const {
   return "tcp://" + pi_ip_ + ":" + std::to_string(port);
 }
 
-bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
+bool NetworkReceiver::start(SPSCQueue<RcwState, 16> *rcw_queue,
                             SPSCQueue<ImuSample, 32> *imu_queue,
                             SPSCQueue<RadarTargets, 8> *radar_l_queue,
                             SPSCQueue<RadarTargets, 8> *radar_r_queue) {
@@ -44,13 +42,13 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
     return true; // Already running
   }
 
-  cam_queue_ = cam_queue;
+  rcw_queue_ = rcw_queue;
   imu_queue_ = imu_queue;
   radar_l_queue_ = radar_l_queue;
   radar_r_queue_ = radar_r_queue;
 
   // Create sockets
-  cam_socket_ = zmq_socket(context_, ZMQ_PULL);
+  rcw_socket_ = zmq_socket(context_, ZMQ_PULL);
   radar_l_socket_ = zmq_socket(context_, ZMQ_PULL);
   radar_r_socket_ = zmq_socket(context_, ZMQ_PULL);
   imu_socket_ = zmq_socket(context_, ZMQ_PULL);
@@ -66,7 +64,7 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
     zmq_setsockopt(sock, ZMQ_RCVTIMEO, &timeout, sizeof(timeout));
   };
 
-  configure_socket(cam_socket_);
+  configure_socket(rcw_socket_);
   configure_socket(radar_l_socket_);
   configure_socket(radar_r_socket_);
   configure_socket(imu_socket_);
@@ -75,8 +73,8 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
   // Connect to Pi (Pi binds, we connect)
   std::cout << "[NetworkReceiver] Connecting to Pi at " << pi_ip_ << "...\n";
 
-  if (zmq_connect(cam_socket_, buildAddr(PORT_REAR_CAM).c_str()) != 0) {
-    std::cerr << "[NetworkReceiver] Failed to connect camera socket\n";
+  if (zmq_connect(rcw_socket_, buildAddr(PORT_RCW).c_str()) != 0) {
+    std::cerr << "[NetworkReceiver] Failed to connect RCW socket\n";
     return false;
   }
   if (zmq_connect(radar_l_socket_, buildAddr(PORT_RADAR_L).c_str()) != 0) {
@@ -114,7 +112,7 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
   running_.store(true);
 
   // Start receiver threads
-  cam_thread_ = std::thread(&NetworkReceiver::cameraThread, this);
+  rcw_thread_ = std::thread(&NetworkReceiver::rcwThread, this);
   radar_l_thread_ = std::thread(&NetworkReceiver::radarLThread, this);
   radar_r_thread_ = std::thread(&NetworkReceiver::radarRThread, this);
   imu_thread_ = std::thread(&NetworkReceiver::imuThread, this);
@@ -131,8 +129,8 @@ void NetworkReceiver::stop() {
   running_.store(false);
 
   // Wait for threads
-  if (cam_thread_.joinable())
-    cam_thread_.join();
+  if (rcw_thread_.joinable())
+    rcw_thread_.join();
   if (radar_l_thread_.joinable())
     radar_l_thread_.join();
   if (radar_r_thread_.joinable())
@@ -143,9 +141,9 @@ void NetworkReceiver::stop() {
     heartbeat_thread_.join();
 
   // Close sockets
-  if (cam_socket_) {
-    zmq_close(cam_socket_);
-    cam_socket_ = nullptr;
+  if (rcw_socket_) {
+    zmq_close(rcw_socket_);
+    rcw_socket_ = nullptr;
   }
   if (radar_l_socket_) {
     zmq_close(radar_l_socket_);
@@ -167,17 +165,17 @@ void NetworkReceiver::stop() {
   std::cout << "[NetworkReceiver] Stopped\n";
 }
 
-void NetworkReceiver::cameraThread() {
-  std::vector<uint8_t> buffer(1024 * 1024); // 1MB buffer
+void NetworkReceiver::rcwThread() {
+  std::vector<uint8_t> buffer(256);
 
   while (running_.load()) {
-    int len = zmq_recv(cam_socket_, buffer.data(), buffer.size(), 0);
+    int len = zmq_recv(rcw_socket_, buffer.data(), buffer.size(), 0);
     if (len < 0) {
       continue; // Timeout or error
     }
 
     if (static_cast<size_t>(len) <
-        sizeof(PiMessageHeader) + sizeof(CameraPayloadHeader)) {
+        sizeof(PiMessageHeader) + sizeof(RcwPayload)) {
       stats_.errors++;
       continue;
     }
@@ -186,70 +184,57 @@ void NetworkReceiver::cameraThread() {
     PiMessageHeader header;
     std::memcpy(&header, buffer.data(), sizeof(header));
 
-    if (!validateHeader(header) || static_cast<MessageType>(header.msg_type) !=
-                                       MessageType::REAR_CAM_FRAME) {
+    if (!validateHeader(header) ||
+        static_cast<MessageType>(header.msg_type) != MessageType::RCW_STATE) {
       stats_.errors++;
       continue;
     }
 
     // Check for drops
-    if (stats_.cam_frames > 0 && header.sequence != last_cam_seq_ + 1) {
-      stats_.drops += header.sequence - last_cam_seq_ - 1;
+    if (stats_.rcw_packets > 0 && header.sequence != last_rcw_seq_ + 1) {
+      stats_.drops += header.sequence - last_rcw_seq_ - 1;
     }
-    last_cam_seq_ = header.sequence;
+    last_rcw_seq_ = header.sequence;
 
-    // Parse camera payload
-    CameraPayloadHeader cam_header;
-    std::memcpy(&cam_header, buffer.data() + sizeof(PiMessageHeader),
-                sizeof(cam_header));
-
-    // Decode MJPEG to cv::Mat
-    size_t jpeg_offset = sizeof(PiMessageHeader) + sizeof(CameraPayloadHeader);
-    size_t jpeg_size = header.payload_size - sizeof(CameraPayloadHeader);
-
-    std::vector<uint8_t> jpeg_data(buffer.data() + jpeg_offset,
-                                   buffer.data() + jpeg_offset + jpeg_size);
-    cv::Mat frame = cv::imdecode(jpeg_data, cv::IMREAD_COLOR);
-
-    if (frame.empty()) {
+    if (header.payload_size != sizeof(RcwPayload) ||
+        static_cast<size_t>(len) <
+            sizeof(PiMessageHeader) + sizeof(RcwPayload)) {
       stats_.errors++;
       continue;
     }
 
-    // Timestamp this frame with the Jetson clock at the moment of arrival.
-    // Do NOT use the Pi's header.timestamp_ns here — the Pi runs its own
-    // (potentially unsynchronised) clock. All recording timestamps must use
-    // the Jetson's CLOCK_MONOTONIC_RAW so they are aligned with USB-camera
-    // and radar events recorded on the same timeline.
     const uint64_t jetson_arrival_ns = Clock::now_ns();
+    RcwPayload rcw_payload{};
+    std::memcpy(&rcw_payload, buffer.data() + sizeof(PiMessageHeader),
+                sizeof(rcw_payload));
 
-    // Create CameraFrameData and push to queue
-    if (cam_queue_) {
-      CameraFrameData frame_data;
-      frame_data.h.mount = Mount::RearCam;
-      frame_data.h.seq = header.sequence;
-      frame_data.h.t_device_ns =
-          header.timestamp_ns; // Pi's original timestamp (for reference only)
-      frame_data.h.t_ingest_ns = jetson_arrival_ns; // Jetson authoritative time
-      frame_data.frame = frame.clone();
+    RcwState rcw_state;
+    rcw_state.h.mount = Mount::RearCam;
+    rcw_state.h.seq = header.sequence;
+    rcw_state.h.t_device_ns = header.timestamp_ns;
+    rcw_state.h.t_ingest_ns = jetson_arrival_ns;
+    rcw_state.h.healthy = true;
+    rcw_state.alert = rcw_payload.alert;
+    rcw_state.status = rcw_payload.status;
 
-      // Record pre-decode JPEG with Jetson arrival time
-      if (auto *rec = recorder_.load(std::memory_order_acquire)) {
-        rec->recordCameraJpeg(jpeg_data.data(), jpeg_data.size(),
-                              jetson_arrival_ns, Mount::RearCam,
-                              static_cast<uint16_t>(frame.cols),
-                              static_cast<uint16_t>(frame.rows));
-      }
-
-      cam_queue_->try_push(std::move(frame_data));
+    if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+      rec->recordRcwState(rcw_state);
     }
 
-    stats_.cam_frames++;
+    if (rcw_queue_) {
+      rcw_queue_->try_push(std::move(rcw_state));
+    }
+
+    stats_.rcw_packets++;
   }
 }
 
 void NetworkReceiver::radarLThread() {
-  std::vector<uint8_t> buffer(4096);
+  // Pi BSD_STRUCT = struct.Struct("<B") — exactly 1 byte of presence flag.
+  // There is no RadarPayloadHeader and no range_cm field on the wire.
+  // The old code expected payload_size >= 7, silently dropping every packet.
+  constexpr size_t BSD_PAYLOAD_SIZE = 1;
+  std::vector<uint8_t> buffer(256);
 
   while (running_.load()) {
     int len = zmq_recv(radar_l_socket_, buffer.data(), buffer.size(), 0);
@@ -270,54 +255,51 @@ void NetworkReceiver::radarLThread() {
       continue;
     }
 
-    // Check drops
     if (stats_.radar_l_packets > 0 &&
         header.sequence != last_radar_l_seq_ + 1) {
       stats_.drops += header.sequence - last_radar_l_seq_ - 1;
     }
     last_radar_l_seq_ = header.sequence;
 
-    // Parse radar payload
-    // Using simple format: [presence | range_cm (2 bytes)] from
-    // RadarPayloadHeader + raw bytes
-    size_t payload_size = header.payload_size;
-    if (payload_size >= sizeof(RadarPayloadHeader) + 3) {
-      RadarPayloadHeader rad_header;
-      std::memcpy(&rad_header, buffer.data() + sizeof(PiMessageHeader),
-                  sizeof(rad_header));
+    // Validate: payload must be exactly 1 byte (BSD presence flag)
+    if (header.payload_size != BSD_PAYLOAD_SIZE ||
+        static_cast<size_t>(len) < sizeof(PiMessageHeader) + BSD_PAYLOAD_SIZE) {
+      std::cerr << "[RadarL] Dropped packet: unexpected payload_size="
+                << header.payload_size << " (expected 1)\n";
+      stats_.errors++;
+      stats_.radar_l_packets++;
+      continue;
+    }
 
-      const uint8_t *raw_data =
-          buffer.data() + sizeof(PiMessageHeader) + sizeof(RadarPayloadHeader);
+    const uint8_t presence = buffer[sizeof(PiMessageHeader)];
+    const uint64_t jetson_arrival_ns = Clock::now_ns();
 
-      uint8_t presence = raw_data[0];
-      uint16_t range_cm = raw_data[1] | (raw_data[2] << 8);
+    if (radar_l_queue_) {
+      RadarTargets targets;
+      targets.h.mount = Mount::RearCornerRadarL;
+      targets.h.seq = header.sequence;
+      targets.h.t_device_ns = header.timestamp_ns;
+      targets.h.t_ingest_ns = jetson_arrival_ns;
+      targets.h.healthy = true;
 
-      if (presence > 0 && range_cm > 0 && radar_l_queue_) {
-        const uint64_t jetson_arrival_ns = Clock::now_ns();
-        RadarTargets targets;
-        targets.h.mount = Mount::RearCornerRadarL;
-        targets.h.seq = header.sequence;
-        targets.h.t_device_ns = header.timestamp_ns;
-        targets.h.t_ingest_ns = jetson_arrival_ns;
-        targets.h.healthy = true;
-
+      if (presence > 0) {
+        // Pi confirmed presence — push a dummy 1m target to signal BSD active
         RadarTarget target;
-        target.range_m = static_cast<float>(range_cm) / 100.0f;
+        target.range_m = 1.0f; // Pi radar is a presence sensor; no real range
         target.azimuth_rad = 0.0f;
         target.radial_vel_mps = 0.0f;
         target.rcs_db = 0.0f;
         target.sigma_r = 0.1f;
         target.sigma_az = 0.5f;
         target.sigma_v = 1.0f;
-
         targets.targets.push_back(target);
-
-        if (auto *rec = recorder_.load(std::memory_order_acquire)) {
-          rec->recordRadar(targets);
-        }
-
-        radar_l_queue_->try_push(std::move(targets));
       }
+      // presence == 0: push empty targets so downstream can clear the BSD latch
+
+      if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+        rec->recordRadar(targets);
+      }
+      radar_l_queue_->try_push(std::move(targets));
     }
 
     stats_.radar_l_packets++;
@@ -325,7 +307,9 @@ void NetworkReceiver::radarLThread() {
 }
 
 void NetworkReceiver::radarRThread() {
-  std::vector<uint8_t> buffer(4096);
+  // Mirrors radarLThread — same Pi BSD_STRUCT (1-byte presence flag).
+  constexpr size_t BSD_PAYLOAD_SIZE = 1;
+  std::vector<uint8_t> buffer(256);
 
   while (running_.load()) {
     int len = zmq_recv(radar_r_socket_, buffer.data(), buffer.size(), 0);
@@ -352,45 +336,42 @@ void NetworkReceiver::radarRThread() {
     }
     last_radar_r_seq_ = header.sequence;
 
-    // Parse radar payload
-    size_t payload_size = header.payload_size;
-    if (payload_size >= sizeof(RadarPayloadHeader) + 3) {
-      RadarPayloadHeader rad_header;
-      std::memcpy(&rad_header, buffer.data() + sizeof(PiMessageHeader),
-                  sizeof(rad_header));
+    if (header.payload_size != BSD_PAYLOAD_SIZE ||
+        static_cast<size_t>(len) < sizeof(PiMessageHeader) + BSD_PAYLOAD_SIZE) {
+      std::cerr << "[RadarR] Dropped packet: unexpected payload_size="
+                << header.payload_size << " (expected 1)\n";
+      stats_.errors++;
+      stats_.radar_r_packets++;
+      continue;
+    }
 
-      const uint8_t *raw_data =
-          buffer.data() + sizeof(PiMessageHeader) + sizeof(RadarPayloadHeader);
+    const uint8_t presence = buffer[sizeof(PiMessageHeader)];
+    const uint64_t jetson_arrival_ns = Clock::now_ns();
 
-      uint8_t presence = raw_data[0];
-      uint16_t range_cm = raw_data[1] | (raw_data[2] << 8);
+    if (radar_r_queue_) {
+      RadarTargets targets;
+      targets.h.mount = Mount::RearCornerRadarR;
+      targets.h.seq = header.sequence;
+      targets.h.t_device_ns = header.timestamp_ns;
+      targets.h.t_ingest_ns = jetson_arrival_ns;
+      targets.h.healthy = true;
 
-      if (presence > 0 && range_cm > 0 && radar_r_queue_) {
-        const uint64_t jetson_arrival_ns = Clock::now_ns();
-        RadarTargets targets;
-        targets.h.mount = Mount::RearCornerRadarR;
-        targets.h.seq = header.sequence;
-        targets.h.t_device_ns = header.timestamp_ns;
-        targets.h.t_ingest_ns = jetson_arrival_ns;
-        targets.h.healthy = true;
-
+      if (presence > 0) {
         RadarTarget target;
-        target.range_m = static_cast<float>(range_cm) / 100.0f;
+        target.range_m = 1.0f;
         target.azimuth_rad = 0.0f;
         target.radial_vel_mps = 0.0f;
         target.rcs_db = 0.0f;
         target.sigma_r = 0.1f;
         target.sigma_az = 0.5f;
         target.sigma_v = 1.0f;
-
         targets.targets.push_back(target);
-
-        if (auto *rec = recorder_.load(std::memory_order_acquire)) {
-          rec->recordRadar(targets);
-        }
-
-        radar_r_queue_->try_push(std::move(targets));
       }
+
+      if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+        rec->recordRadar(targets);
+      }
+      radar_r_queue_->try_push(std::move(targets));
     }
 
     stats_.radar_r_packets++;
@@ -398,6 +379,8 @@ void NetworkReceiver::radarRThread() {
 }
 
 void NetworkReceiver::imuThread() {
+  // Buffer must accommodate: PiMessageHeader (32 bytes) + ImuPayload (60 bytes)
+  // The new ImuPitchPayload (4 bytes) fits within that easily.
   std::vector<uint8_t> buffer(256);
 
   // Debug: track samples received in last 5 seconds
@@ -409,7 +392,7 @@ void NetworkReceiver::imuThread() {
   while (running_.load()) {
     int len = zmq_recv(imu_socket_, buffer.data(), buffer.size(), 0);
     if (len < 0) {
-      // Check debug timer even on timeout (only if verbose mode enabled)
+      // Timeout or error — just check debug timer
       if (g_verbose_mode.load()) {
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
@@ -430,8 +413,8 @@ void NetworkReceiver::imuThread() {
       continue;
     }
 
-    if (static_cast<size_t>(len) <
-        sizeof(PiMessageHeader) + sizeof(ImuPayload)) {
+    // ── Minimum size check: must contain at least the 32-byte header ──
+    if (static_cast<size_t>(len) < sizeof(PiMessageHeader)) {
       stats_.errors++;
       errors_in_window++;
       continue;
@@ -447,49 +430,146 @@ void NetworkReceiver::imuThread() {
       continue;
     }
 
-    if (stats_.imu_samples > 0 && header.sequence != last_imu_seq_ + 1) {
-      stats_.drops += header.sequence - last_imu_seq_ - 1;
-    }
-    last_imu_seq_ = header.sequence;
+    // ── Dispatch by payload_size ──────────────────────────────────────────
+    //
+    //  payload_size == 8  → ImuPitchRollPayload  (Pi IMU_STRUCT = "<ff":
+    //  pitch+roll) payload_size == 4  → ImuPitchPayload      (legacy
+    //  pitch-only, kept for compat) payload_size == 60 → ImuPayload (full
+    //  BNO085 sample) anything else      → drop with error
 
-    // Parse IMU payload
-    ImuPayload imu_payload;
-    std::memcpy(&imu_payload, buffer.data() + sizeof(PiMessageHeader),
-                sizeof(imu_payload));
-
-    // Create ImuSample and push to queue
-    if (imu_queue_) {
-      // Use Jetson's clock at arrival time as the authoritative timestamp.
-      // sample.t_capture (Pi clock corrected for latency) is kept for data
-      // integrity but MUST NOT be used for recording — the Pi's wall clock
-      // may be unsynchronised from the Jetson's CLOCK_MONOTONIC_RAW.
-      const uint64_t jetson_arrival_ns = Clock::now_ns();
-
-      ImuSample sample;
-      sample.t_capture = jetson_arrival_ns;
-      sample.accel = {imu_payload.accel_x, imu_payload.accel_y,
-                      imu_payload.accel_z};
-      sample.gyro = {imu_payload.gyro_x, imu_payload.gyro_y,
-                     imu_payload.gyro_z};
-      sample.mag = {imu_payload.mag_x, imu_payload.mag_y, imu_payload.mag_z};
-      sample.quat = {imu_payload.quat_w, imu_payload.quat_x, imu_payload.quat_y,
-                     imu_payload.quat_z};
-      sample.temperature = imu_payload.temperature;
-      sample.calibration_status = imu_payload.calibration_status;
-
-      // Record with Jetson arrival time
-      if (auto *rec = recorder_.load(std::memory_order_acquire)) {
-        rec->recordIMU(sample);
+    if (header.payload_size == sizeof(ImuPitchRollPayload)) {
+      // ── PRIMARY: Pitch + Roll (8 bytes) ─────────────────────────────────
+      // Pi sends: IMU_STRUCT = struct.Struct("<ff") → theta, phi
+      if (static_cast<size_t>(len) <
+          sizeof(PiMessageHeader) + sizeof(ImuPitchRollPayload)) {
+        std::cerr << "[IMU] Dropped pitch+roll packet: frame too short (" << len
+                  << " bytes)\\n";
+        stats_.errors++;
+        errors_in_window++;
+        continue;
       }
 
-      imu_queue_->try_push(std::move(sample));
-      last_accel_z = imu_payload.accel_z;
+      ImuPitchRollPayload pr;
+      std::memcpy(&pr, buffer.data() + sizeof(PiMessageHeader),
+                  sizeof(ImuPitchRollPayload));
+
+      // Sanity: pitch within ±π/2, roll within ±π
+      if (!std::isfinite(pr.theta_radians) ||
+          std::abs(pr.theta_radians) > (float)M_PI_2) {
+        std::cerr << "[IMU] Dropped: theta out of range (" << pr.theta_radians
+                  << " rad)\\n";
+        stats_.errors++;
+        errors_in_window++;
+        continue;
+      }
+      if (!std::isfinite(pr.phi_radians) ||
+          std::abs(pr.phi_radians) > (float)M_PI) {
+        std::cerr << "[IMU] Dropped: phi out of range (" << pr.phi_radians
+                  << " rad)\\n";
+        stats_.errors++;
+        errors_in_window++;
+        continue;
+      }
+
+      latest_pitch_rad_.store(pr.theta_radians, std::memory_order_relaxed);
+      latest_roll_rad_.store(pr.phi_radians, std::memory_order_relaxed);
+
+      if (g_verbose_mode.load()) {
+        std::cout << "[IMU] θ=" << pr.theta_radians
+                  << " rad  φ=" << pr.phi_radians << " rad\n";
+      }
+
+      stats_.imu_samples++;
+      samples_in_window++;
+
+    } else if (header.payload_size == sizeof(ImuPitchPayload)) {
+      // ── LEGACY: Pitch-only (4 bytes) ─────────────────────────────────────
+      if (static_cast<size_t>(len) <
+          sizeof(PiMessageHeader) + sizeof(ImuPitchPayload)) {
+        std::cerr << "[IMU] Dropped pitch packet: frame too short (" << len
+                  << " bytes, expected "
+                  << sizeof(PiMessageHeader) + sizeof(ImuPitchPayload) << ")\n";
+        stats_.errors++;
+        errors_in_window++;
+        continue;
+      }
+
+      ImuPitchPayload pitch_payload;
+      std::memcpy(&pitch_payload, buffer.data() + sizeof(PiMessageHeader),
+                  sizeof(ImuPitchPayload));
+
+      if (!std::isfinite(pitch_payload.theta_radians) ||
+          std::abs(pitch_payload.theta_radians) > (float)M_PI_2) {
+        std::cerr << "[IMU] Dropped pitch packet: theta out of range ("
+                  << pitch_payload.theta_radians << " rad)\n";
+        stats_.errors++;
+        errors_in_window++;
+        continue;
+      }
+
+      latest_pitch_rad_.store(pitch_payload.theta_radians,
+                              std::memory_order_relaxed);
+
+      if (g_verbose_mode.load()) {
+        std::cout << "[IMU] pitch update: θ=" << pitch_payload.theta_radians
+                  << " rad ("
+                  << pitch_payload.theta_radians * 180.f / (float)M_PI
+                  << "°)\n";
+      }
+
+    } else if (header.payload_size == sizeof(ImuPayload)) {
+      // ── EXISTING: Full 60-byte BNO085 IMU sample (unchanged path) ────
+      if (static_cast<size_t>(len) <
+          sizeof(PiMessageHeader) + sizeof(ImuPayload)) {
+        stats_.errors++;
+        errors_in_window++;
+        continue;
+      }
+
+      if (stats_.imu_samples > 0 && header.sequence != last_imu_seq_ + 1) {
+        stats_.drops += header.sequence - last_imu_seq_ - 1;
+      }
+      last_imu_seq_ = header.sequence;
+
+      ImuPayload imu_payload;
+      std::memcpy(&imu_payload, buffer.data() + sizeof(PiMessageHeader),
+                  sizeof(imu_payload));
+
+      if (imu_queue_) {
+        const uint64_t jetson_arrival_ns = Clock::now_ns();
+
+        ImuSample sample;
+        sample.t_capture = jetson_arrival_ns;
+        sample.accel = {imu_payload.accel_x, imu_payload.accel_y,
+                        imu_payload.accel_z};
+        sample.gyro = {imu_payload.gyro_x, imu_payload.gyro_y,
+                       imu_payload.gyro_z};
+        sample.mag = {imu_payload.mag_x, imu_payload.mag_y, imu_payload.mag_z};
+        sample.quat = {imu_payload.quat_w, imu_payload.quat_x,
+                       imu_payload.quat_y, imu_payload.quat_z};
+        sample.temperature = imu_payload.temperature;
+        sample.calibration_status = imu_payload.calibration_status;
+
+        if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+          rec->recordIMU(sample);
+        }
+
+        imu_queue_->try_push(std::move(sample));
+        last_accel_z = imu_payload.accel_z;
+      }
+
+      stats_.imu_samples++;
+      samples_in_window++;
+
+    } else {
+      // Unknown payload size — drop and warn
+      std::cerr << "[IMU] Dropped packet: unexpected payload_size="
+                << header.payload_size << " (expected 8)\n";
+      stats_.errors++;
+      errors_in_window++;
     }
 
-    stats_.imu_samples++;
-    samples_in_window++;
-
-    // Debug output every 5 seconds (only if verbose mode enabled)
+    // Debug output every 5 seconds
     if (g_verbose_mode.load()) {
       auto now = std::chrono::steady_clock::now();
       auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(

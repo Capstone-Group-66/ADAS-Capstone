@@ -50,26 +50,20 @@ set(COMMON_SOURCES
 )
 
 set(STAGE_A_SOURCES
-    src/stage_a/CameraIngest.cpp
     src/stage_a/CameraCalibrator.cpp
     src/stage_a/DeviceWizard.cpp
-    src/stage_a/NetworkIngest.cpp
+    src/stage_a/NetworkReceiver.cpp
+    src/stage_a/DeepStreamReceiver.cpp
+    src/stage_a/BSDReceiver.cpp
     src/stage_a/RadarIngest.cpp
     src/stage_a/IngestManager.cpp
-)
-
-set(STAGE_B_SOURCES
-    src/stage_b/CameraPreprocessor.cpp
-    src/stage_b/ObjectDetector.cpp
-    src/stage_b/ObjectTracker.cpp
-    src/stage_b/CameraPipeline.cpp
 )
 
 set(STAGE_E_SOURCES
     src/stage_e/SensorFusion.cpp
     src/stage_e/FCWMonitor.cpp
-    src/stage_e/Track.cpp
     src/stage_e/EgoFrame.cpp
+    src/stage_e/BEVDashboard.cpp
 )
 
 # Main brain sources needed by jetson_core for BLE
@@ -88,7 +82,6 @@ add_executable(jetson_core
     src/main.cpp
     ${COMMON_SOURCES}
     ${STAGE_A_SOURCES}
-    ${STAGE_B_SOURCES}
     ${STAGE_E_SOURCES}
     ${MAIN_BRAIN_SOURCES}
     ${RECORDING_SOURCES}
@@ -102,23 +95,6 @@ target_link_libraries(jetson_core
     Threads::Threads
     $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:stdc++fs>
 )
-
-# TensorRT support (Jetson only)
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-    find_library(NVINFER_LIB nvinfer HINTS /usr/lib/aarch64-linux-gnu)
-    find_library(CUDA_RT_LIB cudart HINTS /usr/local/cuda/lib64)
-    
-    if(NVINFER_LIB AND CUDA_RT_LIB)
-        message(STATUS "TensorRT found: ${NVINFER_LIB}")
-        target_link_libraries(jetson_core ${NVINFER_LIB} ${CUDA_RT_LIB})
-        target_include_directories(jetson_core PRIVATE 
-            /usr/include/aarch64-linux-gnu
-            /usr/local/cuda/include
-        )
-    else()
-        message(WARNING "TensorRT not found - ObjectDetector will be disabled")
-    endif()
-endif()
 
 if(MSVC)
     target_compile_definitions(jetson_core PRIVATE _CRT_SECURE_NO_WARNINGS)
@@ -176,6 +152,49 @@ if(BUILD_TESTS)
     add_executable(test_config tests/test_config.cpp ${COMMON_SOURCES})
     target_link_libraries(test_config Threads::Threads)
     add_test(NAME test_config COMMAND test_config)
+
+    # Test Radar Ingest
+    add_executable(test_radar_ingest tests/test_radar_ingest.cpp src/stage_a/RadarIngest.cpp ${RECORDING_SOURCES} ${COMMON_SOURCES})
+    target_include_directories(test_radar_ingest PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
+    target_link_libraries(test_radar_ingest Threads::Threads)
+    if(yaml-cpp_FOUND)
+        target_link_libraries(test_radar_ingest yaml-cpp)
+    endif()
+    add_test(NAME test_radar_ingest COMMAND test_radar_ingest)
+
+    # Test BEV dashboard math/lifecycle helpers
+    add_executable(test_bev_dashboard tests/test_bev_dashboard.cpp)
+    target_link_libraries(test_bev_dashboard Threads::Threads)
+    add_test(NAME test_bev_dashboard COMMAND test_bev_dashboard)
+
+    # Test asynchronous SensorFusion EKF + aggressive association
+    add_executable(test_sensor_fusion_async
+        tests/test_sensor_fusion_async.cpp
+        src/stage_e/SensorFusion.cpp
+        ${COMMON_SOURCES}
+    )
+    target_link_libraries(test_sensor_fusion_async Threads::Threads ${OpenCV_LIBS})
+    add_test(NAME test_sensor_fusion_async COMMAND test_sensor_fusion_async)
+
+    # Test FCW v3 camera-hold suppression behavior
+    add_executable(test_fcw_monitor_v3
+        tests/test_fcw_monitor_v3.cpp
+        src/stage_e/FCWMonitor.cpp
+        ${COMMON_SOURCES}
+    )
+    target_link_libraries(test_fcw_monitor_v3 Threads::Threads)
+    add_test(NAME test_fcw_monitor_v3 COMMAND test_fcw_monitor_v3)
+
+    # Test replay/record round-trip for front DeepStream detections
+    add_executable(test_replay_front_dets
+        tests/test_replay_front_dets.cpp
+        src/recording/Recorder.cpp
+        src/recording/ReplayEngine.cpp
+        ${COMMON_SOURCES}
+    )
+    target_include_directories(test_replay_front_dets PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/vendor)
+    target_link_libraries(test_replay_front_dets Threads::Threads ${OpenCV_LIBS})
+    add_test(NAME test_replay_front_dets COMMAND test_replay_front_dets)
 endif()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -201,23 +220,10 @@ endif()
 if(ZMQ_FOUND)
     message(STATUS "ZeroMQ found: ${ZMQ_LIBRARIES}")
     
-    # Standalone receiver executable (for debugging)
-    add_executable(jetson_receiver
-        scripts/jetson_receiver.cpp
-    )
-    target_include_directories(jetson_receiver PRIVATE 
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${ZMQ_INCLUDE_DIRS}
-    )
-    target_link_libraries(jetson_receiver
-        ${ZMQ_LIBRARIES}
-        Threads::Threads
-        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:stdc++fs>
-    )
-    
     # Network receiver integrated with pipeline
     add_library(network_receiver STATIC
         src/stage_a/NetworkReceiver.cpp
+        src/stage_a/DeepStreamReceiver.cpp
         ${RECORDING_SOURCES}
     )
     target_include_directories(network_receiver PRIVATE
@@ -238,8 +244,6 @@ if(ZMQ_FOUND)
     # Link network_receiver to device_wizard for discovery
     target_link_libraries(device_wizard network_receiver)
     target_compile_definitions(device_wizard PRIVATE HAS_ZMQ)
-    
-    install(TARGETS jetson_receiver DESTINATION bin)
 else()
     message(STATUS "ZeroMQ NOT found - Pi4 network integration disabled")
     message(STATUS "  Install with: sudo apt install libzmq3-dev")

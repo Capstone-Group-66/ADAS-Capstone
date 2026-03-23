@@ -8,10 +8,10 @@
 #include "adas/common/Types.hpp"
 #include "adas/queues/SPSCQueue.hpp"
 
-#include <atomic>
 #include <string>
 #include <thread>
 #include <vector>
+#include <fstream>
 
 namespace adas {
 
@@ -63,8 +63,16 @@ class RadarIngest {
         uint64_t bytes_received;
         uint64_t errors;
         double rate_hz;
+        double range_hz;
+        double speed_event_hz;
+        double fused_with_fresh_speed_ratio;
+        double stale_speed_ratio;
+        uint64_t parse_error_count;
     };
     Stats getStats() const;
+
+    /// Parse raw bytes into RadarTargets (public for unit testing)
+    RadarTargets parseFrame(const uint8_t *data, size_t len, uint64_t t_ingest);
 
   private:
     /// Thread entry point
@@ -73,11 +81,16 @@ class RadarIngest {
     /// Setup serial port with termios
     bool setupSerialPort();
 
-    /// Read complete frame from serial
-    bool readFrame(std::vector<uint8_t> &buffer);
+    /// Read available bytes from serial.
+    /// Return value:
+    ///   1  = data read
+    ///   0  = timeout/no data
+    ///  -1  = recoverable read error (keep fd open)
+    ///  -2  = disconnect/re-enumeration detected (fd should be reopened)
+    int readFrame(std::vector<uint8_t> &buffer);
 
-    /// Parse raw bytes into RadarTargets
-    RadarTargets parseFrame(const uint8_t *data, size_t len, uint64_t t_ingest);
+    /// Close active serial fd if open.
+    void closeSerialFd();
 
     Mount mount_;
     std::string port_;
@@ -99,6 +112,32 @@ class RadarIngest {
     uint64_t last_rate_time_{0};
     uint64_t frames_in_window_{0};
     std::atomic<double> rate_hz_{0.0};
+
+    // Extended Stats
+    std::atomic<uint64_t> parse_error_count_{0};
+    std::atomic<uint64_t> range_events_window_{0};
+    std::atomic<uint64_t> speed_events_window_{0};
+    std::atomic<uint64_t> fused_fresh_window_{0};
+    std::atomic<uint64_t> fused_stale_window_{0};
+    
+    std::atomic<double> range_hz_{0.0};
+    std::atomic<double> speed_event_hz_{0.0};
+    std::atomic<double> fused_with_fresh_speed_ratio_{0.0};
+    std::atomic<double> stale_speed_ratio_{0.0};
+
+    // Fusion holding parameters
+    float last_speed_mps_{0.0f};
+    uint64_t last_speed_ts_monotonic_{0};
+    std::string line_buffer_; // For assembling JSON lines
+    bool combined_native_mode_{false};
+
+    // Reconnect/watchdog
+    uint64_t last_data_time_ns_{0};
+    uint64_t last_connect_attempt_ns_{0};
+    uint32_t reconnect_backoff_ms_{200};
+
+    // Raw CSV Logger
+    std::ofstream raw_csv_file_;
 
     // Optional recorder for data capture
     Recorder *recorder_ = nullptr;

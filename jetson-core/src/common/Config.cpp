@@ -2,6 +2,8 @@
 // Configuration loader implementation
 #include "adas/common/Config.hpp"
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -30,6 +32,16 @@ std::string readFile(const std::string &path) {
   return buffer.str();
 }
 
+std::string normalizeRadarOutputMode(std::string value) {
+  std::transform(
+      value.begin(), value.end(), value.begin(),
+      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  if (value == "combined_native") {
+    return "combined_native";
+  }
+  return "split_range";
+}
+
 } // namespace
 
 namespace adas {
@@ -44,6 +56,7 @@ Config ConfigLoader::loadConfig(const std::string &path) {
   std::istringstream stream(content);
   std::string line;
   std::string current_section; // Track which section we're in
+  std::string current_mount;   // Track which mount subsection we're in
 
   while (std::getline(stream, line)) {
     // Check indentation to determine if this is a section header
@@ -67,6 +80,9 @@ Config ConfigLoader::loadConfig(const std::string &path) {
     if (value.empty() || value[0] == '#') {
       if (indent == 0) {
         current_section = key;
+        current_mount = "";
+      } else if (current_section == "mounts" && indent > 0) {
+        current_mount = key;
       }
       continue;
     }
@@ -96,10 +112,6 @@ Config ConfigLoader::loadConfig(const std::string &path) {
         config.cameras.width = std::stoi(value);
       } else if (key == "height") {
         config.cameras.height = std::stoi(value);
-      } else if (key == "side_width") {
-        config.cameras.side_width = std::stoi(value);
-      } else if (key == "side_height") {
-        config.cameras.side_height = std::stoi(value);
       } else if (key == "target_fps") {
         config.cameras.target_fps = std::stoi(value);
       } else if (key == "use_mjpeg") {
@@ -124,6 +136,52 @@ Config ConfigLoader::loadConfig(const std::string &path) {
         config.front_radar.baud_rate = std::stoi(value);
       } else if (key == "poll_timeout_ms") {
         config.front_radar.poll_timeout_ms = std::stoi(value);
+      } else if (key == "output_mode") {
+        config.front_radar.output_mode = normalizeRadarOutputMode(value);
+      } else if (key == "speed_ttl_ms") {
+        config.front_radar.speed_ttl_ms = std::stoi(value);
+      } else if (key == "speed_mag_threshold") {
+        config.front_radar.speed_mag_threshold = std::stoi(value);
+      } else if (key == "range_mag_threshold") {
+        config.front_radar.range_mag_threshold = std::stoi(value);
+      } else if (key == "profile") {
+        config.front_radar.profile = value;
+      }
+    }
+    // Stage E fusion config
+    else if (current_section == "stage_e_fusion") {
+      if (key == "ttc_aggressive_s") {
+        config.stage_e_fusion.ttc_aggressive_s = std::stof(value);
+      } else if (key == "camera_hold_ms") {
+        config.stage_e_fusion.camera_hold_ms = std::stoi(value);
+      } else if (key == "radar_hold_ms") {
+        config.stage_e_fusion.radar_hold_ms = std::stoi(value);
+      } else if (key == "track_cleanup_ms") {
+        config.stage_e_fusion.track_cleanup_ms = std::stoi(value);
+      } else if (key == "predicted_camera_threshold_ms") {
+        config.stage_e_fusion.predicted_camera_threshold_ms = std::stoi(value);
+      } else if (key == "normal_angle_gate_deg") {
+        config.stage_e_fusion.normal_angle_gate_deg = std::stof(value);
+      } else if (key == "aggressive_angle_gate_deg") {
+        config.stage_e_fusion.aggressive_angle_gate_deg = std::stof(value);
+      } else if (key == "aggressive_range_scale") {
+        config.stage_e_fusion.aggressive_range_scale = std::stof(value);
+      } else if (key == "ekf_q_z") {
+        config.stage_e_fusion.ekf_q_z = std::stof(value);
+      } else if (key == "ekf_q_vz") {
+        config.stage_e_fusion.ekf_q_vz = std::stof(value);
+      } else if (key == "ekf_q_theta") {
+        config.stage_e_fusion.ekf_q_theta = std::stof(value);
+      } else if (key == "ekf_q_theta_dot") {
+        config.stage_e_fusion.ekf_q_theta_dot = std::stof(value);
+      } else if (key == "ekf_r_radar_z") {
+        config.stage_e_fusion.ekf_r_radar_z = std::stof(value);
+      } else if (key == "ekf_r_radar_vz") {
+        config.stage_e_fusion.ekf_r_radar_vz = std::stof(value);
+      } else if (key == "ekf_r_cam_theta") {
+        config.stage_e_fusion.ekf_r_cam_theta = std::stof(value);
+      } else if (key == "ekf_r_cam_z_weak") {
+        config.stage_e_fusion.ekf_r_cam_z_weak = std::stof(value);
       }
     }
     // IMU config
@@ -136,9 +194,184 @@ Config ConfigLoader::loadConfig(const std::string &path) {
         config.imu.bus = value;
       }
     }
+    // Mounts config
+    else if (current_section == "mounts" && !current_mount.empty()) {
+      if (key == "xyz_m" && current_mount == "FrontCam") {
+        if (value.size() >= 2 && value.front() == '[' && value.back() == ']') {
+          std::string inner = value.substr(1, value.size() - 2);
+          std::stringstream ss(inner);
+          std::string item;
+          int i = 0;
+          while (std::getline(ss, item, ',') && i < 3) {
+            config.mounts[Mount::FrontCam].xyz_m[i] = std::stof(trim(item));
+            i++;
+          }
+        }
+      }
+    }
   }
 
+  config.front_radar.output_mode =
+      normalizeRadarOutputMode(config.front_radar.output_mode);
   return config;
+}
+
+void ConfigLoader::saveConfig(const std::string &path, const Config &config) {
+  std::string content = readFile(path);
+  std::istringstream stream(content);
+  std::string line;
+  std::string current_section;
+  std::string current_mount;
+  std::string new_content;
+
+  while (std::getline(stream, line)) {
+    size_t indent = line.find_first_not_of(" \t");
+    std::string trimmed = trim(line);
+
+    if (trimmed.empty() || trimmed[0] == '#') {
+      new_content += line + "\n";
+      continue;
+    }
+
+    size_t colonPos = trimmed.find(':');
+    if (colonPos == std::string::npos) {
+      new_content += line + "\n";
+      continue;
+    }
+
+    std::string key = trim(trimmed.substr(0, colonPos));
+    std::string value = trim(trimmed.substr(colonPos + 1));
+
+    if (value.empty() || value[0] == '#') {
+      if (indent == 0) {
+        current_section = key;
+        current_mount = "";
+      } else if (current_section == "mounts" && indent > 0) {
+        current_mount = key;
+      }
+      new_content += line + "\n";
+      continue;
+    }
+
+    if (current_section == "stage_e_fusion") {
+      auto emitFloat = [&](const std::string &name, float v) {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << name << ": " << v << "\n";
+        new_content += ss.str();
+      };
+
+      if (key == "ttc_aggressive_s") {
+        emitFloat("ttc_aggressive_s", config.stage_e_fusion.ttc_aggressive_s);
+        continue;
+      }
+      if (key == "camera_hold_ms") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ')
+           << "camera_hold_ms: " << config.stage_e_fusion.camera_hold_ms
+           << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "radar_hold_ms") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ')
+           << "radar_hold_ms: " << config.stage_e_fusion.radar_hold_ms << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "track_cleanup_ms") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ')
+           << "track_cleanup_ms: " << config.stage_e_fusion.track_cleanup_ms
+           << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "predicted_camera_threshold_ms") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "predicted_camera_threshold_ms: "
+           << config.stage_e_fusion.predicted_camera_threshold_ms << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "normal_angle_gate_deg") {
+        emitFloat("normal_angle_gate_deg",
+                  config.stage_e_fusion.normal_angle_gate_deg);
+        continue;
+      }
+      if (key == "aggressive_angle_gate_deg") {
+        emitFloat("aggressive_angle_gate_deg",
+                  config.stage_e_fusion.aggressive_angle_gate_deg);
+        continue;
+      }
+      if (key == "aggressive_range_scale") {
+        emitFloat("aggressive_range_scale",
+                  config.stage_e_fusion.aggressive_range_scale);
+        continue;
+      }
+      if (key == "ekf_q_z") {
+        emitFloat("ekf_q_z", config.stage_e_fusion.ekf_q_z);
+        continue;
+      }
+      if (key == "ekf_q_vz") {
+        emitFloat("ekf_q_vz", config.stage_e_fusion.ekf_q_vz);
+        continue;
+      }
+      if (key == "ekf_q_theta") {
+        emitFloat("ekf_q_theta", config.stage_e_fusion.ekf_q_theta);
+        continue;
+      }
+      if (key == "ekf_q_theta_dot") {
+        emitFloat("ekf_q_theta_dot", config.stage_e_fusion.ekf_q_theta_dot);
+        continue;
+      }
+      if (key == "ekf_r_radar_z") {
+        emitFloat("ekf_r_radar_z", config.stage_e_fusion.ekf_r_radar_z);
+        continue;
+      }
+      if (key == "ekf_r_radar_vz") {
+        emitFloat("ekf_r_radar_vz", config.stage_e_fusion.ekf_r_radar_vz);
+        continue;
+      }
+      if (key == "ekf_r_cam_theta") {
+        emitFloat("ekf_r_cam_theta", config.stage_e_fusion.ekf_r_cam_theta);
+        continue;
+      }
+      if (key == "ekf_r_cam_z_weak") {
+        emitFloat("ekf_r_cam_z_weak", config.stage_e_fusion.ekf_r_cam_z_weak);
+        continue;
+      }
+    }
+
+    if (current_section == "front_radar" && key == "output_mode") {
+      std::stringstream ss;
+      ss << std::string(indent, ' ') << "output_mode: \""
+         << normalizeRadarOutputMode(config.front_radar.output_mode) << "\"\n";
+      new_content += ss.str();
+      continue;
+    }
+
+    if (current_section == "mounts" && current_mount == "FrontCam" &&
+        key == "xyz_m") {
+      auto it = config.mounts.find(Mount::FrontCam);
+      if (it != config.mounts.end()) {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "xyz_m: [" << it->second.xyz_m[0]
+           << ", " << it->second.xyz_m[1] << ", " << it->second.xyz_m[2]
+           << "]\n";
+        new_content += ss.str();
+        continue;
+      }
+    }
+
+    new_content += line + "\n";
+  }
+
+  std::ofstream out(path);
+  if (!out.is_open()) {
+    throw std::runtime_error("Cannot write config to: " + path);
+  }
+  out << new_content;
 }
 
 HardwareMap ConfigLoader::loadHardwareMap(const std::string &path) {
