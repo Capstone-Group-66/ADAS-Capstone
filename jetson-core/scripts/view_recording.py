@@ -31,6 +31,8 @@ EVENT_TYPES = {
     0x12: 'RadarRearR',
     0x20: 'IMU',
     0x30: 'GPS',
+    0x40: 'FrontDetBatch',
+    0x50: 'RCWState',
 }
 
 CAMERA_EVENTS = {0x01, 0x02, 0x03, 0x04}
@@ -56,9 +58,9 @@ def parse_file_header(f):
     sensor_mask= struct.unpack_from('<H', raw, 16)[0]
     if magic != MAGIC:
         raise ValueError(f"Bad magic: {magic!r} (expected b'AREC')")
-    if version != 1:
+    if version not in (1, 3):
         raise ValueError(f"Unsupported version: {version}")
-    return start_ns, sensor_mask
+    return version, start_ns, sensor_mask
 
 def parse_event_header(f):
     raw = f.read(EVENT_HEADER_SIZE)
@@ -116,8 +118,9 @@ def print_stats(path):
     errors    = 0
 
     with open(path, 'rb') as f:
-        start_ns, sensor_mask = parse_file_header(f)
+        version, start_ns, sensor_mask = parse_file_header(f)
         print(f"  Magic:        AREC [OK]")
+        print(f"  Version:      v{version}")
         dt = datetime.fromtimestamp(start_ns / 1e9, tz=timezone.utc)
         print(f"  Recorded at:  {dt.strftime('%Y-%m-%d %H:%M:%S UTC')}")
         print(f"  Sensor mask:  0x{sensor_mask:04X}")
@@ -160,6 +163,10 @@ def print_stats(path):
         cam_total = sum(counts.get(n, 0) for n in ['CameraFront','CameraSideL','CameraSideR','CameraRear'])
         if duration_s > 0 and cam_total > 0:
             print(f"  Approx FPS:   {cam_total / duration_s:.1f} frames/sec (all cameras combined)")
+        if version >= 3 and counts.get('FrontDetBatch', 0) > 0:
+            print(f"  Front detections: {counts['FrontDetBatch']} batch events")
+        if version >= 3 and counts.get('RCWState', 0) > 0:
+            print(f"  RCW states:   {counts['RCWState']} events")
     if errors:
         print(f"  [!] {errors} parse error(s) — file may be truncated")
     else:
@@ -181,7 +188,7 @@ def play(path, mount_filter=None):
 
     events = []
     with open(path, 'rb') as f:
-        parse_file_header(f)
+        version, _start_ns, _sensor_mask = parse_file_header(f)
         while True:
             hdr = parse_event_header(f)
             if hdr is None:
@@ -194,6 +201,8 @@ def play(path, mount_filter=None):
                 if filter_type is None or event_type == filter_type:
                     events.append((ts_ns, event_type, payload))
 
+    if version >= 3:
+        print("[Viewer] v3 recordings contain front detections and RCW state, not raw camera frames.")
     if not events:
         print("[Viewer] No camera events found for the selected mount.")
         return

@@ -7,7 +7,6 @@
 #include <ctime>
 #include <filesystem>
 #include <iostream>
-#include <opencv2/imgcodecs.hpp>
 
 namespace adas {
 
@@ -102,67 +101,6 @@ void Recorder::stop() {
 // ═══════════════════════════════════════════════════════════════════════════════
 //                       RECORDING METHODS (producer threads)
 // ═══════════════════════════════════════════════════════════════════════════════
-
-void Recorder::recordCamera(const CameraFrameData &frame, Mount mount) {
-  if (!recording_.load(std::memory_order_relaxed))
-    return;
-
-  // JPEG encode the frame on the caller thread
-  // (for USB cameras, frame.data contains raw BGR pixels)
-  std::vector<uint8_t> jpeg_buf;
-  cv::Mat mat;
-
-  if (!frame.frame.empty()) {
-    mat = frame.frame;
-  } else if (!frame.data.empty()) {
-    mat = cv::Mat(frame.height, frame.width, CV_8UC3,
-                  const_cast<uint8_t *>(frame.data.data()));
-  }
-
-  if (mat.empty())
-    return;
-
-  std::vector<int> params = {cv::IMWRITE_JPEG_QUALITY, 85};
-  cv::imencode(".jpg", mat, jpeg_buf, params);
-
-  // Build payload: mount(1B) + width(2B) + height(2B) + jpeg_bytes
-  RecordEvent event;
-  event.type = mountToCameraEvent(mount);
-  event.timestamp_ns = frame.h.t_ingest_ns;
-
-  size_t header_size = 1 + 2 + 2; // mount + w + h
-  event.payload.resize(header_size + jpeg_buf.size());
-
-  event.payload[0] = static_cast<uint8_t>(mount);
-  uint16_t w = static_cast<uint16_t>(frame.width);
-  uint16_t h = static_cast<uint16_t>(frame.height);
-  std::memcpy(&event.payload[1], &w, 2);
-  std::memcpy(&event.payload[3], &h, 2);
-  std::memcpy(&event.payload[5], jpeg_buf.data(), jpeg_buf.size());
-
-  enqueue(std::move(event));
-}
-
-void Recorder::recordCameraJpeg(const uint8_t *jpeg, size_t len,
-                                uint64_t timestamp_ns, Mount mount,
-                                uint16_t width, uint16_t height) {
-  if (!recording_.load(std::memory_order_relaxed))
-    return;
-
-  RecordEvent event;
-  event.type = mountToCameraEvent(mount);
-  event.timestamp_ns = timestamp_ns;
-
-  size_t header_size = 1 + 2 + 2;
-  event.payload.resize(header_size + len);
-
-  event.payload[0] = static_cast<uint8_t>(mount);
-  std::memcpy(&event.payload[1], &width, 2);
-  std::memcpy(&event.payload[3], &height, 2);
-  std::memcpy(&event.payload[5], jpeg, len);
-
-  enqueue(std::move(event));
-}
 
 void Recorder::recordRadar(const RadarTargets &targets) {
   if (!recording_.load(std::memory_order_relaxed))
@@ -282,6 +220,23 @@ void Recorder::recordFrontDetections(const DetBatch &batch) {
     std::memcpy(event.payload.data() + offset, &rec_det, sizeof(rec_det));
     offset += sizeof(rec_det);
   }
+
+  enqueue(std::move(event));
+}
+
+void Recorder::recordRcwState(const RcwState &state) {
+  if (!recording_.load(std::memory_order_relaxed))
+    return;
+
+  RecordEvent event;
+  event.type = RecEventType::RCWState;
+  event.timestamp_ns = state.h.t_ingest_ns;
+  event.payload.resize(sizeof(RecRcwStatePayload));
+
+  RecRcwStatePayload payload{};
+  payload.alert = state.alert;
+  payload.status = state.status;
+  std::memcpy(event.payload.data(), &payload, sizeof(payload));
 
   enqueue(std::move(event));
 }

@@ -22,9 +22,9 @@ namespace adas {
 /// These are POSITIONS, not devices - devices are swappable per FR16
 enum class Mount : uint8_t {
     FrontCam = 0,
-    SideCamL = 1,
-    SideCamR = 2,
-    RearCam = 3,
+    SideCamL = 1, // Reserved legacy mount (no active runtime path)
+    SideCamR = 2, // Reserved legacy mount (no active runtime path)
+    RearCam = 3,  // Reserved legacy mount (used only for compatibility)
     FrontRadar = 4,
     RearCornerRadarL = 5,
     RearCornerRadarR = 6,
@@ -69,9 +69,9 @@ inline const char *mountToString(Mount m) {
 enum SensorSource : uint16_t {
     SRC_NONE = 0,
     SRC_CAM_F = 1 << 0, // FrontCam
-    SRC_CAM_L = 1 << 1, // SideCamL
-    SRC_CAM_R = 1 << 2, // SideCamR
-    SRC_CAM_B = 1 << 3, // RearCam
+    SRC_CAM_L = 1 << 1, // Reserved legacy side-camera bit
+    SRC_CAM_R = 1 << 2, // Reserved legacy side-camera bit
+    SRC_CAM_B = 1 << 3, // Reserved legacy rear-camera bit
     SRC_RAD_F = 1 << 4, // FrontRadar
     SRC_RAD_L = 1 << 5, // RearCornerRadarL
     SRC_RAD_R = 1 << 6, // RearCornerRadarR
@@ -171,6 +171,19 @@ struct ImuSample {
     ImuSample()
         : t_capture(0), accel{0, 0, 0}, gyro{0, 0, 0}, mag{0, 0, 0}, quat{1, 0, 0, 0},
           temperature(0), calibration_status(0) {}
+};
+
+/// Compact rear-collision state received from the Pi over ZMQ port 5555.
+/// `alert != 0` means RCW is active. `status` is preserved verbatim from the
+/// Pi publisher for logging/replay/BLE rationale.
+struct RcwState {
+    Header h;
+    uint8_t alert;
+    uint8_t status;
+
+    RcwState() : h(), alert(0), status(0) {
+        h.mount = Mount::RearCam; // Reserved compatibility provenance slot.
+    }
 };
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -310,10 +323,10 @@ struct DetBatch {
 //                              NETWORK PROTOCOL (Pi4 → Jetson)
 // ══════════════════════════════════════════════════════════════════════════════
 
-/// Network packet types from Raspberry Pi 4
-/// Used by NetworkIngest to demultiplex incoming stream
+/// Legacy TCP packet types from Raspberry Pi 4.
+/// Kept only for compatibility with deprecated tooling.
 enum class NetPacketType : uint8_t {
-    RearCamera = 0x01, // MJPEG-encoded frame
+    RearCamera = 0x01, // Legacy rear-video packet (deprecated)
     RearRadarL = 0x02, // Left rear corner radar data
     RearRadarR = 0x03, // Right rear corner radar data
     Heartbeat = 0xFE,  // Keep-alive ping

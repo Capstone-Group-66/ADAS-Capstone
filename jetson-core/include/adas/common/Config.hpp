@@ -37,8 +37,6 @@ struct TimeConfig {
 struct CameraConfig {
     int width = 960;
     int height = 540;
-    int side_width = 640; // Default downscale for side cameras (USB bandwidth safe)
-    int side_height = 480;
     int target_fps = 20;
     bool use_mjpeg = true;
 };

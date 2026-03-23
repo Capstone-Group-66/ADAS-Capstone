@@ -286,6 +286,28 @@ void applyStageESensitivity(adas::FusionConfig &fusion_config,
 // Visualization control flag (set to false for production)
 std::atomic<bool> g_visualizer_enabled{true};
 
+adas::Alert buildRcwAlert(const adas::RcwState &state, uint64_t now_ns) {
+  adas::Alert alert;
+  alert.t_ms = now_ns / 1000000ULL;
+  alert.id = "rcw_" + std::to_string(alert.t_ms) + "_" +
+             std::to_string(state.h.seq);
+  alert.type = adas::AlertType::RCW;
+  alert.direction = "rear";
+  alert.severity = adas::Severity::Warning;
+  alert.ttl_ms = 500;
+
+  std::ostringstream rationale;
+  rationale << "{\"alert\":" << static_cast<int>(state.alert)
+            << ",\"status\":" << static_cast<int>(state.status) << "}";
+  alert.rationale = rationale.str();
+
+  alert.object_id = std::nullopt;
+  alert.sources = {"RearRCW"};
+  alert.schemaVersion = "v1.0";
+  alert.confidence = 1.0f;
+  return alert;
+}
+
 // Stage E thread: fusion, alerting, BLE, metrics, and (optionally)
 // visualization
 void visualizationThread() {
@@ -293,12 +315,23 @@ void visualizationThread() {
   std::cout << "[StageE] Thread started (display "
             << (display_enabled ? "enabled" : "disabled") << ")\n";
 
+  adas::RcwState latest_rcw_state;
+  bool have_rcw_state = false;
+
   while (g_visualizer_running.load() && !g_shutdown_requested.load()) {
     bool got_camera_update = false;
     adas::DetBatch batch;
     if (g_ingest_manager) {
       while (g_ingest_manager->getFrontCamDetQueue().try_pop(batch)) {
         got_camera_update = true;
+      }
+    }
+
+    if (g_ingest_manager) {
+      adas::RcwState rcw_state;
+      while (g_ingest_manager->getRcwQueue().try_pop(rcw_state)) {
+        latest_rcw_state = rcw_state;
+        have_rcw_state = true;
       }
     }
 
@@ -379,7 +412,9 @@ void visualizationThread() {
     if (g_ble_server && g_ble_server->isConnected()) {
       static auto last_ble_send = std::chrono::steady_clock::time_point();
 
-      const bool is_alerting = fcw_alert.has_value();
+      const bool rcw_active =
+          have_rcw_state && static_cast<int>(latest_rcw_state.alert) != 0;
+      const bool is_alerting = fcw_alert.has_value() || rcw_active;
       const auto now_time = std::chrono::steady_clock::now();
       const auto time_since =
           std::chrono::duration_cast<std::chrono::milliseconds>(now_time -
@@ -397,8 +432,11 @@ void visualizationThread() {
           auto alert =
               adas::FCWAlertAdapter::convert(*fcw_alert, adas::Clock::now_ns());
           alerts_to_send.push_back(alert);
-        } else {
-          // Heartbeat: No alerts
+        }
+
+        if (rcw_active) {
+          alerts_to_send.push_back(
+              buildRcwAlert(latest_rcw_state, adas::Clock::now_ns()));
         }
 
         uint16_t tickId =
@@ -646,7 +684,7 @@ void printMenu(const adas::Config &config) {
       << "                    MAIN MENU                                 \n";
   std::cout
       << "==============================================================\n";
-  std::cout << "  1) Start Pipeline (Stages A + B)\n";
+  std::cout << "  1) Start Pipeline\n";
   std::cout << "  2) Stop Pipeline\n";
   std::cout << "  3) Show Status\n";
   std::cout << "  4) Run Device Wizard (USB cameras)\n";
@@ -1337,8 +1375,6 @@ int main(int argc, char **argv) {
           std::cout << "\n[Config] Reloaded from: " << config_path << "\n";
           std::cout << "[Config] Camera: front=" << config.cameras.width << "x"
                     << config.cameras.height
-                    << " | side=" << config.cameras.side_width << "x"
-                    << config.cameras.side_height
                     << " | fps=" << config.cameras.target_fps
                     << " | mjpeg=" << (config.cameras.use_mjpeg ? "yes" : "NO")
                     << "\n";

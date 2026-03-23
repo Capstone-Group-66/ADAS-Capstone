@@ -2,8 +2,6 @@
   "schema_version": "1.0",
   "generated_at": "2026-02-28T16:41:11Z",
   "mappings": {
-    "FrontCam": "/dev/video0",
-    "SideCamL": "/dev/video1",
-    "SideCamR": "/dev/video2"
+    "FrontCam": "/dev/video0"
   }
 }

@@ -25,6 +25,7 @@ namespace adas {
 
 void DeviceWizard::runRegistration(const std::string &output_path,
                                    bool show_preview) {
+  (void)show_preview;
   std::cout
       << "==============================================================\n";
   std::cout
@@ -32,9 +33,9 @@ void DeviceWizard::runRegistration(const std::string &output_path,
   std::cout
       << "==============================================================\n";
   std::cout
-      << "  This tool maps USB cameras to their mount positions.        \n";
+      << "  This tool registers the FrontCam used by external DeepStream.\n";
   std::cout
-      << "  Note: RearCam and Rear Radars come via Pi4 network.        \n";
+      << "  Pi-hosted RCW/radar/IMU devices are registered separately.  \n";
   std::cout
       << "==============================================================\n\n";
 
@@ -53,124 +54,15 @@ void DeviceWizard::runRegistration(const std::string &output_path,
   }
   std::cout << "\n";
 
-  // Mounts that need assignment (direct USB cameras only)
-  std::vector<Mount> direct_mounts = getDirectCameraMounts();
   std::map<Mount, std::string> mappings;
-  std::vector<Mount> already_assigned;
-
-  // Process each device
   for (const auto &device_path : video_devices) {
-    std::cout
-        << "--------------------------------------------------------------\n";
-    std::cout << "Device: " << device_path << "\n";
-
     if (device_path == "/dev/video0") {
       std::cout << "  [RESERVED] " << device_path
                 << " -> FrontCam (DeepStream)\n";
       mappings[Mount::FrontCam] = device_path;
-      continue;
-    }
-
-    // Test if device can be opened
-    if (!testVideoDevice(device_path)) {
-      std::cout << "  [SKIP] Cannot open device\n";
-      continue;
-    }
-
-    // Open camera for continuous preview during selection
-    cv::VideoCapture cap;
-    std::string window_name;
-    if (show_preview) {
-#ifdef __linux__
-      cap.open(device_path, cv::CAP_V4L2);
-#else
-      int device_num = std::stoi(device_path);
-      cap.open(device_num);
-#endif
-      if (cap.isOpened()) {
-        cap.set(cv::CAP_PROP_FOURCC,
-                cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
-        cap.set(cv::CAP_PROP_FRAME_WIDTH, 424);
-        cap.set(cv::CAP_PROP_FRAME_HEIGHT, 240);
-        window_name =
-            "Preview: " + device_path + " (make selection in terminal)";
-        cv::namedWindow(window_name, cv::WINDOW_AUTOSIZE);
-
-        // Show initial frame
-        cv::Mat frame;
-        if (cap.read(frame)) {
-          cv::putText(frame, "Select mount in terminal...", cv::Point(10, 30),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
-          cv::imshow(window_name, frame);
-          cv::waitKey(1);
-        }
-      }
-    }
-
-    // Print options BEFORE blocking on input
-    auto direct_mounts = getDirectCameraMounts();
-    std::cout << "\n  Select mount for this device:\n";
-    int option = 1;
-    std::vector<Mount> available;
-    for (Mount m : direct_mounts) {
-      bool assigned =
-          std::find(already_assigned.begin(), already_assigned.end(), m) !=
-          already_assigned.end();
-      if (!assigned) {
-        available.push_back(m);
-        std::cout << "    " << option << ") " << mountToString(m) << "\n";
-        ++option;
-      }
-    }
-    std::cout << "    0) Skip this device\n";
-    std::cout << "  Enter choice: " << std::flush;
-
-    // Keep updating preview while waiting for input (non-blocking check)
-    int choice = -1;
-    if (show_preview && cap.isOpened()) {
-      // Use a simple polling approach - update preview every 100ms
-      while (choice < 0) {
-        cv::Mat frame;
-        if (cap.read(frame)) {
-          cv::putText(frame, "Select mount in terminal...", cv::Point(10, 30),
-                      cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 0), 2);
-          cv::imshow(window_name, frame);
-        }
-        cv::waitKey(100);
-
-        // Check if input is available (non-blocking on Windows is tricky, use
-        // blocking) For simplicity, just do blocking input after showing
-        // preview
-        if (std::cin.rdbuf()->in_avail() > 0 || true) {
-          std::cin >> choice;
-          break;
-        }
-      }
-      cv::destroyWindow(window_name);
-      cap.release();
     } else {
-      std::cin >> choice;
-    }
-
-    // Process choice
-    std::optional<Mount> mount = std::nullopt;
-    if (choice > 0 && choice <= static_cast<int>(available.size())) {
-      mount = available[choice - 1];
-    }
-
-    if (mount.has_value()) {
-      mappings[mount.value()] = device_path;
-      already_assigned.push_back(mount.value());
-      std::cout << "  [ASSIGNED] " << device_path << " -> "
-                << mountToString(mount.value()) << "\n";
-    } else {
-      std::cout << "  [SKIPPED]\n";
-    }
-
-    // Check if all mounts assigned
-    if (already_assigned.size() == direct_mounts.size()) {
-      std::cout << "\nAll direct camera mounts have been assigned.\n";
-      break;
+      std::cout << "  [IGNORED] " << device_path
+                << " (side cameras removed from final build)\n";
     }
   }
 
@@ -318,43 +210,6 @@ void DeviceWizard::showPreview(const std::string &device_path,
   cap.release();
 }
 
-std::optional<Mount> DeviceWizard::promptMountAssignment(
-    const std::string & /*device_path*/,
-    const std::vector<Mount> &already_assigned) {
-
-  auto direct_mounts = getDirectCameraMounts();
-
-  std::cout << "\n  Select mount for this device:\n";
-  int option = 1;
-  std::vector<Mount> available;
-
-  for (Mount m : direct_mounts) {
-    bool assigned = std::find(already_assigned.begin(), already_assigned.end(),
-                              m) != already_assigned.end();
-    if (!assigned) {
-      available.push_back(m);
-      std::cout << "    " << option << ") " << mountToString(m) << "\n";
-      ++option;
-    }
-  }
-  std::cout << "    0) Skip this device\n";
-  std::cout << "  Enter choice: ";
-
-  int choice;
-  std::cin >> choice;
-
-  if (choice <= 0 || choice > static_cast<int>(available.size())) {
-    return std::nullopt;
-  }
-
-  return available[choice - 1];
-}
-
-std::vector<Mount> DeviceWizard::getDirectCameraMounts() {
-  // Only side cameras - RearCam comes via network, FrontCam used by DeepStream
-  return {Mount::SideCamL, Mount::SideCamR};
-}
-
 void DeviceWizard::printSummary(const std::map<Mount, std::string> &mappings) {
   std::cout
       << "==============================================================\n";
@@ -368,19 +223,12 @@ void DeviceWizard::printSummary(const std::map<Mount, std::string> &mappings) {
               << " -> " << std::setw(20) << path << "\n";
   }
 
-  // Show unassigned
-  auto direct_mounts = getDirectCameraMounts();
-  for (Mount m : direct_mounts) {
-    if (mappings.find(m) == mappings.end()) {
-      std::cout << "  " << std::left << std::setw(15) << mountToString(m)
-                << " -> " << std::setw(20) << "(not assigned)" << "\n";
-    }
-  }
-
   std::cout
       << "==============================================================\n";
   std::cout
-      << "  Note: RearCam + RearRadars come via Pi4 (NetworkIngest)    \n";
+      << "  Note: Only FrontCam is registered here; Pi devices are added\n";
+  std::cout
+      << "        by the Pi network registration workflow.              \n";
   std::cout
       << "==============================================================\n";
 }
@@ -411,9 +259,8 @@ void DeviceWizard::runCalibration(const HardwareMap &hw_map,
     std::filesystem::create_directories(calib_dir);
   }
 
-  // Get camera mounts from hardware map
-  std::vector<Mount> camera_mounts = {Mount::FrontCam, Mount::SideCamL,
-                                      Mount::SideCamR, Mount::RearCam};
+  // Only FrontCam is calibrated in the final build.
+  std::vector<Mount> camera_mounts = {Mount::FrontCam};
 
   int calibrated_count = 0;
 
@@ -474,9 +321,9 @@ void DeviceWizard::registerNetworkDevices(const std::string &hw_map_path,
   std::cout
       << "==============================================================\n";
   std::cout
-      << "  The Raspberry Pi 4 hosts the rear sector devices:           \n";
+      << "  The Raspberry Pi 4 publishes the rear-sector state streams: \n";
   std::cout
-      << "    - RearCam (via ZMQ port 5555)                             \n";
+      << "    - RCW state (via ZMQ port 5555)                           \n";
   std::cout
       << "    - RearCornerRadarL (via ZMQ port 5556)                    \n";
   std::cout
@@ -569,16 +416,17 @@ void DeviceWizard::registerNetworkDevices(const std::string &hw_map_path,
 
   hw_map.schema_version = "1.0";
   hw_map.generated_at = getCurrentTimestamp();
+  hw_map.mappings.erase(Mount::RearCam);
+  hw_map.mappings.erase(Mount::SideCamL);
+  hw_map.mappings.erase(Mount::SideCamR);
 
   // Build network device addresses
   // Format: "zmq://IP:PORT" for network devices
-  std::string rear_cam_addr = "zmq://" + pi_ip + ":5555";
   std::string radar_l_addr = "zmq://" + pi_ip + ":5556";
   std::string radar_r_addr = "zmq://" + pi_ip + ":5557";
   std::string imu_addr = "zmq://" + pi_ip + ":5558";
 
   // Add network devices
-  hw_map.mappings[Mount::RearCam] = rear_cam_addr;
   hw_map.mappings[Mount::RearCornerRadarL] = radar_l_addr;
   hw_map.mappings[Mount::RearCornerRadarR] = radar_r_addr;
   hw_map.mappings[Mount::IMU] = imu_addr;
@@ -593,7 +441,7 @@ void DeviceWizard::registerNetworkDevices(const std::string &hw_map_path,
       << "             NETWORK DEVICES REGISTERED                       \n";
   std::cout
       << "==============================================================\n";
-  std::cout << "  RearCam          -> " << rear_cam_addr << "\n";
+  std::cout << "  RCW state        -> zmq://" << pi_ip << ":5555\n";
   std::cout << "  RearCornerRadarL -> " << radar_l_addr << "\n";
   std::cout << "  RearCornerRadarR -> " << radar_r_addr << "\n";
   std::cout << "  IMU              -> " << imu_addr << "\n";

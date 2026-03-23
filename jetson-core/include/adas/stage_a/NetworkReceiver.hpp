@@ -28,7 +28,7 @@ class NetworkReceiver {
   public:
     /// Statistics
     struct Stats {
-        uint64_t cam_frames = 0;
+        uint64_t rcw_packets = 0;
         uint64_t radar_l_packets = 0;
         uint64_t radar_r_packets = 0;
         uint64_t imu_samples = 0;
@@ -59,12 +59,12 @@ class NetworkReceiver {
     NetworkReceiver &operator=(const NetworkReceiver &) = delete;
 
     /// Connect and start receiving data
-    /// @param cam_queue Queue for RearCam frames
+    /// @param rcw_queue Queue for compact RCW alert/status state
     /// @param imu_queue Queue for IMU samples
     /// @param radar_l_queue Queue for Rear L Radar targets
     /// @param radar_r_queue Queue for Rear R Radar targets
     /// @return true if connected successfully
-    bool start(SPSCQueue<CameraFrameData, 8> *cam_queue, SPSCQueue<ImuSample, 32> *imu_queue,
+    bool start(SPSCQueue<RcwState, 16> *rcw_queue, SPSCQueue<ImuSample, 32> *imu_queue,
                SPSCQueue<RadarTargets, 8> *radar_l_queue, SPSCQueue<RadarTargets, 8> *radar_r_queue);
 
     /// Stop receiving and disconnect
@@ -113,14 +113,11 @@ class NetworkReceiver {
 
   private:
     /// Thread functions
-    void cameraThread();
+    void rcwThread();
     void radarLThread();
     void radarRThread();
     void imuThread();
     void heartbeatThread();
-
-    /// Process received message
-    bool processMessage(const uint8_t *data, size_t len, protocol::MessageType expected);
 
     /// Build ZMQ address
     std::string buildAddr(int port) const;
@@ -130,20 +127,20 @@ class NetworkReceiver {
 
     // ZMQ context and sockets (void* to avoid zmq.h in header)
     void *context_ = nullptr;
-    void *cam_socket_ = nullptr;
+    void *rcw_socket_ = nullptr;
     void *radar_l_socket_ = nullptr;
     void *radar_r_socket_ = nullptr;
     void *imu_socket_ = nullptr;
     void *heartbeat_socket_ = nullptr;
 
     // Output queues (not owned)
-    SPSCQueue<CameraFrameData, 8> *cam_queue_ = nullptr;
+    SPSCQueue<RcwState, 16> *rcw_queue_ = nullptr;
     SPSCQueue<ImuSample, 32> *imu_queue_ = nullptr;
     SPSCQueue<RadarTargets, 8> *radar_l_queue_ = nullptr;
     SPSCQueue<RadarTargets, 8> *radar_r_queue_ = nullptr;
 
     // Threads
-    std::thread cam_thread_;
+    std::thread rcw_thread_;
     std::thread radar_l_thread_;
     std::thread radar_r_thread_;
     std::thread imu_thread_;
@@ -156,7 +153,7 @@ class NetworkReceiver {
     Stats stats_;
 
     // Sequence tracking for drop detection
-    uint32_t last_cam_seq_ = 0;
+    uint32_t last_rcw_seq_ = 0;
     uint32_t last_radar_l_seq_ = 0;
     uint32_t last_radar_r_seq_ = 0;
     uint32_t last_imu_seq_ = 0;

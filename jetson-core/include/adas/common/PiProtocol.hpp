@@ -16,7 +16,8 @@ constexpr uint32_t PI_MAGIC = 0x50493034;        // "PI04" in little-endian
 constexpr uint16_t PI_PROTOCOL_VERSION = 0x0100; // v1.0
 
 // Port assignments
-constexpr int PORT_REAR_CAM = 5555;
+constexpr int PORT_RCW = 5555;
+constexpr int PORT_REAR_CAM = PORT_RCW; // Legacy alias: port 5555 now carries RCW state.
 constexpr int PORT_RADAR_L = 5556;
 constexpr int PORT_RADAR_R = 5557;
 constexpr int PORT_IMU = 5558;
@@ -28,7 +29,7 @@ constexpr int PORT_CONTROL = 5559;
 
 enum class MessageType : uint16_t {
     // Sensor data (0x00XX)
-    REAR_CAM_FRAME = 0x0001,
+    RCW_STATE = 0x0001,
     REAR_RADAR_L = 0x0002,
     REAR_RADAR_R = 0x0003,
     IMU_SAMPLE = 0x0004,
@@ -75,14 +76,24 @@ static_assert(sizeof(PiMessageHeader) == 32, "Header must be exactly 32 bytes");
 //                              PAYLOAD STRUCTURES
 // ═══════════════════════════════════════════════════════════════════════════
 
-// Camera frame encoding types
+// Compact RCW payload from the Pi publisher on port 5555.
+#pragma pack(push, 1)
+struct RcwPayload {
+    uint8_t alert;  // Non-zero => RCW active
+    uint8_t status; // Pi-defined status byte, preserved verbatim
+};
+#pragma pack(pop)
+
+static_assert(sizeof(RcwPayload) == 2, "RcwPayload must be 2 bytes");
+
+// Legacy rear-camera encoding types (deprecated; kept for compatibility docs/tools)
 enum class CameraEncoding : uint8_t {
     RAW_BGR = 0,
     MJPEG = 1,
     H264 = 2,
 };
 
-// Camera payload header (followed by encoded frame data)
+// Legacy rear-camera payload header (followed by encoded frame data)
 #pragma pack(push, 1)
 struct CameraPayloadHeader {
     uint16_t width;      // Frame width in pixels
@@ -204,7 +215,7 @@ enum class MountId : uint8_t {
     FRONT_CAM = 0,
     SIDE_CAM_L = 1,
     SIDE_CAM_R = 2,
-    REAR_CAM = 3, // Pi hosts this
+    REAR_CAM = 3, // Reserved legacy mount ID (rear video no longer consumed)
     FRONT_RADAR = 4,
     REAR_RADAR_L = 5, // Pi hosts this
     REAR_RADAR_R = 6, // Pi hosts this
@@ -256,8 +267,9 @@ inline bool validateHeader(const PiMessageHeader &header) {
 
 // Pi-hosted devices (always present on Pi)
 inline constexpr MountId PI_HOSTED_DEVICES[] = {
-    MountId::REAR_CAM, MountId::REAR_RADAR_L, MountId::REAR_RADAR_R,
-    MountId::IMU, // IMU is always on Pi
+    MountId::REAR_RADAR_L,
+    MountId::REAR_RADAR_R,
+    MountId::IMU,
 };
 
 inline constexpr size_t NUM_PI_DEVICES = sizeof(PI_HOSTED_DEVICES) / sizeof(PI_HOSTED_DEVICES[0]);

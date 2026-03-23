@@ -29,6 +29,8 @@ EVENT_TYPES = {
     0x12: 'RadarRearR',
     0x20: 'IMU',
     0x30: 'GPS',
+    0x40: 'FrontDetBatch',
+    0x50: 'RCWState',
 }
 
 CAMERA_EVENTS = {0x01, 0x02, 0x03, 0x04}
@@ -46,9 +48,9 @@ def parse_file_header(f):
     sensor_mask= struct.unpack_from('<H', raw, 16)[0]
     if magic != MAGIC:
         raise ValueError(f"Bad magic: {magic!r} (expected b'AREC')")
-    if version != 1:
+    if version not in (1, 3):
         raise ValueError(f"Unsupported version: {version}")
-    return start_ns, sensor_mask
+    return version, start_ns, sensor_mask
 
 def parse_event_header(f):
     raw = f.read(EVENT_HEADER_SIZE)
@@ -97,6 +99,43 @@ def decode_imu_payload(payload):
     gyro  = struct.unpack_from('<3f', payload, 12)
     quat  = struct.unpack_from('<4f', payload, 36)
     return {'accel': accel, 'gyro': gyro, 'quat': quat}
+
+def decode_front_det_batch(payload):
+    if len(payload) < 16:
+        return None
+    num_dets, _reserved, inference_time_us = struct.unpack_from('<IIQ', payload, 0)
+    offset = 16
+    dets = []
+    per_det = 72
+    for _ in range(num_dets):
+        if offset + per_det > len(payload):
+            break
+        vals = struct.unpack_from('<6fifQ32s', payload, offset)
+        sign_label = vals[9].split(b'\x00', 1)[0].decode('utf-8', errors='ignore')
+        dets.append({
+            'x': vals[0],
+            'y': vals[1],
+            'w': vals[2],
+            'h': vals[3],
+            'centroid_x': vals[4],
+            'centroid_y': vals[5],
+            'cls': vals[6],
+            'score': vals[7],
+            'object_id': vals[8],
+            'sign_label': sign_label,
+        })
+        offset += per_det
+    return {
+        'num_detections': num_dets,
+        'inference_time_us': inference_time_us,
+        'detections': dets,
+    }
+
+def decode_rcw_payload(payload):
+    if len(payload) < 2:
+        return None
+    alert, status = struct.unpack_from('<BB', payload, 0)
+    return {'alert': alert, 'status': status}
 
 # ── Video Generation ─────────────────────────────────────────────────────────
 def compile_video(image_folder, output_path, fps=20.0):
@@ -163,10 +202,11 @@ def decode_recording(path, fps=20.0):
 
     with open(path, 'rb') as f:
         try:
-            start_ns, sensor_mask = parse_file_header(f)
+            version, start_ns, sensor_mask = parse_file_header(f)
         except Exception as e:
             print(f"[ERROR] Failed to parse file header: {e}")
             return
+        print(f"Recording version: v{version}")
             
         while True:
             try:
@@ -215,6 +255,39 @@ def decode_recording(path, fps=20.0):
                             imu_data['gyro'][0], imu_data['gyro'][1], imu_data['gyro'][2],
                             imu_data['quat'][0], imu_data['quat'][1], imu_data['quat'][2], imu_data['quat'][3]
                         ])
+                elif event_type == 0x40:
+                    batch = decode_front_det_batch(payload)
+                    if batch:
+                        writer = get_csv_writer(
+                            name,
+                            ['timestamp_ns', 'inference_time_us', 'det_index', 'cls',
+                             'score', 'object_id', 'sign_label', 'x', 'y', 'w', 'h',
+                             'centroid_x', 'centroid_y']
+                        )
+                        if not batch['detections']:
+                            writer.writerow([ts_ns, batch['inference_time_us'], -1,
+                                             '', '', '', '', '', '', '', '', '', ''])
+                        for idx, det in enumerate(batch['detections']):
+                            writer.writerow([
+                                ts_ns,
+                                batch['inference_time_us'],
+                                idx,
+                                det['cls'],
+                                det['score'],
+                                det['object_id'],
+                                det['sign_label'],
+                                det['x'],
+                                det['y'],
+                                det['w'],
+                                det['h'],
+                                det['centroid_x'],
+                                det['centroid_y'],
+                            ])
+                elif event_type == 0x50:
+                    rcw = decode_rcw_payload(payload)
+                    if rcw:
+                        writer = get_csv_writer(name, ['timestamp_ns', 'alert', 'status'])
+                        writer.writerow([ts_ns, rcw['alert'], rcw['status']])
                         
             except Exception as e:
                 print(f"[WARNING] Parse error during iteration: {e}")

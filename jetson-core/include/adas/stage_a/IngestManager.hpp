@@ -5,8 +5,6 @@
 #include "adas/common/Config.hpp"
 #include "adas/common/Types.hpp"
 #include "adas/queues/SPSCQueue.hpp"
-#include "adas/stage_a/CameraIngest.hpp"         // Side cameras (OpenCV)
-#include "adas/stage_a/NetworkIngest.hpp"
 #include "adas/stage_a/RadarIngest.hpp"
 #include "adas/recording/ReplayEngine.hpp"
 // Front-camera detections come from external DeepStream over local IPC.
@@ -72,13 +70,13 @@ class IngestManager {
     //                        QUEUE ACCESS FOR DOWNSTREAM
     // ═══════════════════════════════════════════════════════════════════════════
 
-    /// Get camera queue by mount.
-    SPSCQueue<CameraFrameData, 8> &getCameraQueue(Mount mount);
-
     /// Get the canonical front detection queue for both live and replay.
     /// Live mode populates it from DeepStream IPC; replay mode injects
     /// recorded front detection batches directly into the same queue.
     SPSCQueue<DetBatch, 8> &getFrontCamDetQueue() { return det_front_ds_queue_; }
+
+    /// Get the compact rear-collision state queue populated from Pi port 5555.
+    SPSCQueue<RcwState, 16> &getRcwQueue() { return rcw_queue_; }
 
     /// Get radar queue by mount
     /// @throws std::out_of_range if mount is not a radar
@@ -87,7 +85,7 @@ class IngestManager {
     /// Get IMU queue
     SPSCQueue<ImuSample, 32> &getIMUQueue() { return imu_queue_; }
 
-    /// Get the most recent camera pitch angle received via ZMQ from the Pi.
+    /// Get the most recent pitch angle received via ZMQ from the Pi.
     /// Returns 0.0f in replay mode or when no ZMQ receiver is active.
     float getLatestPitch() const {
 #ifdef HAS_ZMQ
@@ -130,8 +128,7 @@ class IngestManager {
     void printStatus() const;
 
   private:
-    void launchDirectCameras();
-    void launchNetworkIngest();
+    void launchPiReceiver();
     void launchFrontRadar();
 
     Config config_;
@@ -144,11 +141,7 @@ class IngestManager {
     // Front camera detections are the only front-camera payload consumed by the
     // current production and replay paths.
     SPSCQueue<DetBatch, 8>        det_front_ds_queue_;
-
-    // Side / rear camera queues (OpenCV CameraIngest path — unchanged)
-    SPSCQueue<CameraFrameData, 8> cam_side_l_queue_;
-    SPSCQueue<CameraFrameData, 8> cam_side_r_queue_;
-    SPSCQueue<CameraFrameData, 8> cam_rear_queue_;
+    SPSCQueue<RcwState, 16>       rcw_queue_;
 
     // Radar queues (capacity 8 each per spec)
     SPSCQueue<RadarTargets, 8> radar_front_queue_;
@@ -162,15 +155,8 @@ class IngestManager {
     //                           INGEST INSTANCES
     // ═══════════════════════════════════════════════════════════════════════════
 
-    // Side cameras: unchanged OpenCV CameraIngest
-    std::unique_ptr<CameraIngest> cam_side_l_;
-    std::unique_ptr<CameraIngest> cam_side_r_;
-
-    // Network ingest (rear sector from Pi4)
-    std::unique_ptr<NetworkIngest> network_;
-
 #ifdef HAS_ZMQ
-    // ZMQ-based network receiver (preferred over TCP NetworkIngest)
+    // ZMQ-based network receiver for Pi RCW/radar/IMU streams.
     std::unique_ptr<NetworkReceiver> zmq_receiver_;
     // ZMQ-based IPC receiver for DeepStream local detections
     std::unique_ptr<DeepStreamReceiver> ds_receiver_;

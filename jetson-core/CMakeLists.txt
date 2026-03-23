@@ -50,10 +50,8 @@ set(COMMON_SOURCES
 )
 
 set(STAGE_A_SOURCES
-    src/stage_a/CameraIngest.cpp
     src/stage_a/CameraCalibrator.cpp
     src/stage_a/DeviceWizard.cpp
-    src/stage_a/NetworkIngest.cpp
     src/stage_a/NetworkReceiver.cpp
     src/stage_a/DeepStreamReceiver.cpp
     src/stage_a/BSDReceiver.cpp
@@ -222,20 +220,6 @@ endif()
 if(ZMQ_FOUND)
     message(STATUS "ZeroMQ found: ${ZMQ_LIBRARIES}")
     
-    # Standalone receiver executable (for debugging)
-    add_executable(jetson_receiver
-        scripts/jetson_receiver.cpp
-    )
-    target_include_directories(jetson_receiver PRIVATE 
-        ${CMAKE_CURRENT_SOURCE_DIR}/include
-        ${ZMQ_INCLUDE_DIRS}
-    )
-    target_link_libraries(jetson_receiver
-        ${ZMQ_LIBRARIES}
-        Threads::Threads
-        $<$<NOT:$<CXX_COMPILER_ID:MSVC>>:stdc++fs>
-    )
-    
     # Network receiver integrated with pipeline
     add_library(network_receiver STATIC
         src/stage_a/NetworkReceiver.cpp
@@ -260,8 +244,6 @@ if(ZMQ_FOUND)
     # Link network_receiver to device_wizard for discovery
     target_link_libraries(device_wizard network_receiver)
     target_compile_definitions(device_wizard PRIVATE HAS_ZMQ)
-    
-    install(TARGETS jetson_receiver DESTINATION bin)
 else()
     message(STATUS "ZeroMQ NOT found - Pi4 network integration disabled")
     message(STATUS "  Install with: sudo apt install libzmq3-dev")

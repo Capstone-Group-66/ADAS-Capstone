@@ -25,8 +25,6 @@ network:
 cameras:
   width: 960
   height: 540
-  side_width: 424
-  side_height: 240
   target_fps: 20
   use_mjpeg: true
 
@@ -76,15 +74,6 @@ mounts:
   FrontCam:
     xyz_m: [0.85, 0.00, 1.35]
     rpy_deg: [0, -3.0, 0]
-  SideCamL:
-    xyz_m: [0.30, 0.80, 1.10]
-    rpy_deg: [0, 0.0, 5]
-  SideCamR:
-    xyz_m: [0.30, -0.80, 1.10]
-    rpy_deg: [0, 0.0, -5]
-  RearCam:
-    xyz_m: [-1.10, 0.00, 1.10]
-    rpy_deg: [0, 3.0, 0]
   FrontRadar:
     xyz_m: [0.90, 0.00, 0.50]
     rpy_deg: [0, 0.0, 0]

@@ -58,7 +58,7 @@ class DeviceWizard {
     /// Get current timestamp in ISO 8601 format
     static std::string getCurrentTimestamp();
 
-    /// Register Pi4 network devices (RearCam, RearRadarL, RearRadarR)
+    /// Register Pi4 network devices (RCW port, rear radars, IMU)
     /// @param hw_map_path Path to hardware_map.json (will merge with existing)
     /// @param pi_ip IP address of Pi4 (e.g., "192.168.1.100")
     static void registerNetworkDevices(const std::string &hw_map_path,
@@ -70,16 +70,6 @@ class DeviceWizard {
     static double measureRTT(const std::string &pi_ip);
 
   private:
-    /// Prompt user to assign a mount to a device
-    /// @param device_path Device being assigned
-    /// @param already_assigned Mounts that have already been assigned
-    /// @return Selected mount, or nullopt if skipped
-    static std::optional<Mount> promptMountAssignment(const std::string &device_path,
-                                                      const std::vector<Mount> &already_assigned);
-
-    /// Get list of camera mounts that need to be assigned
-    static std::vector<Mount> getDirectCameraMounts();
-
     /// Print assignment summary
     static void printSummary(const std::map<Mount, std::string> &mappings);
 };

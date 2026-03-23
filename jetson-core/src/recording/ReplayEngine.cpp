@@ -7,7 +7,6 @@
 #include <cstring>
 #include <fstream>
 #include <iostream>
-#include <opencv2/imgcodecs.hpp>
 
 namespace adas {
 
@@ -37,15 +36,15 @@ bool ReplayEngine::load(const std::string &path) {
     std::cerr << "[ReplayEngine] Invalid magic bytes in: " << path << "\n";
     return false;
   }
-  if (file_header_.version != 1 && file_header_.version != 2) {
+  if (file_header_.version != 1 && file_header_.version != 3) {
     std::cerr << "[ReplayEngine] Unsupported version: " << file_header_.version
               << "\n";
     return false;
   }
   if (file_header_.version == 1) {
     std::cout << "[ReplayEngine] WARNING: Legacy v1 recording loaded. Front "
-                 "DeepStream detections were not recorded, so replay cannot "
-                 "reproduce the live front-perception path.\n";
+                 "DeepStream detections and RCW state were not recorded, so "
+                 "replay cannot fully reproduce the current architecture.\n";
   }
 
   // Read all events
@@ -132,25 +131,12 @@ uint64_t ReplayEngine::getDurationNs() const {
   return events_.back().timestamp_ns - events_.front().timestamp_ns;
 }
 
-void ReplayEngine::setCameraQueue(Mount mount,
-                                  SPSCQueue<CameraFrameData, 8> *queue) {
-  switch (mount) {
-  case Mount::SideCamL:
-    cam_side_l_queue_ = queue;
-    break;
-  case Mount::SideCamR:
-    cam_side_r_queue_ = queue;
-    break;
-  case Mount::RearCam:
-    cam_rear_queue_ = queue;
-    break;
-  default:
-    break;
-  }
-}
-
 void ReplayEngine::setFrontDetQueue(SPSCQueue<DetBatch, 8> *queue) {
   front_det_queue_ = queue;
+}
+
+void ReplayEngine::setRcwQueue(SPSCQueue<RcwState, 16> *queue) {
+  rcw_queue_ = queue;
 }
 
 void ReplayEngine::setRadarQueue(Mount mount,
@@ -239,6 +225,9 @@ void ReplayEngine::dispatchEvent(const RecordEvent &event) {
   case RecEventType::FrontDetBatch:
     dispatchFrontDetBatch(event);
     break;
+  case RecEventType::RCWState:
+    dispatchRcwState(event);
+    break;
   case RecEventType::RadarFront:
   case RecEventType::RadarRearL:
   case RecEventType::RadarRearR:
@@ -257,62 +246,10 @@ void ReplayEngine::dispatchEvent(const RecordEvent &event) {
 }
 
 void ReplayEngine::dispatchCamera(const RecordEvent &event) {
-  if (event.type == RecEventType::CameraFront) {
-    // Legacy v1 recordings may contain raw front-camera JPEG events. The
-    // current production replay path is detection-only, so we intentionally do
-    // not decode or inject those old front frames.
-    return;
-  }
-
-  if (event.payload.size() < 5)
-    return;
-
-  // Parse: mount(1B) + width(2B) + height(2B) + jpeg_bytes
-  Mount mount = static_cast<Mount>(event.payload[0]);
-  uint16_t width, height;
-  std::memcpy(&width, &event.payload[1], 2);
-  std::memcpy(&height, &event.payload[3], 2);
-
-  // Decode JPEG to cv::Mat
-  std::vector<uint8_t> jpeg_data(event.payload.begin() + 5,
-                                 event.payload.end());
-  cv::Mat frame = cv::imdecode(jpeg_data, cv::IMREAD_COLOR);
-  if (frame.empty())
-    return;
-
-  // Calculate synthetic timestamp
-  uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
-  uint64_t synthetic_ts_ns =
-      replay_start_time_ns_ + scaledReplayOffsetNs(event_offset_ns, speed_);
-
-  // Build CameraFrameData
-  CameraFrameData frame_data;
-  frame_data.h.mount = mount;
-  frame_data.h.t_ingest_ns = synthetic_ts_ns;
-  frame_data.h.t_device_ns = synthetic_ts_ns;
-  frame_data.frame = frame;
-  frame_data.width = width;
-  frame_data.height = height;
-
-  // Push to appropriate queue
-  SPSCQueue<CameraFrameData, 8> *queue = nullptr;
-  switch (event.type) {
-  case RecEventType::CameraSideL:
-    queue = cam_side_l_queue_;
-    break;
-  case RecEventType::CameraSideR:
-    queue = cam_side_r_queue_;
-    break;
-  case RecEventType::CameraRear:
-    queue = cam_rear_queue_;
-    break;
-  default:
-    break;
-  }
-
-  if (queue) {
-    queue->try_push(std::move(frame_data));
-  }
+  (void)event;
+  // Legacy v1 raw-camera events are intentionally ignored. The current
+  // architecture replays front DeepStream detections and compact RCW state,
+  // not raw camera frames.
 }
 
 void ReplayEngine::dispatchFrontDetBatch(const RecordEvent &event) {
@@ -359,6 +296,29 @@ void ReplayEngine::dispatchFrontDetBatch(const RecordEvent &event) {
   }
 
   front_det_queue_->try_push(std::move(batch));
+}
+
+void ReplayEngine::dispatchRcwState(const RecordEvent &event) {
+  if (event.payload.size() < sizeof(RecRcwStatePayload) || !rcw_queue_) {
+    return;
+  }
+
+  RecRcwStatePayload payload{};
+  std::memcpy(&payload, event.payload.data(), sizeof(payload));
+
+  const uint64_t event_offset_ns = event.timestamp_ns - first_event_ts_;
+  const uint64_t synthetic_ts_ns =
+      replay_start_time_ns_ + scaledReplayOffsetNs(event_offset_ns, speed_);
+
+  RcwState rcw_state;
+  rcw_state.h.mount = Mount::RearCam;
+  rcw_state.h.t_ingest_ns = synthetic_ts_ns;
+  rcw_state.h.t_device_ns = synthetic_ts_ns;
+  rcw_state.h.seq = 0;
+  rcw_state.h.healthy = true;
+  rcw_state.alert = payload.alert;
+  rcw_state.status = payload.status;
+  rcw_queue_->try_push(std::move(rcw_state));
 }
 
 void ReplayEngine::dispatchRadar(const RecordEvent &event) {

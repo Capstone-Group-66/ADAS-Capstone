@@ -12,7 +12,7 @@ Authoritative deployment target: NVIDIA Jetson Nano running Ubuntu 18.
 ## Stage A: Ingest and Timestamp
 
 Stage A is responsible for:
-- Capturing raw sensor data from all devices
+- Capturing live sensor state from all active devices
 - Applying authoritative timestamps (`t_ingest_ns`) using `CLOCK_MONOTONIC_RAW`
 - Pushing structured payloads into lock-free SPSC queues
 
@@ -21,13 +21,11 @@ Stage A is responsible for:
 | Sensor | Mount | Connection | Module |
 |--------|-------|------------|--------|
 | Front Camera | FrontCam | External DeepStream | DeepStreamReceiver |
-| Side Camera L | SideCamL | USB | CameraIngest |
-| Side Camera R | SideCamR | USB | CameraIngest |
-| Rear Camera | RearCam | Pi4 network | NetworkReceiver / NetworkIngest |
+| Rear Collision State | Rear RCW | Pi4 network (`5555`) | NetworkReceiver |
 | Front Radar (OPS243-A) | FrontRadar | Serial | RadarIngest |
 | Rear Radar L (C4001) | RearCornerRadarL | Pi4 network | NetworkReceiver / BSDReceiver |
 | Rear Radar R (C4001) | RearCornerRadarR | Pi4 network | NetworkReceiver / BSDReceiver |
-| IMU | IMU | Pi4 or local ingest path | NetworkReceiver / IMU queue |
+| IMU | IMU | Pi4 network | NetworkReceiver / IMU queue |
 
 ## Build
 
@@ -52,7 +50,7 @@ make -j$(nproc)
 ./device_wizard
 ```
 
-This maps USB cameras to mount positions and saves `hardware_map.json`.
+This registers the front camera and saves `hardware_map.json`.
 
 ### 2. Start Pipeline
 
@@ -73,6 +71,9 @@ Options:
 Front-camera replay now replays recorded DeepStream detection batches rather
 than raw front camera frames. This keeps replay aligned with the live
 production boundary, where external DeepStream owns the raw front video path.
+
+RCW replay records and replays the compact Pi `alert,status` state received on
+port `5555` rather than any rear-camera frame stream.
 
 ## Directory Structure
 

@@ -5,8 +5,6 @@
 #include "adas/common/Globals.hpp"
 #include "adas/recording/Recorder.hpp"
 
-#include <opencv2/imgcodecs.hpp>
-
 #include <chrono>
 #include <cstring>
 #include <iostream>
@@ -36,7 +34,7 @@ std::string NetworkReceiver::buildAddr(int port) const {
   return "tcp://" + pi_ip_ + ":" + std::to_string(port);
 }
 
-bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
+bool NetworkReceiver::start(SPSCQueue<RcwState, 16> *rcw_queue,
                             SPSCQueue<ImuSample, 32> *imu_queue,
                             SPSCQueue<RadarTargets, 8> *radar_l_queue,
                             SPSCQueue<RadarTargets, 8> *radar_r_queue) {
@@ -44,13 +42,13 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
     return true; // Already running
   }
 
-  cam_queue_ = cam_queue;
+  rcw_queue_ = rcw_queue;
   imu_queue_ = imu_queue;
   radar_l_queue_ = radar_l_queue;
   radar_r_queue_ = radar_r_queue;
 
   // Create sockets
-  cam_socket_ = zmq_socket(context_, ZMQ_PULL);
+  rcw_socket_ = zmq_socket(context_, ZMQ_PULL);
   radar_l_socket_ = zmq_socket(context_, ZMQ_PULL);
   radar_r_socket_ = zmq_socket(context_, ZMQ_PULL);
   imu_socket_ = zmq_socket(context_, ZMQ_PULL);
@@ -66,7 +64,7 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
     zmq_setsockopt(sock, ZMQ_RCVTIMEO, &timeout, sizeof(timeout));
   };
 
-  configure_socket(cam_socket_);
+  configure_socket(rcw_socket_);
   configure_socket(radar_l_socket_);
   configure_socket(radar_r_socket_);
   configure_socket(imu_socket_);
@@ -75,8 +73,8 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
   // Connect to Pi (Pi binds, we connect)
   std::cout << "[NetworkReceiver] Connecting to Pi at " << pi_ip_ << "...\n";
 
-  if (zmq_connect(cam_socket_, buildAddr(PORT_REAR_CAM).c_str()) != 0) {
-    std::cerr << "[NetworkReceiver] Failed to connect camera socket\n";
+  if (zmq_connect(rcw_socket_, buildAddr(PORT_RCW).c_str()) != 0) {
+    std::cerr << "[NetworkReceiver] Failed to connect RCW socket\n";
     return false;
   }
   if (zmq_connect(radar_l_socket_, buildAddr(PORT_RADAR_L).c_str()) != 0) {
@@ -114,7 +112,7 @@ bool NetworkReceiver::start(SPSCQueue<CameraFrameData, 8> *cam_queue,
   running_.store(true);
 
   // Start receiver threads
-  cam_thread_ = std::thread(&NetworkReceiver::cameraThread, this);
+  rcw_thread_ = std::thread(&NetworkReceiver::rcwThread, this);
   radar_l_thread_ = std::thread(&NetworkReceiver::radarLThread, this);
   radar_r_thread_ = std::thread(&NetworkReceiver::radarRThread, this);
   imu_thread_ = std::thread(&NetworkReceiver::imuThread, this);
@@ -131,8 +129,8 @@ void NetworkReceiver::stop() {
   running_.store(false);
 
   // Wait for threads
-  if (cam_thread_.joinable())
-    cam_thread_.join();
+  if (rcw_thread_.joinable())
+    rcw_thread_.join();
   if (radar_l_thread_.joinable())
     radar_l_thread_.join();
   if (radar_r_thread_.joinable())
@@ -143,9 +141,9 @@ void NetworkReceiver::stop() {
     heartbeat_thread_.join();
 
   // Close sockets
-  if (cam_socket_) {
-    zmq_close(cam_socket_);
-    cam_socket_ = nullptr;
+  if (rcw_socket_) {
+    zmq_close(rcw_socket_);
+    rcw_socket_ = nullptr;
   }
   if (radar_l_socket_) {
     zmq_close(radar_l_socket_);
@@ -167,17 +165,17 @@ void NetworkReceiver::stop() {
   std::cout << "[NetworkReceiver] Stopped\n";
 }
 
-void NetworkReceiver::cameraThread() {
-  std::vector<uint8_t> buffer(1024 * 1024); // 1MB buffer
+void NetworkReceiver::rcwThread() {
+  std::vector<uint8_t> buffer(256);
 
   while (running_.load()) {
-    int len = zmq_recv(cam_socket_, buffer.data(), buffer.size(), 0);
+    int len = zmq_recv(rcw_socket_, buffer.data(), buffer.size(), 0);
     if (len < 0) {
       continue; // Timeout or error
     }
 
     if (static_cast<size_t>(len) <
-        sizeof(PiMessageHeader) + sizeof(CameraPayloadHeader)) {
+        sizeof(PiMessageHeader) + sizeof(RcwPayload)) {
       stats_.errors++;
       continue;
     }
@@ -186,65 +184,47 @@ void NetworkReceiver::cameraThread() {
     PiMessageHeader header;
     std::memcpy(&header, buffer.data(), sizeof(header));
 
-    if (!validateHeader(header) || static_cast<MessageType>(header.msg_type) !=
-                                       MessageType::REAR_CAM_FRAME) {
+    if (!validateHeader(header) ||
+        static_cast<MessageType>(header.msg_type) != MessageType::RCW_STATE) {
       stats_.errors++;
       continue;
     }
 
     // Check for drops
-    if (stats_.cam_frames > 0 && header.sequence != last_cam_seq_ + 1) {
-      stats_.drops += header.sequence - last_cam_seq_ - 1;
+    if (stats_.rcw_packets > 0 && header.sequence != last_rcw_seq_ + 1) {
+      stats_.drops += header.sequence - last_rcw_seq_ - 1;
     }
-    last_cam_seq_ = header.sequence;
+    last_rcw_seq_ = header.sequence;
 
-    // Parse camera payload
-    CameraPayloadHeader cam_header;
-    std::memcpy(&cam_header, buffer.data() + sizeof(PiMessageHeader),
-                sizeof(cam_header));
-
-    // Decode MJPEG to cv::Mat
-    size_t jpeg_offset = sizeof(PiMessageHeader) + sizeof(CameraPayloadHeader);
-    size_t jpeg_size = header.payload_size - sizeof(CameraPayloadHeader);
-
-    std::vector<uint8_t> jpeg_data(buffer.data() + jpeg_offset,
-                                   buffer.data() + jpeg_offset + jpeg_size);
-    cv::Mat frame = cv::imdecode(jpeg_data, cv::IMREAD_COLOR);
-
-    if (frame.empty()) {
+    if (header.payload_size != sizeof(RcwPayload) ||
+        static_cast<size_t>(len) < sizeof(PiMessageHeader) + sizeof(RcwPayload)) {
       stats_.errors++;
       continue;
     }
 
-    // Timestamp this frame with the Jetson clock at the moment of arrival.
-    // Do NOT use the Pi's header.timestamp_ns here — the Pi runs its own
-    // (potentially unsynchronised) clock. All recording timestamps must use
-    // the Jetson's CLOCK_MONOTONIC_RAW so they are aligned with USB-camera
-    // and radar events recorded on the same timeline.
     const uint64_t jetson_arrival_ns = Clock::now_ns();
+    RcwPayload rcw_payload{};
+    std::memcpy(&rcw_payload, buffer.data() + sizeof(PiMessageHeader),
+                sizeof(rcw_payload));
 
-    // Create CameraFrameData and push to queue
-    if (cam_queue_) {
-      CameraFrameData frame_data;
-      frame_data.h.mount = Mount::RearCam;
-      frame_data.h.seq = header.sequence;
-      frame_data.h.t_device_ns =
-          header.timestamp_ns; // Pi's original timestamp (for reference only)
-      frame_data.h.t_ingest_ns = jetson_arrival_ns; // Jetson authoritative time
-      frame_data.frame = frame.clone();
+    RcwState rcw_state;
+    rcw_state.h.mount = Mount::RearCam;
+    rcw_state.h.seq = header.sequence;
+    rcw_state.h.t_device_ns = header.timestamp_ns;
+    rcw_state.h.t_ingest_ns = jetson_arrival_ns;
+    rcw_state.h.healthy = true;
+    rcw_state.alert = rcw_payload.alert;
+    rcw_state.status = rcw_payload.status;
 
-      // Record pre-decode JPEG with Jetson arrival time
-      if (auto *rec = recorder_.load(std::memory_order_acquire)) {
-        rec->recordCameraJpeg(jpeg_data.data(), jpeg_data.size(),
-                              jetson_arrival_ns, Mount::RearCam,
-                              static_cast<uint16_t>(frame.cols),
-                              static_cast<uint16_t>(frame.rows));
-      }
-
-      cam_queue_->try_push(std::move(frame_data));
+    if (auto *rec = recorder_.load(std::memory_order_acquire)) {
+      rec->recordRcwState(rcw_state);
     }
 
-    stats_.cam_frames++;
+    if (rcw_queue_) {
+      rcw_queue_->try_push(std::move(rcw_state));
+    }
+
+    stats_.rcw_packets++;
   }
 }
 
