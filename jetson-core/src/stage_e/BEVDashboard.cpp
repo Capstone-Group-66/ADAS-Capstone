@@ -250,10 +250,10 @@ std::string fmtFloat(float value, const char *suffix, int precision = 2) {
   return ss.str();
 }
 
-bool snapshotHasDisplayContent(const std::optional<adas::FCWDebugSnapshot> &debug_opt) {
+bool snapshotHasDisplayContent(
+    const std::optional<adas::FCWDebugSnapshot> &debug_opt) {
   return debug_opt.has_value() &&
-         (debug_opt->has_best_candidate ||
-          debug_opt->has_runner_up_candidate ||
+         (debug_opt->has_best_candidate || debug_opt->has_runner_up_candidate ||
           !debug_opt->rejected_candidates.empty());
 }
 
@@ -280,31 +280,26 @@ void renderFcwReasoningPanel(
     drawPanelText(title, 18, y, 0.42, cv::Scalar(240, 240, 240), 1);
   };
 
-  const auto drawBadge =
-      [&](int x, int y, const std::string &label, bool active,
-          const cv::Scalar &color) -> int {
+  const auto drawBadge = [&](int x, int y, const std::string &label,
+                             bool active, const cv::Scalar &color) -> int {
     int baseline = 0;
     const cv::Size text_size =
         cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.33, 1, &baseline);
     const int pad_x = 8;
     const int width = text_size.width + pad_x * 2;
     const int height = 18;
-    const cv::Scalar fill =
-        active ? color : cv::Scalar(55, 55, 58);
-    const cv::Scalar edge =
-        active ? color : cv::Scalar(95, 95, 100);
+    const cv::Scalar fill = active ? color : cv::Scalar(55, 55, 58);
+    const cv::Scalar edge = active ? color : cv::Scalar(95, 95, 100);
     cv::rectangle(panel, cv::Rect(x, y, width, height), fill, cv::FILLED);
     cv::rectangle(panel, cv::Rect(x, y, width, height), edge, 1);
-    drawPanelText(label, x + pad_x, y + 13, 0.33,
-                  active ? cv::Scalar(245, 245, 245)
-                         : cv::Scalar(150, 150, 155),
-                  1);
+    drawPanelText(
+        label, x + pad_x, y + 13, 0.33,
+        active ? cv::Scalar(245, 245, 245) : cv::Scalar(150, 150, 155), 1);
     return width + 6;
   };
 
-  const auto drawBar =
-      [&](int x, int y, int width, const std::string &label, float value,
-          float weight, const cv::Scalar &color) {
+  const auto drawBar = [&](int x, int y, int width, const std::string &label,
+                           float value, float weight, const cv::Scalar &color) {
     const float clamped = std::clamp(value, 0.0f, 1.0f);
     cv::rectangle(panel, cv::Rect(x, y, width, 12), cv::Scalar(42, 42, 46),
                   cv::FILLED);
@@ -320,9 +315,9 @@ void renderFcwReasoningPanel(
                   cv::Scalar(175, 175, 180), 1);
   };
 
-  const auto drawCandidateCard =
-      [&](const adas::FCWDebugCandidate &cand, const std::string &title, int x,
-          int y, int width, int height, bool is_primary) {
+  const auto drawCandidateCard = [&](const adas::FCWDebugCandidate &cand,
+                                     const std::string &title, int x, int y,
+                                     int width, int height, bool is_primary) {
     const cv::Scalar accent = fcwLevelColor(cand.active_level);
     cv::rectangle(panel, cv::Rect(x, y, width, height), cv::Scalar(31, 31, 35),
                   cv::FILLED);
@@ -335,31 +330,30 @@ void renderFcwReasoningPanel(
     std::ostringstream id_line;
     id_line << "ID " << cand.object_id << "  "
             << adas::fcwRiskLevelName(cand.active_level);
-    drawPanelText(id_line.str(), x + 8, y + 38, 0.40,
-                  cv::Scalar(235, 235, 240), 1);
+    drawPanelText(id_line.str(), x + 8, y + 38, 0.40, cv::Scalar(235, 235, 240),
+                  1);
 
     std::ostringstream line1;
     line1 << "Risk " << std::fixed << std::setprecision(2) << cand.risk_score
-          << "  TTC " << fmtFloat(cand.ttc_s, "s")
-          << "  Z " << fmtFloat(cand.range_m, "m");
-    drawPanelText(line1.str(), x + 8, y + 58, 0.34,
-                  cv::Scalar(215, 215, 220), 1);
+          << "  TTC " << fmtFloat(cand.ttc_s, "s") << "  Z "
+          << fmtFloat(cand.range_m, "m");
+    drawPanelText(line1.str(), x + 8, y + 58, 0.34, cv::Scalar(215, 215, 220),
+                  1);
 
     std::ostringstream line2;
-    line2 << "V " << fmtFloat(cand.velocity_mps, "m/s")
-          << "  X " << fmtFloat(cand.x_lateral_m, "m")
-          << "  Q " << fmtFloat(cand.fusion_quality, "", 2);
+    line2 << "V " << fmtFloat(cand.velocity_mps, "m/s") << "  X "
+          << fmtFloat(cand.x_lateral_m, "m") << "  Q "
+          << fmtFloat(cand.fusion_quality, "", 2);
     drawPanelText(line2.str(), x + 8, y + (height >= 100 ? 77 : 74), 0.34,
                   cv::Scalar(195, 195, 200), 1);
 
     if (height >= 100) {
       std::ostringstream line3;
-      line3 << "Base/Des/Act "
-            << adas::fcwRiskLevelName(cand.base_level) << " / "
-            << adas::fcwRiskLevelName(cand.desired_level) << " / "
+      line3 << "Base/Des/Act " << adas::fcwRiskLevelName(cand.base_level)
+            << " / " << adas::fcwRiskLevelName(cand.desired_level) << " / "
             << adas::fcwRiskLevelName(cand.active_level);
-      drawPanelText(line3.str(), x + 8, y + 96, 0.32,
-                    cv::Scalar(170, 200, 220), 1);
+      drawPanelText(line3.str(), x + 8, y + 96, 0.32, cv::Scalar(170, 200, 220),
+                    1);
     }
 
     if (!cand.comparison_reason.empty()) {
@@ -386,10 +380,10 @@ void renderFcwReasoningPanel(
                   cv::Scalar(45, 110, 65), cv::FILLED);
     cv::line(panel, cv::Point(center_x, y), cv::Point(center_x, y + h),
              cv::Scalar(210, 210, 210), 1);
-    const int marker_x = center_x + static_cast<int>(
-                                        std::clamp(cand.x_lateral_m / max_extent,
-                                                   -1.0f, 1.0f) *
-                                        (width / 2));
+    const int marker_x =
+        center_x + static_cast<int>(
+                       std::clamp(cand.x_lateral_m / max_extent, -1.0f, 1.0f) *
+                       (width / 2));
     cv::line(panel, cv::Point(marker_x, y - 2), cv::Point(marker_x, y + h + 2),
              cand.gate_in_path ? cv::Scalar(255, 255, 255)
                                : cv::Scalar(0, 0, 255),
@@ -408,13 +402,13 @@ void renderFcwReasoningPanel(
     cv::rectangle(panel, cv::Rect(x, y, width, h), cv::Scalar(40, 40, 44),
                   cv::FILLED);
     cv::rectangle(panel, cv::Rect(x, y, width, h), cv::Scalar(90, 90, 95), 1);
-    const int stop_x = x + static_cast<int>(
-                               std::clamp(cand.stopping_distance_m / scale_max,
-                                          0.0f, 1.0f) *
-                               width);
-    const int range_x = x + static_cast<int>(
-                                std::clamp(cand.range_m / scale_max, 0.0f, 1.0f) *
-                                width);
+    const int stop_x =
+        x + static_cast<int>(
+                std::clamp(cand.stopping_distance_m / scale_max, 0.0f, 1.0f) *
+                width);
+    const int range_x =
+        x + static_cast<int>(std::clamp(cand.range_m / scale_max, 0.0f, 1.0f) *
+                             width);
     cv::line(panel, cv::Point(stop_x, y - 2), cv::Point(stop_x, y + h + 2),
              cv::Scalar(0, 215, 235), 2);
     cv::line(panel, cv::Point(range_x, y - 2), cv::Point(range_x, y + h + 2),
@@ -434,9 +428,8 @@ void renderFcwReasoningPanel(
   drawSectionHeader("FCW Heuristic", 22);
   if (snapshot_is_held && hold_remaining_s > 0.0f) {
     std::ostringstream held_line;
-    held_line << "Holding last significant FCW snapshot  "
-              << std::fixed << std::setprecision(1) << hold_remaining_s
-              << "s";
+    held_line << "Holding last significant FCW snapshot  " << std::fixed
+              << std::setprecision(1) << hold_remaining_s << "s";
     drawPanelText(held_line.str(), 18, 40, 0.34, cv::Scalar(255, 220, 140), 1);
   } else {
     drawPanelText("Live reasoning from the production FCW math", 18, 40, 0.34,
@@ -499,7 +492,8 @@ void renderFcwReasoningPanel(
     int badge_x = 22;
     int badge_y = 474;
     badge_x += drawBadge(badge_x, badge_y,
-                         std::string("Base ") + adas::fcwRiskLevelName(cand.base_level),
+                         std::string("Base ") +
+                             adas::fcwRiskLevelName(cand.base_level),
                          true, fcwLevelColor(cand.base_level));
     badge_x += drawBadge(badge_x, badge_y, "TTC floor", cand.ttc_caution_floor,
                          cv::Scalar(0, 215, 235));
@@ -513,11 +507,11 @@ void renderFcwReasoningPanel(
                          cand.ttc_immediate_warn, cv::Scalar(0, 165, 255));
     badge_x += drawBadge(badge_x, badge_y, "Immediate critical",
                          cand.ttc_immediate_critical, cv::Scalar(0, 0, 255));
-    badge_x += drawBadge(badge_x, badge_y, "Cam grace",
-                         cand.camera_drop_grace_used,
-                         cv::Scalar(180, 110, 255));
-    badge_x += drawBadge(badge_x, badge_y, "Physics",
-                         cand.physics_contributed, cv::Scalar(110, 110, 255));
+    badge_x +=
+        drawBadge(badge_x, badge_y, "Cam grace", cand.camera_drop_grace_used,
+                  cv::Scalar(180, 110, 255));
+    badge_x += drawBadge(badge_x, badge_y, "Physics", cand.physics_contributed,
+                         cv::Scalar(110, 110, 255));
 
     drawPathGauge(22, 530, 270, cand);
     drawStoppingGauge(318, 530, 270, cand);
@@ -534,12 +528,11 @@ void renderFcwReasoningPanel(
   for (const auto &item : debug.rejected_candidates) {
     std::ostringstream ss;
     ss << "ID " << item.object_id << "  "
-       << adas::fcwDropReasonName(item.drop_reason)
-       << "  Z " << std::fixed << std::setprecision(1) << item.range_m
-       << "m  TTC " << fmtFloat(item.ttc_s, "s")
-       << "  V " << fmtFloat(item.velocity_mps, "m/s", 1);
-    drawPanelText(ss.str(), 22, y, 0.33,
-                  cv::Scalar(220, 205, 175), 1);
+       << adas::fcwDropReasonName(item.drop_reason) << "  Z " << std::fixed
+       << std::setprecision(1) << item.range_m << "m  TTC "
+       << fmtFloat(item.ttc_s, "s") << "  V "
+       << fmtFloat(item.velocity_mps, "m/s", 1);
+    drawPanelText(ss.str(), 22, y, 0.33, cv::Scalar(220, 205, 175), 1);
     y += 18;
   }
 }
@@ -717,8 +710,7 @@ void BEVDashboard::renderLoop() {
   uint64_t last_processed_seq = 0;
 
   while (running_.load()) {
-    cv::Mat world(kCanvasHeight, kCanvasWidth, CV_8UC3,
-                  cv::Scalar(28, 28, 28));
+    cv::Mat world(kCanvasHeight, kCanvasWidth, CV_8UC3, cv::Scalar(28, 28, 28));
 
     BEVInputFrame frame;
     uint64_t frame_seq = 0;
@@ -742,19 +734,18 @@ void BEVDashboard::renderLoop() {
     if (incoming_has_display_content) {
       const bool have_latched = latched_fcw_debug_snapshot_.has_value();
       const bool same_best_object =
-          have_latched &&
-          snapshotBestId(*latched_fcw_debug_snapshot_) ==
-              snapshotBestId(*frame.fcw_debug_context);
+          have_latched && snapshotBestId(*latched_fcw_debug_snapshot_) ==
+                              snapshotBestId(*frame.fcw_debug_context);
       const bool escalated_level =
           have_latched && frame.fcw_debug_context->has_best_candidate &&
           (!latched_fcw_debug_snapshot_->has_best_candidate ||
-           static_cast<int>(frame.fcw_debug_context->best_candidate.active_level) >
+           static_cast<int>(
+               frame.fcw_debug_context->best_candidate.active_level) >
                static_cast<int>(
                    latched_fcw_debug_snapshot_->best_candidate.active_level));
       const bool refresh_allowed =
-          !have_latched ||
-          (now_ns - latched_fcw_debug_last_update_ns_) >=
-              kPanelSnapshotMinRefreshNs;
+          !have_latched || (now_ns - latched_fcw_debug_last_update_ns_) >=
+                               kPanelSnapshotMinRefreshNs;
 
       if (same_best_object || escalated_level || refresh_allowed) {
         latched_fcw_debug_snapshot_ = frame.fcw_debug_context;
@@ -769,8 +760,7 @@ void BEVDashboard::renderLoop() {
                                       latched_fcw_debug_until_ns_ > now_ns;
     const float held_remaining_s =
         use_latched_snapshot
-            ? static_cast<float>(latched_fcw_debug_until_ns_ - now_ns) /
-                  1.0e9f
+            ? static_cast<float>(latched_fcw_debug_until_ns_ - now_ns) / 1.0e9f
             : 0.0f;
 
     bool left_bsd = false;
@@ -1054,15 +1044,16 @@ void BEVDashboard::renderLoop() {
     renderFcwReasoningPanel(panel,
                             use_latched_snapshot ? latched_fcw_debug_snapshot_
                                                  : frame.fcw_debug_context,
-                            use_latched_snapshot && !incoming_has_display_content,
+                            use_latched_snapshot &&
+                                !incoming_has_display_content,
                             held_remaining_s);
 
     cv::Mat canvas;
     cv::hconcat(std::vector<cv::Mat>{world, panel}, canvas);
 
     cv::Mat display_canvas = canvas;
-    const double scale_x =
-        static_cast<double>(kDisplayMaxWidth) / static_cast<double>(canvas.cols);
+    const double scale_x = static_cast<double>(kDisplayMaxWidth) /
+                           static_cast<double>(canvas.cols);
     const double scale_y = static_cast<double>(kDisplayMaxHeight) /
                            static_cast<double>(canvas.rows);
     const double display_scale = std::min({1.0, scale_x, scale_y});

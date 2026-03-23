@@ -155,8 +155,8 @@ public:
     std::error_code ec;
     std::filesystem::create_directories(output_dir, ec);
 
-    file_path_ = output_dir + "/cam_radar_range_capture_" + timestampSuffix() +
-                 ".csv";
+    file_path_ =
+        output_dir + "/cam_radar_range_capture_" + timestampSuffix() + ".csv";
     file_.open(file_path_, std::ios::out | std::ios::trunc);
     if (!file_.is_open()) {
       file_path_.clear();
@@ -390,8 +390,8 @@ uint32_t scaleU32(uint32_t value, float factor, uint32_t min_v,
 void applyConfiguredFusionHoldTimings(
     adas::FusionConfig &fusion_config, adas::FCWMonitor::Config &fcw_config,
     const adas::StageEFusionConfig &stage_e_config) {
-  fusion_config.camera_hold_ms = static_cast<uint32_t>(
-      std::max(0, stage_e_config.camera_hold_ms));
+  fusion_config.camera_hold_ms =
+      static_cast<uint32_t>(std::max(0, stage_e_config.camera_hold_ms));
   fusion_config.radar_hold_ms =
       static_cast<uint32_t>(std::max(0, stage_e_config.radar_hold_ms));
   fusion_config.track_cleanup_ms =
@@ -407,12 +407,13 @@ bool validateFusionHoldTimings(int camera_hold_ms, int radar_hold_ms,
                                std::string &error) {
   if (camera_hold_ms < 50 || radar_hold_ms < 50 || track_cleanup_ms < 50 ||
       predicted_camera_threshold_ms < 0) {
-    error = "All hold timings must be >= 50 ms except predicted threshold, which must be >= 0.";
+    error = "All hold timings must be >= 50 ms except predicted threshold, "
+            "which must be >= 0.";
     return false;
   }
   if (track_cleanup_ms < std::max(camera_hold_ms, radar_hold_ms)) {
-    error =
-        "Track cleanup must be >= both camera hold and radar hold so tracks do not disappear early.";
+    error = "Track cleanup must be >= both camera hold and radar hold so "
+            "tracks do not disappear early.";
     return false;
   }
   if (predicted_camera_threshold_ms > track_cleanup_ms) {
@@ -495,8 +496,8 @@ std::atomic<bool> g_visualizer_enabled{true};
 adas::Alert buildRcwAlert(const adas::RcwState &state, uint64_t now_ns) {
   adas::Alert alert;
   alert.t_ms = now_ns / 1000000ULL;
-  alert.id = "rcw_" + std::to_string(alert.t_ms) + "_" +
-             std::to_string(state.h.seq);
+  alert.id =
+      "rcw_" + std::to_string(alert.t_ms) + "_" + std::to_string(state.h.seq);
   alert.type = adas::AlertType::RCW;
   alert.direction = "rear";
   alert.severity = adas::Severity::Warning;
@@ -1787,7 +1788,8 @@ int main(int argc, char **argv) {
         }
 
         if (g_range_distance_capture_logger.isEnabled()) {
-          const auto capture_path = g_range_distance_capture_logger.getFilePath();
+          const auto capture_path =
+              g_range_distance_capture_logger.getFilePath();
           const auto sample_count =
               g_range_distance_capture_logger.getSampleCount();
           g_range_distance_capture_logger.stop();
@@ -1839,10 +1841,9 @@ int main(int argc, char **argv) {
         }
 
         std::string validation_error;
-        if (!validateFusionHoldTimings(camera_hold_ms, radar_hold_ms,
-                                       track_cleanup_ms,
-                                       predicted_camera_threshold_ms,
-                                       validation_error)) {
+        if (!validateFusionHoldTimings(
+                camera_hold_ms, radar_hold_ms, track_cleanup_ms,
+                predicted_camera_threshold_ms, validation_error)) {
           std::cout << "[Main] Invalid fusion hold timings: "
                     << validation_error << "\n";
           break;
@@ -1857,8 +1858,8 @@ int main(int argc, char **argv) {
         try {
           adas::ConfigLoader::saveConfig(config_path, config);
         } catch (const std::exception &e) {
-          std::cerr << "[Main] Failed to save fusion hold timings: "
-                    << e.what() << "\n";
+          std::cerr << "[Main] Failed to save fusion hold timings: " << e.what()
+                    << "\n";
           break;
         }
 

@@ -159,8 +159,7 @@ Config ConfigLoader::loadConfig(const std::string &path) {
       } else if (key == "track_cleanup_ms") {
         config.stage_e_fusion.track_cleanup_ms = std::stoi(value);
       } else if (key == "predicted_camera_threshold_ms") {
-        config.stage_e_fusion.predicted_camera_threshold_ms =
-            std::stoi(value);
+        config.stage_e_fusion.predicted_camera_threshold_ms = std::stoi(value);
       } else if (key == "normal_angle_gate_deg") {
         config.stage_e_fusion.normal_angle_gate_deg = std::stof(value);
       } else if (key == "aggressive_angle_gate_deg") {
@@ -276,8 +275,7 @@ void ConfigLoader::saveConfig(const std::string &path, const Config &config) {
       if (key == "radar_hold_ms") {
         std::stringstream ss;
         ss << std::string(indent, ' ')
-           << "radar_hold_ms: " << config.stage_e_fusion.radar_hold_ms
-           << "\n";
+           << "radar_hold_ms: " << config.stage_e_fusion.radar_hold_ms << "\n";
         new_content += ss.str();
         continue;
       }
@@ -291,8 +289,7 @@ void ConfigLoader::saveConfig(const std::string &path, const Config &config) {
       }
       if (key == "predicted_camera_threshold_ms") {
         std::stringstream ss;
-        ss << std::string(indent, ' ')
-           << "predicted_camera_threshold_ms: "
+        ss << std::string(indent, ' ') << "predicted_camera_threshold_ms: "
            << config.stage_e_fusion.predicted_camera_threshold_ms << "\n";
         new_content += ss.str();
         continue;
