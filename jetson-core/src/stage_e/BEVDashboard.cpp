@@ -783,7 +783,7 @@ void BEVDashboard::renderLoop() {
             crosshair_active ? (speed_vector_active ? cv::Scalar(120, 220, 120)
                                                     : cv::Scalar(0, 220, 255))
                              : cv::Scalar(90, 90, 170); // ghost
-        drawCorridor(canvas, track.corridor_angle_rad, corridor_color,
+        drawCorridor(world, track.corridor_angle_rad, corridor_color,
                      crosshair_active ? 2 : 1);
       }
 
