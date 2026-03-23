@@ -18,6 +18,8 @@ constexpr int kCanvasWidth = 520;
 constexpr int kCanvasHeight = 660;
 constexpr int kPanelWidth = 620;
 constexpr int kPanelHeight = kCanvasHeight;
+constexpr int kDisplayMaxWidth = 960;
+constexpr int kDisplayMaxHeight = 520;
 constexpr float kPixelsPerMeter = 10.0f;
 constexpr int kEgoX = kCanvasWidth / 2;
 constexpr int kEgoY = 560;
@@ -994,7 +996,18 @@ void BEVDashboard::renderLoop() {
     cv::Mat canvas;
     cv::hconcat(std::vector<cv::Mat>{world, panel}, canvas);
 
-    cv::imshow("ADAS BEVDashboard", canvas);
+    cv::Mat display_canvas = canvas;
+    const double scale_x =
+        static_cast<double>(kDisplayMaxWidth) / static_cast<double>(canvas.cols);
+    const double scale_y = static_cast<double>(kDisplayMaxHeight) /
+                           static_cast<double>(canvas.rows);
+    const double display_scale = std::min({1.0, scale_x, scale_y});
+    if (display_scale < 0.999) {
+      cv::resize(canvas, display_canvas, cv::Size(), display_scale,
+                 display_scale, cv::INTER_AREA);
+    }
+
+    cv::imshow("ADAS BEVDashboard", display_canvas);
     cv::waitKey(33);
   }
 
