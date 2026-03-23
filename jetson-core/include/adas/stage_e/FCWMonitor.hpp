@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <unordered_map>
 #include <vector>
 
@@ -43,6 +44,113 @@ struct FCWEvaluation {
         : has_candidate(false), object_id(UINT64_MAX), level(0), risk_score(0.0f),
           ttc_s(0.0f), range_m(0.0f), velocity_mps(0.0f),
           used_camera_drop_grace(false) {}
+};
+
+enum class FCWDropReason : uint8_t {
+    None = 0,
+    CamAge,
+    NoRadar,
+    SpeedStale,
+    ClassFilter,
+    RangeGate,
+    LowQuality,
+    LowClosingSpeed,
+    OutOfPath
+};
+
+inline const char *fcwDropReasonName(FCWDropReason reason) {
+    switch (reason) {
+    case FCWDropReason::CamAge:
+        return "CAM_AGE";
+    case FCWDropReason::NoRadar:
+        return "NO_RADAR";
+    case FCWDropReason::SpeedStale:
+        return "SPEED_STALE";
+    case FCWDropReason::ClassFilter:
+        return "CLASS_FILTER";
+    case FCWDropReason::RangeGate:
+        return "RANGE_GATE";
+    case FCWDropReason::LowQuality:
+        return "LOW_QUALITY";
+    case FCWDropReason::LowClosingSpeed:
+        return "LOW_CLOSING_SPEED";
+    case FCWDropReason::OutOfPath:
+        return "OUT_OF_PATH";
+    case FCWDropReason::None:
+    default:
+        return "NONE";
+    }
+}
+
+inline const char *fcwRiskLevelName(uint8_t level) {
+    switch (level) {
+    case 3:
+        return "Critical";
+    case 2:
+        return "Warn";
+    case 1:
+        return "Caution";
+    case 0:
+    default:
+        return "Safe";
+    }
+}
+
+struct FCWDebugCandidate {
+    bool valid = false;
+    uint64_t object_id = UINT64_MAX;
+    uint8_t base_level = 0;
+    uint8_t desired_level = 0;
+    uint8_t active_level = 0;
+    float base_risk_score = 0.0f;
+    float risk_score = 0.0f;
+    float ttc_s = 0.0f;
+    float range_m = 0.0f;
+    float velocity_mps = 0.0f;
+    float x_lateral_m = 0.0f;
+    float lane_half_width_m = 0.0f;
+    float fusion_quality = 0.0f;
+    float range_score = 0.0f;
+    float closing_score = 0.0f;
+    float quality_score = 0.0f;
+    float ttc_score = 0.0f;
+    float physics_score = 0.0f;
+    float stopping_distance_m = 0.0f;
+    bool camera_drop_grace_used = false;
+    bool physics_contributed = false;
+    bool ttc_caution_floor = false;
+    bool ttc_warn_floor = false;
+    bool ttc_last_ditch = false;
+    bool ttc_immediate_warn = false;
+    bool ttc_immediate_critical = false;
+    bool gate_camera_ok = false;
+    bool gate_has_radar = false;
+    bool gate_speed_fresh = false;
+    bool gate_class_relevant = false;
+    bool gate_range_ok = false;
+    bool gate_quality_ok = false;
+    bool gate_closing_ok = false;
+    bool gate_in_path = false;
+    std::string comparison_reason;
+};
+
+struct FCWDebugRejected {
+    uint64_t object_id = UINT64_MAX;
+    FCWDropReason drop_reason = FCWDropReason::None;
+    float ttc_s = 0.0f;
+    float range_m = 0.0f;
+    float velocity_mps = 0.0f;
+    float x_lateral_m = 0.0f;
+    float fusion_quality = 0.0f;
+};
+
+struct FCWDebugSnapshot {
+    uint64_t timestamp_ns = 0;
+    bool has_best_candidate = false;
+    FCWDebugCandidate best_candidate;
+    bool has_runner_up_candidate = false;
+    FCWDebugCandidate runner_up_candidate;
+    std::vector<FCWDebugRejected> rejected_candidates;
 };
 
 /// FCWMonitor: Checks fused objects for collision threats
@@ -145,6 +253,9 @@ class FCWMonitor {
     /// Get last StageE-4 evaluation snapshot (used by BEV debug UI).
     FCWEvaluation getLastEvaluation() const { return last_evaluation_; }
 
+    /// Get the latest detailed FCW debug snapshot for BEV reasoning panel.
+    FCWDebugSnapshot getLastDebugSnapshot() const { return last_debug_snapshot_; }
+
   private:
     struct TrackState {
         RiskLevel level = RiskLevel::Safe;
@@ -166,6 +277,7 @@ class FCWMonitor {
     std::atomic<float> min_trigger_object_speed_mps_{0.0f};
     std::unordered_map<uint64_t, TrackState> track_states_;
     FCWEvaluation last_evaluation_;
+    FCWDebugSnapshot last_debug_snapshot_;
 };
 
 } // namespace adas

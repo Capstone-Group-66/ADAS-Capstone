@@ -6,6 +6,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <tuple>
 #include <unordered_set>
 
 #include "adas/common/Globals.hpp"
@@ -48,6 +49,38 @@ float normalizedTtcScore(float ttc_s, float threshold_s) {
 
 uint8_t levelRank(FCWMonitor::RiskLevel level) {
   return static_cast<uint8_t>(level);
+}
+
+template <typename T> const T &minByTtc(const T &a, const T &b) {
+  const bool a_valid = std::isfinite(a.ttc_s) && a.ttc_s > 0.0f;
+  const bool b_valid = std::isfinite(b.ttc_s) && b.ttc_s > 0.0f;
+  if (a_valid && b_valid) {
+    return (a.ttc_s <= b.ttc_s) ? a : b;
+  }
+  if (a_valid) {
+    return a;
+  }
+  return b;
+}
+
+std::string runnerUpReason(const FCWDebugCandidate &best,
+                           const FCWDebugCandidate &runner_up) {
+  if (runner_up.active_level < best.active_level) {
+    return "lower level";
+  }
+  if (runner_up.desired_level < best.desired_level) {
+    return "weaker escalation";
+  }
+  if (std::abs(runner_up.risk_score - best.risk_score) > 1e-4f) {
+    return "lower risk";
+  }
+  const bool best_ttc_valid = std::isfinite(best.ttc_s) && best.ttc_s > 0.0f;
+  const bool runner_ttc_valid =
+      std::isfinite(runner_up.ttc_s) && runner_up.ttc_s > 0.0f;
+  if (best_ttc_valid && runner_ttc_valid && runner_up.ttc_s > best.ttc_s) {
+    return "higher TTC";
+  }
+  return "lower priority";
 }
 
 } // namespace
@@ -155,18 +188,82 @@ FCWMonitor::RiskLevel FCWMonitor::applyDwell(TrackState &state,
 std::optional<FCWAlert>
 FCWMonitor::check(const std::vector<FusedObject> &objects,
                   uint64_t current_time_ns) {
-  struct Candidate {
+  struct CandidateEval {
     const FusedObject *obj = nullptr;
-    RiskLevel level = RiskLevel::Safe;
+    RiskLevel base_level = RiskLevel::Safe;
+    RiskLevel desired_level = RiskLevel::Safe;
+    RiskLevel active_level = RiskLevel::Safe;
+    float base_risk = 0.0f;
     float risk = 0.0f;
+    float range_score = 0.0f;
+    float closing_score = 0.0f;
+    float quality_score = 0.0f;
+    float ttc_score = 0.0f;
+    float physics_score = 0.0f;
+    float lane_half_width_m = 0.0f;
+    float stopping_distance_m = 0.0f;
     bool physics_contrib = false;
-    bool ttc_last_ditch = false;
     bool camera_drop_grace = false;
+    bool ttc_caution_floor = false;
+    bool ttc_warn_floor = false;
+    bool ttc_last_ditch = false;
+    bool ttc_immediate_warn = false;
+    bool ttc_immediate_critical = false;
+    bool gate_camera_ok = false;
+    bool gate_has_radar = false;
+    bool gate_speed_fresh = false;
+    bool gate_class_relevant = false;
+    bool gate_range_ok = false;
+    bool gate_quality_ok = false;
+    bool gate_closing_ok = false;
+    bool gate_in_path = false;
+
+    FCWDebugCandidate toDebugCandidate() const {
+      FCWDebugCandidate debug;
+      if (!obj) {
+        return debug;
+      }
+      debug.valid = true;
+      debug.object_id = obj->object_id;
+      debug.base_level = static_cast<uint8_t>(base_level);
+      debug.desired_level = static_cast<uint8_t>(desired_level);
+      debug.active_level = static_cast<uint8_t>(active_level);
+      debug.base_risk_score = base_risk;
+      debug.risk_score = risk;
+      debug.ttc_s = obj->ttc_s;
+      debug.range_m = obj->range_m;
+      debug.velocity_mps = obj->radial_vel_mps;
+      debug.x_lateral_m = obj->x_lateral_m;
+      debug.lane_half_width_m = lane_half_width_m;
+      debug.fusion_quality = obj->fusion_quality;
+      debug.range_score = range_score;
+      debug.closing_score = closing_score;
+      debug.quality_score = quality_score;
+      debug.ttc_score = ttc_score;
+      debug.physics_score = physics_score;
+      debug.stopping_distance_m = stopping_distance_m;
+      debug.camera_drop_grace_used = camera_drop_grace;
+      debug.physics_contributed = physics_contrib;
+      debug.ttc_caution_floor = ttc_caution_floor;
+      debug.ttc_warn_floor = ttc_warn_floor;
+      debug.ttc_last_ditch = ttc_last_ditch;
+      debug.ttc_immediate_warn = ttc_immediate_warn;
+      debug.ttc_immediate_critical = ttc_immediate_critical;
+      debug.gate_camera_ok = gate_camera_ok;
+      debug.gate_has_radar = gate_has_radar;
+      debug.gate_speed_fresh = gate_speed_fresh;
+      debug.gate_class_relevant = gate_class_relevant;
+      debug.gate_range_ok = gate_range_ok;
+      debug.gate_quality_ok = gate_quality_ok;
+      debug.gate_closing_ok = gate_closing_ok;
+      debug.gate_in_path = gate_in_path;
+      return debug;
+    }
   };
 
-  Candidate best;
-  Candidate best_eval;
-  bool has_eval = false;
+  CandidateEval best_alert;
+  std::vector<CandidateEval> candidate_evals;
+  std::vector<FCWDebugRejected> rejected;
   std::unordered_set<uint64_t> seen_ids;
 
   float stopping_distance_m = 0.0f;
@@ -183,6 +280,18 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     state.last_seen_ns = current_time_ns;
     bool invalid_demote_grace_used = false;
     bool invalid_state_hold_used = false;
+
+    const auto addRejected = [&](FCWDropReason reason) {
+      FCWDebugRejected item;
+      item.object_id = obj.object_id;
+      item.drop_reason = reason;
+      item.ttc_s = obj.ttc_s;
+      item.range_m = obj.range_m;
+      item.velocity_mps = obj.radial_vel_mps;
+      item.x_lateral_m = obj.x_lateral_m;
+      item.fusion_quality = obj.fusion_quality;
+      rejected.push_back(item);
+    };
 
     const auto demote_to_safe = [&](const char *reason) {
       state.last_risk = 0.0f;
@@ -247,43 +356,59 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
           obj.camera_age_ms <= config_.camera_drop_track_hold_ms &&
           radar_recent_for_grace && obj.fusion_quality >= min_grace_quality;
       if (!camera_drop_grace) {
+        addRejected(FCWDropReason::CamAge);
         demote_to_safe("CAM_AGE");
         continue;
       }
     }
 
+    const bool gate_camera_ok = camera_fresh || camera_drop_grace;
+    const bool gate_has_radar = obj.has_radar;
+    const bool gate_speed_fresh = obj.speed_fresh;
+    const bool gate_class_relevant = isRelevantClass(obj.object_class);
+    const bool gate_range_ok =
+        obj.range_m >= config_.min_range_m && obj.range_m <= config_.max_range_m;
+    const bool gate_quality_ok = obj.fusion_quality >= config_.min_fusion_quality;
+    const float closing_mps = obj.radial_vel_mps; // positive=inward/toward
+    const bool gate_closing_ok = closing_mps > config_.min_closing_speed_mps;
+    const float lane_half_width_m = pathHalfWidth(obj.range_m);
+    const bool gate_in_path = std::abs(obj.x_lateral_m) <= lane_half_width_m;
+
     if (!obj.has_radar) {
+      addRejected(FCWDropReason::NoRadar);
       demote_to_safe("NO_RADAR");
       continue;
     }
     if (!obj.speed_fresh) {
+      addRejected(FCWDropReason::SpeedStale);
       demote_to_safe("SPEED_STALE");
       continue;
     }
     if (!isRelevantClass(obj.object_class)) {
+      addRejected(FCWDropReason::ClassFilter);
       demote_to_safe("CLASS_FILTER");
       continue;
     }
     if (obj.range_m < config_.min_range_m ||
         obj.range_m > config_.max_range_m) {
+      addRejected(FCWDropReason::RangeGate);
       demote_to_safe("RANGE_GATE");
       continue;
     }
     if (obj.fusion_quality < config_.min_fusion_quality) {
+      addRejected(FCWDropReason::LowQuality);
       demote_to_safe("LOW_QUALITY");
       continue;
     }
-
-    const float closing_mps = obj.radial_vel_mps; // positive=inward/toward
     if (closing_mps <= config_.min_closing_speed_mps) {
+      addRejected(FCWDropReason::LowClosingSpeed);
       demote_to_safe("LOW_CLOSING_SPEED");
       continue;
     }
-
-    const float lane_half_width_m = pathHalfWidth(obj.range_m);
-    const bool in_path = std::abs(obj.x_lateral_m) <= lane_half_width_m;
+    const bool in_path = gate_in_path;
     if (!in_path) {
       // Ignore out-of-path objects to suppress adjacent-lane triggers.
+      addRejected(FCWDropReason::OutOfPath);
       demote_to_safe("OUT_OF_PATH");
       continue;
     }
@@ -311,9 +436,10 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
 
     // Fused risk model: closeness + closing speed + fusion confidence.
     // TTC contributes lightly and serves as last-ditch escalation.
-    float risk_score = 0.40f * closing_score + 0.24f * range_score +
-                       0.21f * quality_score + 0.10f * ttc_score +
-                       0.05f * physics_score;
+    const float base_risk_score = 0.40f * closing_score + 0.24f * range_score +
+                                  0.21f * quality_score + 0.10f * ttc_score +
+                                  0.05f * physics_score;
+    float risk_score = base_risk_score;
 
     bool ttc_caution_floor = false;
     bool ttc_warn_floor = false;
@@ -339,6 +465,7 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
 
     bool ttc_immediate_warn = false;
     bool ttc_immediate_critical = false;
+    const RiskLevel base_level = classifyRisk(base_risk_score);
     RiskLevel desired_level = classifyRisk(risk_score);
     if (ttc_valid && obj.ttc_s <= config_.ttc_immediate_critical_s) {
       if (levelRank(desired_level) < levelRank(RiskLevel::Critical)) {
@@ -389,35 +516,48 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
               << (ttc_immediate_critical ? " [TTC_IMMEDIATE_CRITICAL]" : "")
               << (ttc_last_ditch ? " [TTC_LAST_DITCH]" : "") << "\n";
 
-    if (!has_eval || active_level > best_eval.level ||
-        (active_level == best_eval.level && risk_score > best_eval.risk) ||
-        (active_level == best_eval.level &&
-         std::abs(risk_score - best_eval.risk) < 1e-4f &&
-         obj.ttc_s < best_eval.obj->ttc_s)) {
-      best_eval.obj = &obj;
-      best_eval.level = active_level;
-      best_eval.risk = risk_score;
-      best_eval.physics_contrib = physics_contrib;
-      best_eval.ttc_last_ditch = ttc_last_ditch;
-      best_eval.camera_drop_grace = camera_drop_grace;
-      has_eval = true;
-    }
+    CandidateEval eval;
+    eval.obj = &obj;
+    eval.base_level = base_level;
+    eval.desired_level = desired_level;
+    eval.active_level = active_level;
+    eval.base_risk = base_risk_score;
+    eval.risk = risk_score;
+    eval.range_score = range_score;
+    eval.closing_score = closing_score;
+    eval.quality_score = quality_score;
+    eval.ttc_score = ttc_score;
+    eval.physics_score = physics_score;
+    eval.lane_half_width_m = lane_half_width_m;
+    eval.stopping_distance_m = stopping_distance_m;
+    eval.physics_contrib = physics_contrib;
+    eval.camera_drop_grace = camera_drop_grace;
+    eval.ttc_caution_floor = ttc_caution_floor;
+    eval.ttc_warn_floor = ttc_warn_floor;
+    eval.ttc_last_ditch = ttc_last_ditch;
+    eval.ttc_immediate_warn = ttc_immediate_warn;
+    eval.ttc_immediate_critical = ttc_immediate_critical;
+    eval.gate_camera_ok = gate_camera_ok;
+    eval.gate_has_radar = gate_has_radar;
+    eval.gate_speed_fresh = gate_speed_fresh;
+    eval.gate_class_relevant = gate_class_relevant;
+    eval.gate_range_ok = gate_range_ok;
+    eval.gate_quality_ok = gate_quality_ok;
+    eval.gate_closing_ok = gate_closing_ok;
+    eval.gate_in_path = gate_in_path;
+    candidate_evals.push_back(eval);
 
     if (active_level < RiskLevel::Warn) {
       continue;
     }
 
-    if (best.obj == nullptr || active_level > best.level ||
-        (active_level == best.level && risk_score > best.risk) ||
-        (active_level == best.level &&
-         std::abs(risk_score - best.risk) < 1e-4f &&
-         obj.ttc_s < best.obj->ttc_s)) {
-      best.obj = &obj;
-      best.level = active_level;
-      best.risk = risk_score;
-      best.physics_contrib = physics_contrib;
-      best.ttc_last_ditch = ttc_last_ditch;
-      best.camera_drop_grace = camera_drop_grace;
+    if (best_alert.obj == nullptr ||
+        active_level > best_alert.active_level ||
+        (active_level == best_alert.active_level && risk_score > best_alert.risk) ||
+        (active_level == best_alert.active_level &&
+         std::abs(risk_score - best_alert.risk) < 1e-4f &&
+         minByTtc(obj, *best_alert.obj).object_id == obj.object_id)) {
+      best_alert = eval;
     }
   }
 
@@ -432,10 +572,62 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     }
   }
 
-  if (has_eval && best_eval.obj != nullptr) {
+  auto candidateComparator = [](const CandidateEval &a, const CandidateEval &b) {
+    if (a.active_level != b.active_level) {
+      return a.active_level > b.active_level;
+    }
+    if (std::abs(a.risk - b.risk) >= 1e-4f) {
+      return a.risk > b.risk;
+    }
+    const bool a_ttc_valid = a.obj && std::isfinite(a.obj->ttc_s) && a.obj->ttc_s > 0.0f;
+    const bool b_ttc_valid = b.obj && std::isfinite(b.obj->ttc_s) && b.obj->ttc_s > 0.0f;
+    if (a_ttc_valid != b_ttc_valid) {
+      return a_ttc_valid;
+    }
+    if (a_ttc_valid && b_ttc_valid && std::abs(a.obj->ttc_s - b.obj->ttc_s) >= 1e-4f) {
+      return a.obj->ttc_s < b.obj->ttc_s;
+    }
+    return a.obj->object_id < b.obj->object_id;
+  };
+  std::sort(candidate_evals.begin(), candidate_evals.end(), candidateComparator);
+
+  auto rejectedComparator = [](const FCWDebugRejected &a,
+                               const FCWDebugRejected &b) {
+    const float a_ttc = (std::isfinite(a.ttc_s) && a.ttc_s > 0.0f) ? a.ttc_s : 1e6f;
+    const float b_ttc = (std::isfinite(b.ttc_s) && b.ttc_s > 0.0f) ? b.ttc_s : 1e6f;
+    if (std::abs(a_ttc - b_ttc) >= 1e-4f) {
+      return a_ttc < b_ttc;
+    }
+    if (std::abs(a.range_m - b.range_m) >= 1e-4f) {
+      return a.range_m < b.range_m;
+    }
+    return std::abs(a.velocity_mps) > std::abs(b.velocity_mps);
+  };
+  std::sort(rejected.begin(), rejected.end(), rejectedComparator);
+  if (rejected.size() > 3) {
+    rejected.resize(3);
+  }
+
+  FCWDebugSnapshot snapshot;
+  snapshot.timestamp_ns = current_time_ns;
+  if (!candidate_evals.empty()) {
+    snapshot.has_best_candidate = true;
+    snapshot.best_candidate = candidate_evals.front().toDebugCandidate();
+    if (candidate_evals.size() > 1) {
+      snapshot.has_runner_up_candidate = true;
+      snapshot.runner_up_candidate = candidate_evals[1].toDebugCandidate();
+      snapshot.runner_up_candidate.comparison_reason =
+          runnerUpReason(snapshot.best_candidate, snapshot.runner_up_candidate);
+    }
+  }
+  snapshot.rejected_candidates = rejected;
+  last_debug_snapshot_ = snapshot;
+
+  if (!candidate_evals.empty()) {
+    const auto &best_eval = candidate_evals.front();
     last_evaluation_.has_candidate = true;
     last_evaluation_.object_id = best_eval.obj->object_id;
-    last_evaluation_.level = static_cast<uint8_t>(best_eval.level);
+    last_evaluation_.level = static_cast<uint8_t>(best_eval.active_level);
     last_evaluation_.risk_score = best_eval.risk;
     last_evaluation_.ttc_s = best_eval.obj->ttc_s;
     last_evaluation_.range_m = best_eval.obj->range_m;
@@ -445,36 +637,36 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     last_evaluation_ = FCWEvaluation();
   }
 
-  if (best.obj == nullptr) {
+  if (best_alert.obj == nullptr) {
     return std::nullopt;
   }
 
   const float min_trigger_speed_mps =
       min_trigger_object_speed_mps_.load(std::memory_order_relaxed);
-  if (best.obj->radial_vel_mps < min_trigger_speed_mps) {
+  if (best_alert.obj->radial_vel_mps < min_trigger_speed_mps) {
     if (g_verbose_mode.load()) {
-      std::cout << "[FCW] SUPPRESSED by speed gate: id=" << best.obj->object_id
-                << " v=" << best.obj->radial_vel_mps
+      std::cout << "[FCW] SUPPRESSED by speed gate: id=" << best_alert.obj->object_id
+                << " v=" << best_alert.obj->radial_vel_mps
                 << "m/s gate=" << min_trigger_speed_mps << "m/s\n";
     }
     return std::nullopt;
   }
 
   FCWAlert alert;
-  alert.ttc_s = best.obj->ttc_s;
-  alert.range_m = best.obj->range_m;
-  alert.velocity_mps = best.obj->radial_vel_mps;
-  alert.object_class = best.obj->object_class;
-  alert.object_id = best.obj->object_id;
+  alert.ttc_s = best_alert.obj->ttc_s;
+  alert.range_m = best_alert.obj->range_m;
+  alert.velocity_mps = best_alert.obj->radial_vel_mps;
+  alert.object_class = best_alert.obj->object_class;
+  alert.object_id = best_alert.obj->object_id;
   alert.timestamp_ns = current_time_ns;
-  alert.physics_triggered = best.physics_contrib;
+  alert.physics_triggered = best_alert.physics_contrib;
 
   if (g_verbose_mode.load()) {
     std::cout << "[FCW] ALERT: id=" << alert.object_id << " TTC=" << alert.ttc_s
               << "s range=" << alert.range_m << "m v=" << alert.velocity_mps
-              << "m/s level=" << static_cast<int>(best.level)
-              << (best.camera_drop_grace ? " [CAM_DROP_GRACE]" : "")
-              << (best.ttc_last_ditch ? " [TTC_LAST_DITCH]" : "") << "\n";
+              << "m/s level=" << static_cast<int>(best_alert.active_level)
+              << (best_alert.camera_drop_grace ? " [CAM_DROP_GRACE]" : "")
+              << (best_alert.ttc_last_ditch ? " [TTC_LAST_DITCH]" : "") << "\n";
   }
 
   return alert;

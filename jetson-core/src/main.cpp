@@ -576,12 +576,16 @@ void visualizationThread() {
 
     std::optional<adas::FCWAlert> fcw_alert;
     std::optional<adas::FCWEvaluation> fcw_eval;
-    if (g_fcw_monitor && !fused.empty()) {
-      fcw_alert = g_fcw_monitor->check(fused, adas::Clock::now_ns());
+    std::optional<adas::FCWDebugSnapshot> fcw_debug;
+    if (g_fcw_monitor && have_sensor_tick) {
+      const uint64_t fcw_now_ns = adas::Clock::now_ns();
+      fcw_alert = g_fcw_monitor->check(fused, fcw_now_ns);
       const auto eval = g_fcw_monitor->getLastEvaluation();
       if (eval.has_candidate) {
         fcw_eval = eval;
       }
+      const auto debug = g_fcw_monitor->getLastDebugSnapshot();
+      fcw_debug = debug;
     }
 
     g_fcw_alert_active.store(fcw_alert.has_value());
@@ -660,6 +664,9 @@ void visualizationThread() {
       bev_frame.fused_objects = fused;
       if (fcw_eval.has_value()) {
         bev_frame.fcw_eval_context = *fcw_eval;
+      }
+      if (fcw_debug.has_value()) {
+        bev_frame.fcw_debug_context = *fcw_debug;
       }
       if (fcw_alert.has_value()) {
         bev_frame.fcw_alert_context = *fcw_alert;

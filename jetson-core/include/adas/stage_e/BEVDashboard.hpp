@@ -28,6 +28,7 @@ struct BEVInputFrame {
   std::optional<uint64_t> fcw_focus_object_id;
   std::optional<FCWAlert> fcw_alert_context;
   std::optional<FCWEvaluation> fcw_eval_context;
+  std::optional<FCWDebugSnapshot> fcw_debug_context;
   uint64_t now_ns = 0;
 };
 

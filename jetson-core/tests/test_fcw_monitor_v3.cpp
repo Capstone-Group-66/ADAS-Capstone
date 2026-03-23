@@ -79,12 +79,27 @@ int main() {
   ttc_obj.camera_age_ms = 50;
   ttc_obj.radar_age_ms = 20;
 
-  std::vector<adas::FusedObject> ttc_objects{ttc_obj};
+  adas::FusedObject runner_obj = ttc_obj;
+  runner_obj.object_id = 100;
+  runner_obj.range_m = 4.8f;
+  runner_obj.radial_vel_mps = 0.9f;
+  runner_obj.ttc_s = 2.6f;
+  runner_obj.fusion_quality = 0.23f;
+  runner_obj.x_lateral_m = 0.15f;
+
+  std::vector<adas::FusedObject> ttc_objects{ttc_obj, runner_obj};
   auto immediate_warn = immediate_monitor.check(ttc_objects, 2'000'000'000ULL);
   assert(immediate_warn.has_value());
   const auto eval_warn = immediate_monitor.getLastEvaluation();
   assert(eval_warn.has_candidate);
   assert(eval_warn.level >= static_cast<uint8_t>(adas::FCWMonitor::RiskLevel::Warn));
+  const auto debug_warn = immediate_monitor.getLastDebugSnapshot();
+  assert(debug_warn.has_best_candidate);
+  assert(debug_warn.best_candidate.object_id == 99);
+  assert(debug_warn.best_candidate.ttc_immediate_warn);
+  assert(debug_warn.has_runner_up_candidate);
+  assert(debug_warn.runner_up_candidate.object_id == 100);
+  assert(!debug_warn.runner_up_candidate.comparison_reason.empty());
 
   ttc_objects[0].ttc_s = 1.0f;
   auto immediate_critical =
@@ -99,6 +114,11 @@ int main() {
   auto out_of_path =
       immediate_monitor.check(ttc_objects, 2'200'000'000ULL);
   assert(!out_of_path.has_value());
+  const auto debug_rejected = immediate_monitor.getLastDebugSnapshot();
+  assert(debug_rejected.has_best_candidate);
+  assert(!debug_rejected.rejected_candidates.empty());
+  assert(debug_rejected.rejected_candidates[0].drop_reason ==
+         adas::FCWDropReason::OutOfPath);
 
   // New behavior: brief invalid bursts should not instantly wipe active state.
   adas::FCWMonitor::Config hold_cfg = immediate_cfg;

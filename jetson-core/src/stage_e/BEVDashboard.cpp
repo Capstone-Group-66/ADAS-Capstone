@@ -14,13 +14,15 @@
 
 namespace {
 
-constexpr int kCanvasWidth = 300;
-constexpr int kCanvasHeight = 300;
-constexpr float kPixelsPerMeter = 7.0f;
-constexpr int kEgoX = 150;
-constexpr int kEgoY = 240;
-constexpr int kEgoW = 20;
-constexpr int kEgoH = 40;
+constexpr int kCanvasWidth = 520;
+constexpr int kCanvasHeight = 660;
+constexpr int kPanelWidth = 620;
+constexpr int kPanelHeight = kCanvasHeight;
+constexpr float kPixelsPerMeter = 10.0f;
+constexpr int kEgoX = kCanvasWidth / 2;
+constexpr int kEgoY = 560;
+constexpr int kEgoW = 28;
+constexpr int kEgoH = 52;
 constexpr float kRadarHalfFovDeg = 10.0f;  // 20 degree cone
 constexpr float kCameraHalfFovDeg = 12.5f; // 25 degree corridor span
 constexpr float kRadarRangeTxM = 0.0127f;  // Keep same t_x used in fusion.
@@ -222,6 +224,301 @@ void drawEgoVehicle(cv::Mat &canvas) {
               cv::FONT_HERSHEY_SIMPLEX, 0.3, cv::Scalar(0, 0, 0), 1);
 }
 
+cv::Scalar fcwLevelColor(uint8_t level) {
+  switch (level) {
+  case 3:
+    return cv::Scalar(30, 30, 220);
+  case 2:
+    return cv::Scalar(0, 140, 255);
+  case 1:
+    return cv::Scalar(0, 215, 235);
+  default:
+    return cv::Scalar(130, 130, 130);
+  }
+}
+
+std::string fmtFloat(float value, const char *suffix, int precision = 2) {
+  if (!std::isfinite(value)) {
+    return std::string("--");
+  }
+  std::ostringstream ss;
+  ss << std::fixed << std::setprecision(precision) << value << suffix;
+  return ss.str();
+}
+
+void renderFcwReasoningPanel(
+    cv::Mat &panel, const std::optional<adas::FCWDebugSnapshot> &debug_opt) {
+  panel = cv::Mat(kPanelHeight, kPanelWidth, CV_8UC3, cv::Scalar(24, 24, 26));
+
+  const auto drawPanelText = [&](const std::string &text, int x, int y,
+                                 double scale, const cv::Scalar &color,
+                                 int thickness = 1) {
+    cv::putText(panel, text, cv::Point(x, y), cv::FONT_HERSHEY_SIMPLEX, scale,
+                color, thickness, cv::LINE_AA);
+  };
+
+  const auto drawSectionHeader = [&](const std::string &title, int y) {
+    cv::rectangle(panel, cv::Rect(12, y - 16, kPanelWidth - 24, 24),
+                  cv::Scalar(38, 38, 42), cv::FILLED);
+    drawPanelText(title, 18, y, 0.42, cv::Scalar(240, 240, 240), 1);
+  };
+
+  const auto drawBadge =
+      [&](int x, int y, const std::string &label, bool active,
+          const cv::Scalar &color) -> int {
+    int baseline = 0;
+    const cv::Size text_size =
+        cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.33, 1, &baseline);
+    const int pad_x = 8;
+    const int width = text_size.width + pad_x * 2;
+    const int height = 18;
+    const cv::Scalar fill =
+        active ? color : cv::Scalar(55, 55, 58);
+    const cv::Scalar edge =
+        active ? color : cv::Scalar(95, 95, 100);
+    cv::rectangle(panel, cv::Rect(x, y, width, height), fill, cv::FILLED);
+    cv::rectangle(panel, cv::Rect(x, y, width, height), edge, 1);
+    drawPanelText(label, x + pad_x, y + 13, 0.33,
+                  active ? cv::Scalar(245, 245, 245)
+                         : cv::Scalar(150, 150, 155),
+                  1);
+    return width + 6;
+  };
+
+  const auto drawBar =
+      [&](int x, int y, int width, const std::string &label, float value,
+          float weight, const cv::Scalar &color) {
+    const float clamped = std::clamp(value, 0.0f, 1.0f);
+    cv::rectangle(panel, cv::Rect(x, y, width, 12), cv::Scalar(42, 42, 46),
+                  cv::FILLED);
+    cv::rectangle(panel, cv::Rect(x, y, width, 12), cv::Scalar(90, 90, 96), 1);
+    cv::rectangle(panel, cv::Rect(x, y, static_cast<int>(width * clamped), 12),
+                  color, cv::FILLED);
+
+    std::ostringstream rhs;
+    rhs << std::fixed << std::setprecision(2) << value << " x" << weight
+        << " = " << (value * weight);
+    drawPanelText(label, x, y - 4, 0.31, cv::Scalar(205, 205, 210), 1);
+    drawPanelText(rhs.str(), x + width - 175, y - 4, 0.31,
+                  cv::Scalar(175, 175, 180), 1);
+  };
+
+  const auto drawCandidateCard =
+      [&](const adas::FCWDebugCandidate &cand, const std::string &title, int x,
+          int y, int width, int height, bool is_primary) {
+    const cv::Scalar accent = fcwLevelColor(cand.active_level);
+    cv::rectangle(panel, cv::Rect(x, y, width, height), cv::Scalar(31, 31, 35),
+                  cv::FILLED);
+    cv::rectangle(panel, cv::Rect(x, y, width, height),
+                  is_primary ? accent : cv::Scalar(90, 90, 95),
+                  is_primary ? 2 : 1);
+    cv::rectangle(panel, cv::Rect(x, y, width, 20), accent, cv::FILLED);
+    drawPanelText(title, x + 8, y + 14, 0.36, cv::Scalar(248, 248, 248), 1);
+
+    std::ostringstream id_line;
+    id_line << "ID " << cand.object_id << "  "
+            << adas::fcwRiskLevelName(cand.active_level);
+    drawPanelText(id_line.str(), x + 8, y + 38, 0.40,
+                  cv::Scalar(235, 235, 240), 1);
+
+    std::ostringstream line1;
+    line1 << "Risk " << std::fixed << std::setprecision(2) << cand.risk_score
+          << "  TTC " << fmtFloat(cand.ttc_s, "s")
+          << "  Z " << fmtFloat(cand.range_m, "m");
+    drawPanelText(line1.str(), x + 8, y + 58, 0.34,
+                  cv::Scalar(215, 215, 220), 1);
+
+    std::ostringstream line2;
+    line2 << "V " << fmtFloat(cand.velocity_mps, "m/s")
+          << "  X " << fmtFloat(cand.x_lateral_m, "m")
+          << "  Q " << fmtFloat(cand.fusion_quality, "", 2);
+    drawPanelText(line2.str(), x + 8, y + (height >= 100 ? 77 : 74), 0.34,
+                  cv::Scalar(195, 195, 200), 1);
+
+    if (height >= 100) {
+      std::ostringstream line3;
+      line3 << "Base/Des/Act "
+            << adas::fcwRiskLevelName(cand.base_level) << " / "
+            << adas::fcwRiskLevelName(cand.desired_level) << " / "
+            << adas::fcwRiskLevelName(cand.active_level);
+      drawPanelText(line3.str(), x + 8, y + 96, 0.32,
+                    cv::Scalar(170, 200, 220), 1);
+    }
+
+    if (!cand.comparison_reason.empty()) {
+      drawPanelText("Lost: " + cand.comparison_reason, x + 8, y + height - 8,
+                    0.31, cv::Scalar(255, 205, 150), 1);
+    }
+  };
+
+  const auto drawPathGauge = [&](int x, int y, int width,
+                                 const adas::FCWDebugCandidate &cand) {
+    const float max_extent =
+        std::max({std::abs(cand.x_lateral_m), cand.lane_half_width_m, 0.5f}) *
+        1.35f;
+    const int h = 16;
+    cv::rectangle(panel, cv::Rect(x, y, width, h), cv::Scalar(40, 40, 44),
+                  cv::FILLED);
+    cv::rectangle(panel, cv::Rect(x, y, width, h), cv::Scalar(90, 90, 95), 1);
+    const int center_x = x + width / 2;
+    const int safe_half_px = static_cast<int>(
+        std::clamp(cand.lane_half_width_m / max_extent, 0.0f, 1.0f) *
+        (width / 2));
+    cv::rectangle(panel,
+                  cv::Rect(center_x - safe_half_px, y, safe_half_px * 2, h),
+                  cv::Scalar(45, 110, 65), cv::FILLED);
+    cv::line(panel, cv::Point(center_x, y), cv::Point(center_x, y + h),
+             cv::Scalar(210, 210, 210), 1);
+    const int marker_x = center_x + static_cast<int>(
+                                        std::clamp(cand.x_lateral_m / max_extent,
+                                                   -1.0f, 1.0f) *
+                                        (width / 2));
+    cv::line(panel, cv::Point(marker_x, y - 2), cv::Point(marker_x, y + h + 2),
+             cand.gate_in_path ? cv::Scalar(255, 255, 255)
+                               : cv::Scalar(0, 0, 255),
+             2);
+    std::ostringstream ss;
+    ss << "Path gate  X=" << std::fixed << std::setprecision(2)
+       << cand.x_lateral_m << "m  half=" << cand.lane_half_width_m << "m";
+    drawPanelText(ss.str(), x, y - 4, 0.31, cv::Scalar(210, 210, 214), 1);
+  };
+
+  const auto drawStoppingGauge = [&](int x, int y, int width,
+                                     const adas::FCWDebugCandidate &cand) {
+    const float scale_max =
+        std::max({cand.range_m, cand.stopping_distance_m, 1.0f}) * 1.1f;
+    const int h = 16;
+    cv::rectangle(panel, cv::Rect(x, y, width, h), cv::Scalar(40, 40, 44),
+                  cv::FILLED);
+    cv::rectangle(panel, cv::Rect(x, y, width, h), cv::Scalar(90, 90, 95), 1);
+    const int stop_x = x + static_cast<int>(
+                               std::clamp(cand.stopping_distance_m / scale_max,
+                                          0.0f, 1.0f) *
+                               width);
+    const int range_x = x + static_cast<int>(
+                                std::clamp(cand.range_m / scale_max, 0.0f, 1.0f) *
+                                width);
+    cv::line(panel, cv::Point(stop_x, y - 2), cv::Point(stop_x, y + h + 2),
+             cv::Scalar(0, 215, 235), 2);
+    cv::line(panel, cv::Point(range_x, y - 2), cv::Point(range_x, y + h + 2),
+             cand.physics_contributed ? cv::Scalar(0, 0, 255)
+                                      : cv::Scalar(0, 255, 180),
+             2);
+    if (cand.physics_contributed && range_x < stop_x) {
+      cv::rectangle(panel, cv::Rect(range_x, y, stop_x - range_x, h),
+                    cv::Scalar(45, 45, 150), cv::FILLED);
+    }
+    std::ostringstream ss;
+    ss << "Stopping distance  range=" << std::fixed << std::setprecision(2)
+       << cand.range_m << "m  stop=" << cand.stopping_distance_m << "m";
+    drawPanelText(ss.str(), x, y - 4, 0.31, cv::Scalar(210, 210, 214), 1);
+  };
+
+  drawSectionHeader("FCW Heuristic", 22);
+  drawPanelText("Live reasoning from the production FCW math", 18, 40, 0.34,
+                cv::Scalar(180, 180, 185), 1);
+
+  if (!debug_opt.has_value()) {
+    drawPanelText("No FCW debug snapshot available", 18, 84, 0.42,
+                  cv::Scalar(220, 220, 225), 1);
+    return;
+  }
+
+  const auto &debug = *debug_opt;
+
+  drawSectionHeader("Who Is Winning?", 68);
+  if (debug.has_best_candidate) {
+    drawCandidateCard(debug.best_candidate, "Best Candidate", 18, 78,
+                      kPanelWidth - 36, 104, true);
+  } else {
+    cv::rectangle(panel, cv::Rect(18, 78, kPanelWidth - 36, 72),
+                  cv::Scalar(31, 31, 35), cv::FILLED);
+    cv::rectangle(panel, cv::Rect(18, 78, kPanelWidth - 36, 72),
+                  cv::Scalar(90, 90, 95), 1);
+    drawPanelText("No FCW candidate this tick", 30, 118, 0.44,
+                  cv::Scalar(230, 230, 235), 1);
+  }
+
+  if (debug.has_runner_up_candidate) {
+    drawCandidateCard(debug.runner_up_candidate, "Runner-Up", 18, 190,
+                      kPanelWidth - 36, 88, false);
+  } else {
+    cv::rectangle(panel, cv::Rect(18, 190, kPanelWidth - 36, 60),
+                  cv::Scalar(31, 31, 35), cv::FILLED);
+    cv::rectangle(panel, cv::Rect(18, 190, kPanelWidth - 36, 60),
+                  cv::Scalar(75, 75, 82), 1);
+    drawPanelText("No runner-up candidate", 30, 225, 0.38,
+                  cv::Scalar(190, 190, 195), 1);
+  }
+
+  drawSectionHeader("Why Is It Risky?", 290);
+  if (debug.has_best_candidate) {
+    const auto &cand = debug.best_candidate;
+    drawBar(22, 308, kPanelWidth - 44, "Closing score", cand.closing_score,
+            0.40f, cv::Scalar(70, 140, 255));
+    drawBar(22, 334, kPanelWidth - 44, "Range score", cand.range_score, 0.24f,
+            cv::Scalar(70, 200, 255));
+    drawBar(22, 360, kPanelWidth - 44, "Quality score", cand.quality_score,
+            0.21f, cv::Scalar(120, 220, 120));
+    drawBar(22, 386, kPanelWidth - 44, "TTC score", cand.ttc_score, 0.10f,
+            cv::Scalar(0, 215, 235));
+    drawBar(22, 412, kPanelWidth - 44, "Physics score", cand.physics_score,
+            0.05f, cv::Scalar(120, 120, 255));
+    drawBar(22, 438, kPanelWidth - 44, "Final risk", cand.risk_score, 1.00f,
+            fcwLevelColor(cand.active_level));
+  }
+
+  drawSectionHeader("Escalation + Geometry", 466);
+  if (debug.has_best_candidate) {
+    const auto &cand = debug.best_candidate;
+    int badge_x = 22;
+    int badge_y = 474;
+    badge_x += drawBadge(badge_x, badge_y,
+                         std::string("Base ") + adas::fcwRiskLevelName(cand.base_level),
+                         true, fcwLevelColor(cand.base_level));
+    badge_x += drawBadge(badge_x, badge_y, "TTC floor", cand.ttc_caution_floor,
+                         cv::Scalar(0, 215, 235));
+    badge_x += drawBadge(badge_x, badge_y, "Warn floor", cand.ttc_warn_floor,
+                         cv::Scalar(0, 165, 255));
+    badge_x += drawBadge(badge_x, badge_y, "Last ditch", cand.ttc_last_ditch,
+                         cv::Scalar(0, 125, 255));
+    badge_x = 22;
+    badge_y += 24;
+    badge_x += drawBadge(badge_x, badge_y, "Immediate warn",
+                         cand.ttc_immediate_warn, cv::Scalar(0, 165, 255));
+    badge_x += drawBadge(badge_x, badge_y, "Immediate critical",
+                         cand.ttc_immediate_critical, cv::Scalar(0, 0, 255));
+    badge_x += drawBadge(badge_x, badge_y, "Cam grace",
+                         cand.camera_drop_grace_used,
+                         cv::Scalar(180, 110, 255));
+    badge_x += drawBadge(badge_x, badge_y, "Physics",
+                         cand.physics_contributed, cv::Scalar(110, 110, 255));
+
+    drawPathGauge(22, 530, 270, cand);
+    drawStoppingGauge(318, 530, 270, cand);
+  }
+
+  drawSectionHeader("Rejected This Tick", 570);
+  if (debug.rejected_candidates.empty()) {
+    drawPanelText("No rejected objects", 22, 592, 0.34,
+                  cv::Scalar(175, 175, 180), 1);
+    return;
+  }
+
+  int y = 592;
+  for (const auto &item : debug.rejected_candidates) {
+    std::ostringstream ss;
+    ss << "ID " << item.object_id << "  "
+       << adas::fcwDropReasonName(item.drop_reason)
+       << "  Z " << std::fixed << std::setprecision(1) << item.range_m
+       << "m  TTC " << fmtFloat(item.ttc_s, "s")
+       << "  V " << fmtFloat(item.velocity_mps, "m/s", 1);
+    drawPanelText(ss.str(), 22, y, 0.33,
+                  cv::Scalar(220, 205, 175), 1);
+    y += 18;
+  }
+}
+
 } // namespace
 
 namespace adas {
@@ -395,8 +692,8 @@ void BEVDashboard::renderLoop() {
   uint64_t last_processed_seq = 0;
 
   while (running_.load()) {
-    cv::Mat canvas(kCanvasHeight, kCanvasWidth, CV_8UC3,
-                   cv::Scalar(28, 28, 28));
+    cv::Mat world(kCanvasHeight, kCanvasWidth, CV_8UC3,
+                  cv::Scalar(28, 28, 28));
 
     BEVInputFrame frame;
     uint64_t frame_seq = 0;
@@ -421,15 +718,15 @@ void BEVDashboard::renderLoop() {
       right_bsd = bsd_receiver_->getRightBSDState();
     }
 
-    drawBlindSpotZones(canvas, left_bsd, right_bsd);
-    drawEgoVehicle(canvas);
-    drawRadarCone(canvas);
-    drawRadarHeatmap(canvas, radar_heat_accumulator, frame.radar_targets,
+    drawBlindSpotZones(world, left_bsd, right_bsd);
+    drawEgoVehicle(world);
+    drawRadarCone(world);
+    drawRadarHeatmap(world, radar_heat_accumulator, frame.radar_targets,
                      has_new_frame);
 
     // Raw radar scan-lines (20 degree cone)
     for (const auto &target : frame.radar_targets.targets) {
-      drawRadarRangeLine(canvas, target.range_m, cv::Scalar(190, 110, 30), 1);
+      drawRadarRangeLine(world, target.range_m, cv::Scalar(190, 110, 30), 1);
     }
 
     struct FcwRayOverlay {
@@ -502,20 +799,20 @@ void BEVDashboard::renderLoop() {
           const cv::Scalar marker_color =
               hold_active ? cv::Scalar(0, 0, 255) : cv::Scalar(0, 255, 255);
           // Bright fused-position dot for immediate object localization.
-          cv::circle(canvas, cv::Point(anchor_x, anchor_y), 9, marker_color, 1,
+          cv::circle(world, cv::Point(anchor_x, anchor_y), 9, marker_color, 1,
                      cv::LINE_AA);
-          cv::circle(canvas, cv::Point(anchor_x, anchor_y), 5, marker_color,
+          cv::circle(world, cv::Point(anchor_x, anchor_y), 5, marker_color,
                      cv::FILLED, cv::LINE_AA);
-          drawCrosshair(canvas, anchor_x, anchor_y, marker_color, 6, 2);
+          drawCrosshair(world, anchor_x, anchor_y, marker_color, 6, 2);
 
           if (hold_active) {
-            cv::circle(canvas, cv::Point(anchor_x, anchor_y), 10,
+            cv::circle(world, cv::Point(anchor_x, anchor_y), 10,
                        cv::Scalar(0, 0, 180), 2);
           }
           if (track.is_aggressive_mode) {
-            cv::circle(canvas, cv::Point(anchor_x, anchor_y), 14,
+            cv::circle(world, cv::Point(anchor_x, anchor_y), 14,
                        cv::Scalar(0, 165, 255), 2);
-            cv::putText(canvas, "AGG", cv::Point(anchor_x + 8, anchor_y + 10),
+            cv::putText(world, "AGG", cv::Point(anchor_x + 8, anchor_y + 10),
                         cv::FONT_HERSHEY_SIMPLEX, 0.30, cv::Scalar(0, 165, 255),
                         1, cv::LINE_AA);
           }
@@ -523,7 +820,7 @@ void BEVDashboard::renderLoop() {
           if (speed_vector_active) {
             const int arrow_len = 12;
             const int dir = (track.radial_vel_mps > 0.0f) ? 1 : -1;
-            cv::arrowedLine(canvas, cv::Point(anchor_x, anchor_y),
+            cv::arrowedLine(world, cv::Point(anchor_x, anchor_y),
                             cv::Point(anchor_x, anchor_y + dir * arrow_len),
                             cv::Scalar(0, 255, 0), 2, cv::LINE_AA, 0, 0.35);
           }
@@ -532,7 +829,7 @@ void BEVDashboard::renderLoop() {
         // Range-only track visualization fallback.
         anchor_x = toCanvasX(track.x_offset_m);
         anchor_y = toCanvasY(track.z_m);
-        cv::circle(canvas, cv::Point(anchor_x, anchor_y), 4,
+        cv::circle(world, cv::Point(anchor_x, anchor_y), 4,
                    cv::Scalar(200, 110, 30), cv::FILLED);
       }
 
@@ -550,10 +847,10 @@ void BEVDashboard::renderLoop() {
           const bool outside_radar_cone = !adas::bev::inAngleSpan(
               track.corridor_angle_rad, kRadarHalfFovDeg);
           if (outside_radar_cone) {
-            drawCorridor(canvas, track.corridor_angle_rad,
+            drawCorridor(world, track.corridor_angle_rad,
                          cv::Scalar(95, 95, 95), 1);
           }
-          cv::circle(canvas, cv::Point(cam_dot_x, cam_dot_y), 4,
+          cv::circle(world, cv::Point(cam_dot_x, cam_dot_y), 4,
                      outside_radar_cone ? cv::Scalar(135, 135, 135)
                                         : cv::Scalar(255, 210, 120),
                      cv::FILLED);
@@ -561,11 +858,11 @@ void BEVDashboard::renderLoop() {
       }
 
       // TTL bars: stale cleanup + TTC hold timer.
-      drawProgressBar(canvas, anchor_x - 18, anchor_y - 18, 36, 4,
+      drawProgressBar(world, anchor_x - 18, anchor_y - 18, 36, 4,
                       std::max(cam_remain, range_remain),
                       cv::Scalar(0, 180, 230));
       if (hold_active) {
-        drawProgressBar(canvas, anchor_x - 18, anchor_y - 24, 36, 4,
+        drawProgressBar(world, anchor_x - 18, anchor_y - 24, 36, 4,
                         std::clamp(hold_remain, 0.0f, 1.0f),
                         cv::Scalar(0, 0, 255));
       }
@@ -574,7 +871,7 @@ void BEVDashboard::renderLoop() {
       const cv::Scalar text_color = track.speed_fresh
                                         ? cv::Scalar(230, 230, 230)
                                         : cv::Scalar(160, 160, 160);
-      cv::putText(canvas, track.label, cv::Point(anchor_x - 40, anchor_y - 40),
+      cv::putText(world, track.label, cv::Point(anchor_x - 40, anchor_y - 40),
                   cv::FONT_HERSHEY_SIMPLEX, 0.32, text_color, 1);
 
       if (track.fcw_eval_until_ns > now_ns) {
@@ -594,7 +891,7 @@ void BEVDashboard::renderLoop() {
         if (track.fcw_eval_used_camera_drop_grace) {
           eval_ss << " RG";
         }
-        cv::putText(canvas, eval_ss.str(),
+        cv::putText(world, eval_ss.str(),
                     cv::Point(anchor_x - 40, anchor_y - 29),
                     cv::FONT_HERSHEY_SIMPLEX, 0.30, eval_color, 1, cv::LINE_AA);
       }
@@ -613,7 +910,7 @@ void BEVDashboard::renderLoop() {
       } else {
         dbg1 << "--";
       }
-      cv::putText(canvas, dbg1.str(), cv::Point(anchor_x - 40, anchor_y - 18),
+      cv::putText(world, dbg1.str(), cv::Point(anchor_x - 40, anchor_y - 18),
                   cv::FONT_HERSHEY_SIMPLEX, 0.28, cv::Scalar(180, 210, 210), 1,
                   cv::LINE_AA);
 
@@ -629,7 +926,7 @@ void BEVDashboard::renderLoop() {
            << " sp:" << ageToText(track.speed_age_ms)
            << " P:" << (track.is_predicted_camera ? "1" : "0")
            << " AG:" << (track.is_aggressive_mode ? "1" : "0");
-      cv::putText(canvas, dbg2.str(), cv::Point(anchor_x - 40, anchor_y - 7),
+      cv::putText(world, dbg2.str(), cv::Point(anchor_x - 40, anchor_y - 7),
                   cv::FONT_HERSHEY_SIMPLEX, 0.27, cv::Scalar(170, 170, 170), 1,
                   cv::LINE_AA);
 
@@ -646,10 +943,10 @@ void BEVDashboard::renderLoop() {
       ++it;
     }
 
-    cv::rectangle(canvas, cv::Rect(6, 6, 195, 52), cv::Scalar(35, 35, 35),
+    cv::rectangle(world, cv::Rect(6, 6, 235, 52), cv::Scalar(35, 35, 35),
                   cv::FILLED);
-    cv::rectangle(canvas, cv::Rect(6, 6, 195, 52), cv::Scalar(90, 90, 90), 1);
-    cv::putText(canvas, "FusionDbg", cv::Point(10, 18),
+    cv::rectangle(world, cv::Rect(6, 6, 235, 52), cv::Scalar(90, 90, 90), 1);
+    cv::putText(world, "World Model", cv::Point(10, 18),
                 cv::FONT_HERSHEY_SIMPLEX, 0.34, cv::Scalar(230, 230, 230), 1,
                 cv::LINE_AA);
 
@@ -661,7 +958,7 @@ void BEVDashboard::renderLoop() {
     } else {
       summary_1 << "--";
     }
-    cv::putText(canvas, summary_1.str(), cv::Point(10, 32),
+    cv::putText(world, summary_1.str(), cv::Point(10, 32),
                 cv::FONT_HERSHEY_SIMPLEX, 0.30, cv::Scalar(0, 200, 255), 1,
                 cv::LINE_AA);
 
@@ -672,24 +969,30 @@ void BEVDashboard::renderLoop() {
                 << " L:" << static_cast<int>(frame.fcw_eval_context->level)
                 << " r:" << std::fixed << std::setprecision(2)
                 << frame.fcw_eval_context->risk_score;
-      cv::putText(canvas, summary_2.str(), cv::Point(10, 46),
+      cv::putText(world, summary_2.str(), cv::Point(10, 46),
                   cv::FONT_HERSHEY_SIMPLEX, 0.28, cv::Scalar(180, 220, 255), 1,
                   cv::LINE_AA);
     }
 
     // FCW directional rays are drawn last so they remain visible over overlays.
     for (const auto &overlay : fcw_ray_overlays) {
-      drawFcwDirectionRay(canvas, overlay.target);
+      drawFcwDirectionRay(world, overlay.target);
       if (overlay.has_trigger_speed) {
         std::stringstream ss;
         ss << "FCW v=" << std::fixed << std::setprecision(1)
            << overlay.trigger_speed_mps << "m/s";
-        cv::putText(canvas, ss.str(),
+        cv::putText(world, ss.str(),
                     cv::Point(overlay.target.x + 8, overlay.target.y - 12),
                     cv::FONT_HERSHEY_SIMPLEX, 0.34, cv::Scalar(235, 235, 255),
                     1, cv::LINE_AA);
       }
     }
+
+    cv::Mat panel;
+    renderFcwReasoningPanel(panel, frame.fcw_debug_context);
+
+    cv::Mat canvas;
+    cv::hconcat(std::vector<cv::Mat>{world, panel}, canvas);
 
     cv::imshow("ADAS BEVDashboard", canvas);
     cv::waitKey(33);
