@@ -133,6 +133,10 @@ public:
     cam_height_m_.store(height_m, std::memory_order_relaxed);
   }
 
+  float getCameraHeight() const {
+    return cam_height_m_.load(std::memory_order_relaxed);
+  }
+
   // New asynchronous API.
   void ingestRadar(const RadarTargets &radar, uint64_t now_ns = 0);
   void ingestCamera(const DetBatch &camera, uint64_t now_ns = 0);

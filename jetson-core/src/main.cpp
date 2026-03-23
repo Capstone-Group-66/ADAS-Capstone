@@ -8,9 +8,13 @@
 #include <csignal>
 #include <cstdint>
 #include <cstdlib>
+#include <ctime>
+#include <filesystem>
+#include <fstream>
 #include <iomanip>
 #include <iostream>
 #include <memory>
+#include <mutex>
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include <sstream>
@@ -137,6 +141,173 @@ bool g_replay_fast = false;
 int g_stage_e_sensitivity_level = 3; // 1=least sensitive, 5=most sensitive
 float g_fcw_min_trigger_object_speed_gate_mps =
     0.0f; // 0 means no final trigger speed gate
+std::atomic<float> g_active_radar_tx_offset_m{0.0127f};
+
+class RangeDistanceCaptureLogger {
+public:
+  bool start() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (enabled_.load(std::memory_order_relaxed)) {
+      return true;
+    }
+
+    const std::string output_dir = defaultOutputDir();
+    std::error_code ec;
+    std::filesystem::create_directories(output_dir, ec);
+
+    file_path_ = output_dir + "/cam_radar_range_capture_" + timestampSuffix() +
+                 ".csv";
+    file_.open(file_path_, std::ios::out | std::ios::trunc);
+    if (!file_.is_open()) {
+      file_path_.clear();
+      return false;
+    }
+
+    file_ << "capture_ts_ns,object_id,object_class,score,fusion_quality,"
+             "theta_rad,camera_range_m,camera_slant_m,radar_range_adj_m,"
+             "radar_range_raw_m,range_error_m,v_bottom_px,box_x,box_y,box_w,"
+             "box_h,centroid_x,centroid_y,pitch_rad,cam_height_m,"
+             "camera_age_ms,radar_age_ms,speed_fresh,speed_age_ms,"
+             "radial_vel_mps,is_predicted_camera,is_aggressive_mode\n";
+    file_.flush();
+    sample_count_.store(0, std::memory_order_relaxed);
+    enabled_.store(true, std::memory_order_release);
+    return true;
+  }
+
+  void stop() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    enabled_.store(false, std::memory_order_release);
+    if (file_.is_open()) {
+      file_.flush();
+      file_.close();
+    }
+  }
+
+  bool isEnabled() const { return enabled_.load(std::memory_order_acquire); }
+
+  uint64_t getSampleCount() const {
+    return sample_count_.load(std::memory_order_relaxed);
+  }
+
+  std::string getFilePath() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return file_path_;
+  }
+
+  void logFusedObjects(const std::vector<adas::FusedObject> &fused,
+                       float pitch_rad, float cam_height_m, float radar_tx_m,
+                       uint64_t capture_ts_ns) {
+    if (!enabled_.load(std::memory_order_acquire) || fused.empty()) {
+      return;
+    }
+
+    std::ostringstream rows;
+    rows << std::fixed << std::setprecision(6);
+    uint64_t accepted = 0;
+
+    for (const auto &obj : fused) {
+      if (!shouldCapture(obj)) {
+        continue;
+      }
+
+      const float v_bottom_px = obj.box_px.y + obj.box_px.height;
+      const float cos_theta = std::cos(obj.theta_rad);
+      const float camera_slant_m =
+          (std::abs(cos_theta) > 1e-4f) ? (obj.z_cam_m / cos_theta) : 0.0f;
+      const float radar_range_raw_m = obj.range_m + radar_tx_m;
+      const float range_error_m = obj.z_cam_m - obj.range_m;
+
+      rows << capture_ts_ns << ',' << obj.object_id << ','
+           << adas::objectClassToString(obj.object_class) << ',' << obj.score
+           << ',' << obj.fusion_quality << ',' << obj.theta_rad << ','
+           << obj.z_cam_m << ',' << camera_slant_m << ',' << obj.range_m << ','
+           << radar_range_raw_m << ',' << range_error_m << ',' << v_bottom_px
+           << ',' << obj.box_px.x << ',' << obj.box_px.y << ','
+           << obj.box_px.width << ',' << obj.box_px.height << ','
+           << obj.centroid_px.x << ',' << obj.centroid_px.y << ',' << pitch_rad
+           << ',' << cam_height_m << ',' << obj.camera_age_ms << ','
+           << obj.radar_age_ms << ',' << (obj.speed_fresh ? 1 : 0) << ','
+           << obj.speed_age_ms << ',' << obj.radial_vel_mps << ','
+           << (obj.is_predicted_camera ? 1 : 0) << ','
+           << (obj.is_aggressive_mode ? 1 : 0) << '\n';
+      ++accepted;
+    }
+
+    if (accepted == 0) {
+      return;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!enabled_.load(std::memory_order_relaxed) || !file_.is_open()) {
+      return;
+    }
+    file_ << rows.str();
+    sample_count_.fetch_add(accepted, std::memory_order_relaxed);
+  }
+
+private:
+  static bool shouldCapture(const adas::FusedObject &obj) {
+    constexpr float kMinFusionQuality = 0.60f;
+    constexpr float kMaxAbsThetaRad = 10.0f * 3.14159265358979323846f / 180.0f;
+    constexpr uint32_t kMaxCameraAgeMs = 150;
+    constexpr uint32_t kMaxRadarAgeMs = 150;
+
+    if (obj.object_id == UINT64_MAX || !obj.has_radar || obj.z_cam_m <= 0.1f ||
+        obj.range_m <= 0.1f) {
+      return false;
+    }
+    if (obj.is_predicted_camera || obj.fusion_quality < kMinFusionQuality) {
+      return false;
+    }
+    if (obj.camera_age_ms > kMaxCameraAgeMs ||
+        obj.radar_age_ms > kMaxRadarAgeMs) {
+      return false;
+    }
+    if (std::abs(obj.theta_rad) > kMaxAbsThetaRad) {
+      return false;
+    }
+
+    switch (static_cast<adas::ObjectClass>(obj.object_class)) {
+    case adas::ObjectClass::Car:
+    case adas::ObjectClass::Bicycle:
+    case adas::ObjectClass::Person:
+      return true;
+    default:
+      return false;
+    }
+  }
+
+  static std::string defaultOutputDir() {
+    const char *home = std::getenv("HOME");
+    if (home && *home) {
+      return std::string(home) + "/Desktop";
+    }
+    return ".";
+  }
+
+  static std::string timestampSuffix() {
+    auto now = std::chrono::system_clock::now();
+    auto time_t_now = std::chrono::system_clock::to_time_t(now);
+    std::tm tm_now;
+#ifdef _WIN32
+    localtime_s(&tm_now, &time_t_now);
+#else
+    localtime_r(&time_t_now, &tm_now);
+#endif
+    std::ostringstream oss;
+    oss << std::put_time(&tm_now, "%Y%m%d_%H%M%S");
+    return oss.str();
+  }
+
+  mutable std::mutex mutex_;
+  std::ofstream file_;
+  std::string file_path_;
+  std::atomic<bool> enabled_{false};
+  std::atomic<uint64_t> sample_count_{0};
+};
+
+RangeDistanceCaptureLogger g_range_distance_capture_logger;
 
 std::string formatUptime(std::chrono::seconds uptime) {
   int hours = uptime.count() / 3600;
@@ -394,6 +565,13 @@ void visualizationThread() {
     std::vector<adas::FusedObject> fused;
     if (g_sensor_fusion && have_sensor_tick) {
       fused = g_sensor_fusion->getFusedObjects(adas::Clock::now_ns());
+      if (g_range_distance_capture_logger.isEnabled()) {
+        g_range_distance_capture_logger.logFusedObjects(
+            fused, g_sensor_fusion->getPitch(),
+            g_sensor_fusion->getCameraHeight(),
+            g_active_radar_tx_offset_m.load(std::memory_order_relaxed),
+            adas::Clock::now_ns());
+      }
     }
 
     std::optional<adas::FCWAlert> fcw_alert;
@@ -719,6 +897,14 @@ void printMenu(const adas::Config &config) {
   std::cout << " 17) Set FCW Min Trigger Object Speed Gate ["
             << speed_gate_ss.str() << " m/s]\n";
   std::cout << " 18) Ubuntu Camera Node Swap Hotfix\n";
+  std::cout << " 19) Toggle Cam/Radar Range Capture ["
+            << (g_range_distance_capture_logger.isEnabled()
+                    ? ("ON " +
+                       std::to_string(
+                           g_range_distance_capture_logger.getSampleCount()) +
+                       " samples")
+                    : std::string("OFF"))
+            << "]\n";
   std::cout << "  h) Set Camera Height On-The-Fly\n";
   std::cout << "  0) Exit\n";
   std::cout
@@ -780,6 +966,8 @@ void startPipeline(const adas::Config &config,
   fusion_config.ekf_r_cam_z_weak = config.stage_e_fusion.ekf_r_cam_z_weak;
   fusion_config.radar_hold_ms = static_cast<uint32_t>(
       std::max(500, config.front_radar.speed_ttl_ms + 200));
+  g_active_radar_tx_offset_m.store(fusion_config.radar_tx_m,
+                                   std::memory_order_relaxed);
 
   // Configure FCW with physics-based parameters
   adas::FCWMonitor::Config fcw_config;
@@ -908,6 +1096,8 @@ void startReplayPipeline(const std::string &replay_file, float speed,
       config.stage_e_fusion.ekf_r_cam_z_weak;
   replay_fusion_config.radar_hold_ms = static_cast<uint32_t>(
       std::max(500, config.front_radar.speed_ttl_ms + 200));
+  g_active_radar_tx_offset_m.store(replay_fusion_config.radar_tx_m,
+                                   std::memory_order_relaxed);
 
   adas::FCWMonitor::Config fcw_config;
   fcw_config.ttc_threshold_s = 3.0f;
@@ -1028,6 +1218,14 @@ void stopPipeline() {
   g_visualizer_running.store(false);
   if (g_visualizer_thread.joinable()) {
     g_visualizer_thread.join();
+  }
+
+  if (g_range_distance_capture_logger.isEnabled()) {
+    const auto capture_path = g_range_distance_capture_logger.getFilePath();
+    const auto sample_count = g_range_distance_capture_logger.getSampleCount();
+    g_range_distance_capture_logger.stop();
+    std::cout << "[Main] Camera/radar range capture stopped. File: "
+              << capture_path << " | Samples: " << sample_count << "\n";
   }
 
   // Stop in reverse order
@@ -1531,6 +1729,37 @@ int main(int argc, char **argv) {
       case 18: // Ubuntu Camera Node Swap Hotfix
         runUbuntuCameraNodeSwapHotfix();
         break;
+
+      case 19: // Toggle Cam/Radar Range Capture
+      {
+        if (!g_pipeline_running.load()) {
+          std::cout << "[Main] Start the pipeline first\n";
+          break;
+        }
+
+        if (g_range_distance_capture_logger.isEnabled()) {
+          const auto capture_path = g_range_distance_capture_logger.getFilePath();
+          const auto sample_count =
+              g_range_distance_capture_logger.getSampleCount();
+          g_range_distance_capture_logger.stop();
+          std::cout << "[Main] Camera/radar range capture stopped.\n";
+          std::cout << "[Main] File: " << capture_path << "\n";
+          std::cout << "[Main] Samples: " << sample_count << "\n";
+        } else {
+          if (g_range_distance_capture_logger.start()) {
+            std::cout << "[Main] Camera/radar range capture started.\n";
+            std::cout << "[Main] File: "
+                      << g_range_distance_capture_logger.getFilePath() << "\n";
+            std::cout << "[Main] Logging matched fused objects with:\n";
+            std::cout << "        fusion_quality >= 0.60, |theta| <= 10 deg,\n";
+            std::cout << "        camera_age <= 150 ms, radar_age <= 150 ms,\n";
+            std::cout << "        classes in {Car, Bicycle, Person},\n";
+            std::cout << "        has radar and non-predicted camera range.\n";
+          } else {
+            std::cerr << "[Main] Failed to start camera/radar range capture\n";
+          }
+        }
+      } break;
 
       case 14: // Toggle RTSP Server
       {
