@@ -246,6 +246,11 @@ class FCWMonitor {
     /// Get the current TTC threshold
     float getThreshold() const { return config_.ttc_threshold_s; }
 
+    /// Hot-update the camera freshness window used by FCW gating.
+    void setCameraHoldMs(uint32_t camera_hold_ms) {
+      config_.camera_hold_ms = camera_hold_ms;
+    }
+
     /// Calculate stopping distance at current ego velocity
     /// @return Stopping distance in meters (reaction + braking)
     float calculateStoppingDistance() const;

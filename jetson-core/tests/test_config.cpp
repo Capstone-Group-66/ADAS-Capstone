@@ -7,7 +7,10 @@ int main() {
   try {
     adas::Config cfg = adas::ConfigLoader::loadConfig("config/componentConfig.yaml");
     const bool ok = cfg.time.fusion_hz > 0 && cfg.cameras.width > 0 &&
-                    cfg.cameras.height > 0;
+                    cfg.cameras.height > 0 &&
+                    cfg.stage_e_fusion.camera_hold_ms > 0 &&
+                    cfg.stage_e_fusion.radar_hold_ms > 0 &&
+                    cfg.stage_e_fusion.track_cleanup_ms > 0;
     if (!ok) {
       std::cerr << "[FAIL] Config fields are invalid\n";
       return 1;
@@ -19,4 +22,3 @@ int main() {
     return 1;
   }
 }
-

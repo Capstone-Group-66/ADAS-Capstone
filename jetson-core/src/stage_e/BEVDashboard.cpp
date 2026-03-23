@@ -735,6 +735,8 @@ void BEVDashboard::renderLoop() {
     }
 
     const uint64_t now_ns = Clock::now_ns();
+    const uint32_t dead_track_cleanup_ms =
+        dead_track_cleanup_ms_.load(std::memory_order_relaxed);
     const bool incoming_has_display_content =
         snapshotHasDisplayContent(frame.fcw_debug_context);
     if (incoming_has_display_content) {
@@ -804,15 +806,15 @@ void BEVDashboard::renderLoop() {
 
       if (!adas::bev::shouldKeepTrack(
               now_ns, track.last_cam_update_ns, track.last_range_update_ns,
-              track.ttc_hold_until_ns, dead_track_cleanup_ms_)) {
+              track.ttc_hold_until_ns, dead_track_cleanup_ms)) {
         it = tracks_.erase(it);
         continue;
       }
 
       const float cam_remain = adas::bev::ttlRemaining01(
-          now_ns, track.last_cam_update_ns, dead_track_cleanup_ms_);
+          now_ns, track.last_cam_update_ns, dead_track_cleanup_ms);
       const float range_remain = adas::bev::ttlRemaining01(
-          now_ns, track.last_range_update_ns, dead_track_cleanup_ms_);
+          now_ns, track.last_range_update_ns, dead_track_cleanup_ms);
       const bool cam_alive = cam_remain > 0.0f;
       const bool range_alive = range_remain > 0.0f;
 

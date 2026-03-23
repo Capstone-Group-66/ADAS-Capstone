@@ -58,6 +58,12 @@ public:
   /// Safely updates the data payload used by the rendering thread
   void update(const BEVInputFrame &frame);
 
+  /// Hot-update the display track cleanup TTL to match fusion retention.
+  void setDeadTrackCleanupMs(uint32_t dead_track_cleanup_ms) {
+    dead_track_cleanup_ms_.store(dead_track_cleanup_ms,
+                                 std::memory_order_relaxed);
+  }
+
 private:
   struct Track {
     uint64_t object_id = UINT64_MAX;
@@ -96,7 +102,7 @@ private:
   BSDReceiver *bsd_receiver_;
   float c_x_;
   float f_x_;
-  uint32_t dead_track_cleanup_ms_;
+  std::atomic<uint32_t> dead_track_cleanup_ms_;
   uint32_t ttc_hold_ms_;
 
   BEVInputFrame latest_frame_;

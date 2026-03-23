@@ -25,6 +25,27 @@ float clamp01(float v) { return std::clamp(v, 0.0f, 1.0f); }
 SensorFusion::SensorFusion(const FusionConfig &config)
     : config_(config), cam_height_m_(config.cam_height_m) {}
 
+void SensorFusion::setCameraHoldMs(uint32_t camera_hold_ms) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  config_.camera_hold_ms = camera_hold_ms;
+}
+
+void SensorFusion::setRadarHoldMs(uint32_t radar_hold_ms) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  config_.radar_hold_ms = radar_hold_ms;
+}
+
+void SensorFusion::setTrackCleanupMs(uint32_t track_cleanup_ms) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  config_.track_cleanup_ms = track_cleanup_ms;
+}
+
+void SensorFusion::setPredictedCameraThresholdMs(
+    uint32_t predicted_camera_threshold_ms) {
+  std::lock_guard<std::mutex> lock(mutex_);
+  config_.predicted_camera_threshold_ms = predicted_camera_threshold_ms;
+}
+
 cv::Rect2f SensorFusion::computeRadarROI(float frame_width,
                                          float frame_height) const {
   const float sx = frame_width / config_.calib_width_px;

@@ -137,6 +137,11 @@ public:
     return cam_height_m_.load(std::memory_order_relaxed);
   }
 
+  void setCameraHoldMs(uint32_t camera_hold_ms);
+  void setRadarHoldMs(uint32_t radar_hold_ms);
+  void setTrackCleanupMs(uint32_t track_cleanup_ms);
+  void setPredictedCameraThresholdMs(uint32_t predicted_camera_threshold_ms);
+
   // New asynchronous API.
   void ingestRadar(const RadarTargets &radar, uint64_t now_ns = 0);
   void ingestCamera(const DetBatch &camera, uint64_t now_ns = 0);

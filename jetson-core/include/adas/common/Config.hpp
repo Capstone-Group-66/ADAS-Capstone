@@ -77,6 +77,9 @@ struct IMUConfig {
 struct StageEFusionConfig {
     float ttc_aggressive_s = 3.0f;
     int camera_hold_ms = 400;
+    int radar_hold_ms = 1100;
+    int track_cleanup_ms = 1600;
+    int predicted_camera_threshold_ms = 80;
     float normal_angle_gate_deg = 12.5f;
     float aggressive_angle_gate_deg = 18.0f;
     float aggressive_range_scale = 1.5f;

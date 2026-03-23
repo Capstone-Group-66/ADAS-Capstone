@@ -387,6 +387,41 @@ uint32_t scaleU32(uint32_t value, float factor, uint32_t min_v,
   return static_cast<uint32_t>(clamped);
 }
 
+void applyConfiguredFusionHoldTimings(
+    adas::FusionConfig &fusion_config, adas::FCWMonitor::Config &fcw_config,
+    const adas::StageEFusionConfig &stage_e_config) {
+  fusion_config.camera_hold_ms = static_cast<uint32_t>(
+      std::max(0, stage_e_config.camera_hold_ms));
+  fusion_config.radar_hold_ms =
+      static_cast<uint32_t>(std::max(0, stage_e_config.radar_hold_ms));
+  fusion_config.track_cleanup_ms =
+      static_cast<uint32_t>(std::max(0, stage_e_config.track_cleanup_ms));
+  fusion_config.predicted_camera_threshold_ms = static_cast<uint32_t>(
+      std::max(0, stage_e_config.predicted_camera_threshold_ms));
+  fcw_config.camera_hold_ms = fusion_config.camera_hold_ms;
+}
+
+bool validateFusionHoldTimings(int camera_hold_ms, int radar_hold_ms,
+                               int track_cleanup_ms,
+                               int predicted_camera_threshold_ms,
+                               std::string &error) {
+  if (camera_hold_ms < 50 || radar_hold_ms < 50 || track_cleanup_ms < 50 ||
+      predicted_camera_threshold_ms < 0) {
+    error = "All hold timings must be >= 50 ms except predicted threshold, which must be >= 0.";
+    return false;
+  }
+  if (track_cleanup_ms < std::max(camera_hold_ms, radar_hold_ms)) {
+    error =
+        "Track cleanup must be >= both camera hold and radar hold so tracks do not disappear early.";
+    return false;
+  }
+  if (predicted_camera_threshold_ms > track_cleanup_ms) {
+    error = "Predicted-camera threshold must be <= track cleanup.";
+    return false;
+  }
+  return true;
+}
+
 void applyStageESensitivity(adas::FusionConfig &fusion_config,
                             adas::FCWMonitor::Config &fcw_config, int level) {
   const int clamped_level = clampSensitivityLevel(level);
@@ -912,6 +947,12 @@ void printMenu(const adas::Config &config) {
                        " samples")
                     : std::string("OFF"))
             << "]\n";
+  std::cout << " 20) Set Fusion Hold Timings [cam="
+            << config.stage_e_fusion.camera_hold_ms
+            << " radar=" << config.stage_e_fusion.radar_hold_ms
+            << " cleanup=" << config.stage_e_fusion.track_cleanup_ms
+            << " pred=" << config.stage_e_fusion.predicted_camera_threshold_ms
+            << "]\n";
   std::cout << "  h) Set Camera Height On-The-Fly\n";
   std::cout << "  0) Exit\n";
   std::cout
@@ -971,8 +1012,6 @@ void startPipeline(const adas::Config &config,
   fusion_config.ekf_r_radar_vz = config.stage_e_fusion.ekf_r_radar_vz;
   fusion_config.ekf_r_cam_theta = config.stage_e_fusion.ekf_r_cam_theta;
   fusion_config.ekf_r_cam_z_weak = config.stage_e_fusion.ekf_r_cam_z_weak;
-  fusion_config.radar_hold_ms = static_cast<uint32_t>(
-      std::max(500, config.front_radar.speed_ttl_ms + 200));
   g_active_radar_tx_offset_m.store(fusion_config.radar_tx_m,
                                    std::memory_order_relaxed);
 
@@ -1001,6 +1040,8 @@ void startPipeline(const adas::Config &config,
       std::max(0.0f, g_fcw_min_trigger_object_speed_gate_mps);
   applyStageESensitivity(fusion_config, fcw_config,
                          g_stage_e_sensitivity_level);
+  applyConfiguredFusionHoldTimings(fusion_config, fcw_config,
+                                   config.stage_e_fusion);
 
   g_sensor_fusion = std::make_unique<adas::SensorFusion>(fusion_config);
   g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
@@ -1011,7 +1052,8 @@ void startPipeline(const adas::Config &config,
 
   // Initialize BEVDashboard
   g_bev_dashboard = std::make_unique<adas::BEVDashboard>(
-      g_bsd_receiver.get(), fusion_config.c_x, fusion_config.f_x);
+      g_bsd_receiver.get(), fusion_config.c_x, fusion_config.f_x,
+      fusion_config.track_cleanup_ms);
   g_bev_dashboard->start();
 
   std::ostringstream sens_start_ss;
@@ -1101,8 +1143,6 @@ void startReplayPipeline(const std::string &replay_file, float speed,
   replay_fusion_config.ekf_r_cam_theta = config.stage_e_fusion.ekf_r_cam_theta;
   replay_fusion_config.ekf_r_cam_z_weak =
       config.stage_e_fusion.ekf_r_cam_z_weak;
-  replay_fusion_config.radar_hold_ms = static_cast<uint32_t>(
-      std::max(500, config.front_radar.speed_ttl_ms + 200));
   g_active_radar_tx_offset_m.store(replay_fusion_config.radar_tx_m,
                                    std::memory_order_relaxed);
 
@@ -1130,6 +1170,8 @@ void startReplayPipeline(const std::string &replay_file, float speed,
       std::max(0.0f, g_fcw_min_trigger_object_speed_gate_mps);
   applyStageESensitivity(replay_fusion_config, fcw_config,
                          g_stage_e_sensitivity_level);
+  applyConfiguredFusionHoldTimings(replay_fusion_config, fcw_config,
+                                   config.stage_e_fusion);
   g_sensor_fusion = std::make_unique<adas::SensorFusion>(replay_fusion_config);
   g_fcw_monitor = std::make_unique<adas::FCWMonitor>(fcw_config);
 
@@ -1766,6 +1808,91 @@ int main(int argc, char **argv) {
             std::cerr << "[Main] Failed to start camera/radar range capture\n";
           }
         }
+      } break;
+
+      case 20: // Set Fusion Hold Timings
+      {
+        int camera_hold_ms = config.stage_e_fusion.camera_hold_ms;
+        int radar_hold_ms = config.stage_e_fusion.radar_hold_ms;
+        int track_cleanup_ms = config.stage_e_fusion.track_cleanup_ms;
+        int predicted_camera_threshold_ms =
+            config.stage_e_fusion.predicted_camera_threshold_ms;
+
+        std::cout << "  Enter camera consistency hold (ms) [current "
+                  << camera_hold_ms << "]: ";
+        std::cin >> camera_hold_ms;
+        std::cout << "  Enter published radar-range hold (ms) [current "
+                  << radar_hold_ms << "]: ";
+        std::cin >> radar_hold_ms;
+        std::cout << "  Enter track cleanup hold (ms) [current "
+                  << track_cleanup_ms << "]: ";
+        std::cin >> track_cleanup_ms;
+        std::cout << "  Enter predicted-camera threshold (ms) [current "
+                  << predicted_camera_threshold_ms << "]: ";
+        std::cin >> predicted_camera_threshold_ms;
+
+        if (std::cin.fail()) {
+          std::cin.clear();
+          std::cin.ignore(10000, '\n');
+          std::cout << "[Main] Invalid timing input.\n";
+          break;
+        }
+
+        std::string validation_error;
+        if (!validateFusionHoldTimings(camera_hold_ms, radar_hold_ms,
+                                       track_cleanup_ms,
+                                       predicted_camera_threshold_ms,
+                                       validation_error)) {
+          std::cout << "[Main] Invalid fusion hold timings: "
+                    << validation_error << "\n";
+          break;
+        }
+
+        config.stage_e_fusion.camera_hold_ms = camera_hold_ms;
+        config.stage_e_fusion.radar_hold_ms = radar_hold_ms;
+        config.stage_e_fusion.track_cleanup_ms = track_cleanup_ms;
+        config.stage_e_fusion.predicted_camera_threshold_ms =
+            predicted_camera_threshold_ms;
+
+        try {
+          adas::ConfigLoader::saveConfig(config_path, config);
+        } catch (const std::exception &e) {
+          std::cerr << "[Main] Failed to save fusion hold timings: "
+                    << e.what() << "\n";
+          break;
+        }
+
+        if (g_pipeline_running.load()) {
+          if (g_sensor_fusion) {
+            g_sensor_fusion->setCameraHoldMs(
+                static_cast<uint32_t>(camera_hold_ms));
+            g_sensor_fusion->setRadarHoldMs(
+                static_cast<uint32_t>(radar_hold_ms));
+            g_sensor_fusion->setTrackCleanupMs(
+                static_cast<uint32_t>(track_cleanup_ms));
+            g_sensor_fusion->setPredictedCameraThresholdMs(
+                static_cast<uint32_t>(predicted_camera_threshold_ms));
+          }
+          if (g_fcw_monitor) {
+            g_fcw_monitor->setCameraHoldMs(
+                static_cast<uint32_t>(camera_hold_ms));
+          }
+          if (g_bev_dashboard) {
+            g_bev_dashboard->setDeadTrackCleanupMs(
+                static_cast<uint32_t>(track_cleanup_ms));
+          }
+          std::cout << "[Main] Fusion hold timings updated on-the-fly and "
+                       "saved.\n";
+        } else {
+          std::cout << "[Main] Fusion hold timings saved. They will apply on "
+                       "next pipeline start.\n";
+        }
+
+        std::cout << "        camera_hold_ms=" << camera_hold_ms
+                  << ", radar_hold_ms=" << radar_hold_ms
+                  << ", track_cleanup_ms=" << track_cleanup_ms
+                  << ", predicted_camera_threshold_ms="
+                  << predicted_camera_threshold_ms << "\n";
       } break;
 
       case 14: // Toggle RTSP Server
