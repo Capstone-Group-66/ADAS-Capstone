@@ -103,6 +103,9 @@ private:
   uint64_t latest_frame_seq_ = 0;
   std::mutex data_mutex_;
   std::unordered_map<uint64_t, Track> tracks_;
+  std::optional<FCWDebugSnapshot> latched_fcw_debug_snapshot_;
+  uint64_t latched_fcw_debug_until_ns_ = 0;
+  uint64_t latched_fcw_debug_last_update_ns_ = 0;
 
   std::thread thread_;
   std::atomic<bool> running_{false};

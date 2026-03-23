@@ -18,8 +18,10 @@ constexpr int kCanvasWidth = 520;
 constexpr int kCanvasHeight = 660;
 constexpr int kPanelWidth = 620;
 constexpr int kPanelHeight = kCanvasHeight;
-constexpr int kDisplayMaxWidth = 960;
-constexpr int kDisplayMaxHeight = 520;
+constexpr int kDisplayMaxWidth = 760;
+constexpr int kDisplayMaxHeight = 420;
+constexpr uint64_t kPanelSnapshotHoldNs = 3000000000ULL;
+constexpr uint64_t kPanelSnapshotMinRefreshNs = 450000000ULL;
 constexpr float kPixelsPerMeter = 10.0f;
 constexpr int kEgoX = kCanvasWidth / 2;
 constexpr int kEgoY = 560;
@@ -248,8 +250,21 @@ std::string fmtFloat(float value, const char *suffix, int precision = 2) {
   return ss.str();
 }
 
+bool snapshotHasDisplayContent(const std::optional<adas::FCWDebugSnapshot> &debug_opt) {
+  return debug_opt.has_value() &&
+         (debug_opt->has_best_candidate ||
+          debug_opt->has_runner_up_candidate ||
+          !debug_opt->rejected_candidates.empty());
+}
+
+uint64_t snapshotBestId(const adas::FCWDebugSnapshot &snapshot) {
+  return snapshot.has_best_candidate ? snapshot.best_candidate.object_id
+                                     : UINT64_MAX;
+}
+
 void renderFcwReasoningPanel(
-    cv::Mat &panel, const std::optional<adas::FCWDebugSnapshot> &debug_opt) {
+    cv::Mat &panel, const std::optional<adas::FCWDebugSnapshot> &debug_opt,
+    bool snapshot_is_held, float hold_remaining_s) {
   panel = cv::Mat(kPanelHeight, kPanelWidth, CV_8UC3, cv::Scalar(24, 24, 26));
 
   const auto drawPanelText = [&](const std::string &text, int x, int y,
@@ -417,8 +432,16 @@ void renderFcwReasoningPanel(
   };
 
   drawSectionHeader("FCW Heuristic", 22);
-  drawPanelText("Live reasoning from the production FCW math", 18, 40, 0.34,
-                cv::Scalar(180, 180, 185), 1);
+  if (snapshot_is_held && hold_remaining_s > 0.0f) {
+    std::ostringstream held_line;
+    held_line << "Holding last significant FCW snapshot  "
+              << std::fixed << std::setprecision(1) << hold_remaining_s
+              << "s";
+    drawPanelText(held_line.str(), 18, 40, 0.34, cv::Scalar(255, 220, 140), 1);
+  } else {
+    drawPanelText("Live reasoning from the production FCW math", 18, 40, 0.34,
+                  cv::Scalar(180, 180, 185), 1);
+  }
 
   if (!debug_opt.has_value()) {
     drawPanelText("No FCW debug snapshot available", 18, 84, 0.42,
@@ -712,6 +735,41 @@ void BEVDashboard::renderLoop() {
     }
 
     const uint64_t now_ns = Clock::now_ns();
+    const bool incoming_has_display_content =
+        snapshotHasDisplayContent(frame.fcw_debug_context);
+    if (incoming_has_display_content) {
+      const bool have_latched = latched_fcw_debug_snapshot_.has_value();
+      const bool same_best_object =
+          have_latched &&
+          snapshotBestId(*latched_fcw_debug_snapshot_) ==
+              snapshotBestId(*frame.fcw_debug_context);
+      const bool escalated_level =
+          have_latched && frame.fcw_debug_context->has_best_candidate &&
+          (!latched_fcw_debug_snapshot_->has_best_candidate ||
+           static_cast<int>(frame.fcw_debug_context->best_candidate.active_level) >
+               static_cast<int>(
+                   latched_fcw_debug_snapshot_->best_candidate.active_level));
+      const bool refresh_allowed =
+          !have_latched ||
+          (now_ns - latched_fcw_debug_last_update_ns_) >=
+              kPanelSnapshotMinRefreshNs;
+
+      if (same_best_object || escalated_level || refresh_allowed) {
+        latched_fcw_debug_snapshot_ = frame.fcw_debug_context;
+        latched_fcw_debug_last_update_ns_ = now_ns;
+      }
+      latched_fcw_debug_until_ns_ = now_ns + kPanelSnapshotHoldNs;
+    } else if (latched_fcw_debug_until_ns_ <= now_ns) {
+      latched_fcw_debug_snapshot_.reset();
+    }
+
+    const bool use_latched_snapshot = latched_fcw_debug_snapshot_.has_value() &&
+                                      latched_fcw_debug_until_ns_ > now_ns;
+    const float held_remaining_s =
+        use_latched_snapshot
+            ? static_cast<float>(latched_fcw_debug_until_ns_ - now_ns) /
+                  1.0e9f
+            : 0.0f;
 
     bool left_bsd = false;
     bool right_bsd = false;
@@ -991,7 +1049,11 @@ void BEVDashboard::renderLoop() {
     }
 
     cv::Mat panel;
-    renderFcwReasoningPanel(panel, frame.fcw_debug_context);
+    renderFcwReasoningPanel(panel,
+                            use_latched_snapshot ? latched_fcw_debug_snapshot_
+                                                 : frame.fcw_debug_context,
+                            use_latched_snapshot && !incoming_has_display_content,
+                            held_remaining_s);
 
     cv::Mat canvas;
     cv::hconcat(std::vector<cv::Mat>{world, panel}, canvas);
