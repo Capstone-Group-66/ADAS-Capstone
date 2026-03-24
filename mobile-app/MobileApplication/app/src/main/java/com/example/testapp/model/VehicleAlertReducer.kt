@@ -4,7 +4,7 @@ object VehicleAlertReducer {
     private const val FcwType = 0
     private const val LdwType = 1
     private const val RcwType = 2
-    private const val FcwLatchMs = 3000L
+    private const val FcwLatchMs = 5000L
     private const val BsdLatchMs = 1000L
 
     fun initial(): VehicleAlert =
