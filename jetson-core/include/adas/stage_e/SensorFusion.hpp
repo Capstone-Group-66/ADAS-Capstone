@@ -16,12 +16,6 @@
 
 namespace adas {
 
-enum class RadialVelocitySource : uint8_t {
-  None = 0,
-  RadarSensor = 1,
-  DerivedRangeRate = 2
-};
-
 struct FusedObject {
   uint64_t object_id;
   int object_class; // Canonical ObjectClass value
@@ -50,7 +44,6 @@ struct FusedObject {
   uint32_t radar_age_ms;
   bool is_predicted_camera;
   bool is_aggressive_mode;
-  RadialVelocitySource radial_velocity_source;
 
   FusedObject()
       : object_id(UINT64_MAX),
@@ -61,8 +54,7 @@ struct FusedObject {
         fusion_quality(0.0f), speed_fresh(false), speed_age_ms(0),
         ttc_s(std::numeric_limits<float>::infinity()), sources(SRC_NONE),
         theta_rad(0.0f), camera_age_ms(0), radar_age_ms(0),
-        is_predicted_camera(false), is_aggressive_mode(false),
-        radial_velocity_source(RadialVelocitySource::None) {}
+        is_predicted_camera(false), is_aggressive_mode(false) {}
 };
 
 struct FusionConfig {
@@ -94,22 +86,6 @@ struct FusionConfig {
   float normal_range_gate_m = 5.5f;
   float aggressive_range_scale = 1.5f;
   uint32_t camera_hold_ms = 400;
-  uint32_t provisional_min_hits = 3;
-  uint32_t provisional_track_hold_ms = 1200;
-  float provisional_seed_min_closing_mps = 0.5f;
-  float provisional_seed_max_ttc_s = 6.0f;
-  float provisional_seed_max_range_m = 60.0f;
-  float provisional_alpha = 0.65f;
-  float provisional_beta = 0.18f;
-  float promotion_range_gate_m = 6.0f;
-  float promotion_aggressive_range_gate_m = 8.0f;
-  float promotion_max_abs_theta_deg = 15.0f;
-  uint32_t promotion_min_hits = 3;
-  uint32_t derived_speed_min_hits = 3;
-  uint32_t derived_speed_min_dt_ms = 20;
-  uint32_t derived_speed_max_dt_ms = 250;
-  uint32_t derived_speed_hold_ms = 200;
-  float derived_speed_max_abs_mps = 25.0f;
 
   // Association stability guards.
   float max_backward_jump_m = 0.8f; // Reject range jumps away while closing.
@@ -132,7 +108,6 @@ struct FusionConfig {
   // EKF measurement noise.
   float ekf_r_radar_z = 0.35f;
   float ekf_r_radar_vz = 0.55f;
-  float ekf_r_radar_vz_derived = 1.8f;
   float ekf_r_cam_theta = 0.018f;
   float ekf_r_cam_z_weak = 30.0f; // weak consistency only
 
@@ -198,10 +173,6 @@ private:
     bool speed_fresh = false;
     uint32_t speed_age_ms = 0;
     bool is_aggressive_mode = false;
-    RadialVelocitySource radial_velocity_source = RadialVelocitySource::None;
-    float last_range_m = 0.0f;
-    uint64_t last_range_update_ns = 0;
-    uint32_t consecutive_range_hits = 0;
 
     uint64_t last_predict_ns = 0;
     uint64_t last_camera_ns = 0;
@@ -216,66 +187,21 @@ private:
     uint32_t speed_age_ms = 0;
   };
 
-  struct VelocityEstimate {
-    bool valid = false;
-    float radial_vel_mps = 0.0f;
-    uint32_t age_ms = 0;
-    RadialVelocitySource source = RadialVelocitySource::None;
-  };
-
-  struct ProvisionalRadarTrack {
-    uint64_t fusion_id = 0;
-    float z_m = 0.0f;
-    float vz_mps_est = 0.0f;
-    float last_range_m = 0.0f;
-    uint64_t last_update_ns = 0;
-    uint64_t last_real_speed_ns = 0;
-    float last_real_speed_mps = 0.0f;
-    uint32_t consecutive_hits = 0;
-    bool range_rate_valid = false;
-    bool speed_fresh = false;
-    uint32_t speed_age_ms = 0;
-    RadialVelocitySource radial_velocity_source = RadialVelocitySource::None;
-  };
-
   // Core math helpers.
   float estimateDistance(float v_bottom, float fy_scaled, float cy_scaled,
                          float pitch_rad, float cam_height_m) const;
   float calculateIOU(const cv::Rect2f &a, const cv::Rect2f &b) const;
   bool inRadarROI(float u, float v, const cv::Rect2f &roi) const;
   float computeTTC(float z_rad, float v_rad_approaching) const;
-  static float rangeRateFromRangeDelta(float previous_range_m,
-                                       uint64_t previous_ns,
-                                       float current_range_m,
-                                       uint64_t current_ns);
-  VelocityEstimate deriveVelocityEstimate(float previous_range_m,
-                                          uint64_t previous_range_ns,
-                                          uint32_t previous_hit_count,
-                                          const RadarObs &obs,
-                                          uint64_t now_ns) const;
-  uint64_t resolveCameraTimestampNs(const Header &header) const;
 
   // EKF helpers.
   static float normalizeAngle(float rad);
   void initializeTrack(TrackState &track, const Det &det, float theta_rad,
-                       float z_cam_m, uint64_t now_ns, uint64_t camera_ns);
-  void initializeTrackFromProvisional(TrackState &track, const Det &det,
-                                      float theta_rad, float z_cam_m,
-                                      uint64_t now_ns, uint64_t camera_ns,
-                                      const ProvisionalRadarTrack &provisional);
+                       float z_cam_m, uint64_t now_ns);
   void predictTrackTo(TrackState &track, uint64_t now_ns);
   void updateTrackCamera(TrackState &track, float theta_rad, float z_cam_m);
-  void updateTrackRadar(TrackState &track, float z_rad_m,
-                        const VelocityEstimate &velocity);
-  void updateConfirmedTrackRangeHistory(TrackState &track, float range_m,
-                                        uint64_t now_ns);
-  void ingestUnclaimedRadarObs(const std::vector<RadarObs> &radar_obs,
-                               const std::vector<bool> &claimed,
-                               uint64_t now_ns);
-  void updateProvisionalTrack(ProvisionalRadarTrack &track, const RadarObs &obs,
-                              uint64_t now_ns);
-  int findBestPromotionTrack(float z_cam_m, float theta_rad,
-                             uint64_t now_ns) const;
+  void updateTrackRadar(TrackState &track, float z_rad_m, bool has_speed,
+                        float v_rad_mps);
   void maybeCleanupTracks(uint64_t now_ns);
 
   FusionConfig config_;
@@ -288,9 +214,7 @@ private:
   mutable float cached_roi_height_ = -1.0f;
 
   std::unordered_map<uint64_t, TrackState> tracks_;
-  std::unordered_map<uint64_t, ProvisionalRadarTrack> provisional_tracks_;
   RadarTargets latest_radar_;
-  uint64_t next_provisional_track_id_ = 1;
 
   std::mutex mutex_;
 };

@@ -1093,45 +1093,12 @@ void startPipeline(const adas::Config &config,
       config.stage_e_fusion.aggressive_angle_gate_deg;
   fusion_config.aggressive_range_scale =
       config.stage_e_fusion.aggressive_range_scale;
-  fusion_config.provisional_min_hits =
-      static_cast<uint32_t>(std::max(1, config.stage_e_fusion.provisional_min_hits));
-  fusion_config.provisional_track_hold_ms =
-      static_cast<uint32_t>(std::max(1, config.stage_e_fusion.provisional_track_hold_ms));
-  fusion_config.provisional_seed_min_closing_mps =
-      config.stage_e_fusion.provisional_seed_min_closing_mps;
-  fusion_config.provisional_seed_max_ttc_s =
-      config.stage_e_fusion.provisional_seed_max_ttc_s;
-  fusion_config.provisional_seed_max_range_m =
-      config.stage_e_fusion.provisional_seed_max_range_m;
-  fusion_config.provisional_alpha = config.stage_e_fusion.provisional_alpha;
-  fusion_config.provisional_beta = config.stage_e_fusion.provisional_beta;
-  fusion_config.promotion_range_gate_m =
-      config.stage_e_fusion.promotion_range_gate_m;
-  fusion_config.promotion_aggressive_range_gate_m =
-      config.stage_e_fusion.promotion_aggressive_range_gate_m;
-  fusion_config.promotion_max_abs_theta_deg =
-      config.stage_e_fusion.promotion_max_abs_theta_deg;
-  fusion_config.promotion_min_hits =
-      static_cast<uint32_t>(std::max(1, config.stage_e_fusion.promotion_min_hits));
-  fusion_config.derived_speed_min_hits =
-      static_cast<uint32_t>(std::max(2, config.stage_e_fusion.derived_speed_min_hits));
-  fusion_config.derived_speed_min_dt_ms =
-      static_cast<uint32_t>(std::max(1, config.stage_e_fusion.derived_speed_min_dt_ms));
-  fusion_config.derived_speed_max_dt_ms =
-      static_cast<uint32_t>(std::max(config.stage_e_fusion.derived_speed_min_dt_ms,
-                                     config.stage_e_fusion.derived_speed_max_dt_ms));
-  fusion_config.derived_speed_hold_ms =
-      static_cast<uint32_t>(std::max(1, config.stage_e_fusion.derived_speed_hold_ms));
-  fusion_config.derived_speed_max_abs_mps =
-      config.stage_e_fusion.derived_speed_max_abs_mps;
   fusion_config.ekf_q_z = config.stage_e_fusion.ekf_q_z;
   fusion_config.ekf_q_vz = config.stage_e_fusion.ekf_q_vz;
   fusion_config.ekf_q_theta = config.stage_e_fusion.ekf_q_theta;
   fusion_config.ekf_q_theta_dot = config.stage_e_fusion.ekf_q_theta_dot;
   fusion_config.ekf_r_radar_z = config.stage_e_fusion.ekf_r_radar_z;
   fusion_config.ekf_r_radar_vz = config.stage_e_fusion.ekf_r_radar_vz;
-  fusion_config.ekf_r_radar_vz_derived =
-      config.stage_e_fusion.ekf_r_radar_vz_derived;
   fusion_config.ekf_r_cam_theta = config.stage_e_fusion.ekf_r_cam_theta;
   fusion_config.ekf_r_cam_z_weak = config.stage_e_fusion.ekf_r_cam_z_weak;
   g_active_radar_tx_offset_m.store(fusion_config.radar_tx_m,
@@ -1260,45 +1227,12 @@ void startReplayPipeline(const std::string &replay_file, float speed,
       config.stage_e_fusion.aggressive_angle_gate_deg;
   replay_fusion_config.aggressive_range_scale =
       config.stage_e_fusion.aggressive_range_scale;
-  replay_fusion_config.provisional_min_hits =
-      static_cast<uint32_t>(std::max(1, config.stage_e_fusion.provisional_min_hits));
-  replay_fusion_config.provisional_track_hold_ms =
-      static_cast<uint32_t>(std::max(1, config.stage_e_fusion.provisional_track_hold_ms));
-  replay_fusion_config.provisional_seed_min_closing_mps =
-      config.stage_e_fusion.provisional_seed_min_closing_mps;
-  replay_fusion_config.provisional_seed_max_ttc_s =
-      config.stage_e_fusion.provisional_seed_max_ttc_s;
-  replay_fusion_config.provisional_seed_max_range_m =
-      config.stage_e_fusion.provisional_seed_max_range_m;
-  replay_fusion_config.provisional_alpha = config.stage_e_fusion.provisional_alpha;
-  replay_fusion_config.provisional_beta = config.stage_e_fusion.provisional_beta;
-  replay_fusion_config.promotion_range_gate_m =
-      config.stage_e_fusion.promotion_range_gate_m;
-  replay_fusion_config.promotion_aggressive_range_gate_m =
-      config.stage_e_fusion.promotion_aggressive_range_gate_m;
-  replay_fusion_config.promotion_max_abs_theta_deg =
-      config.stage_e_fusion.promotion_max_abs_theta_deg;
-  replay_fusion_config.promotion_min_hits =
-      static_cast<uint32_t>(std::max(1, config.stage_e_fusion.promotion_min_hits));
-  replay_fusion_config.derived_speed_min_hits =
-      static_cast<uint32_t>(std::max(2, config.stage_e_fusion.derived_speed_min_hits));
-  replay_fusion_config.derived_speed_min_dt_ms =
-      static_cast<uint32_t>(std::max(1, config.stage_e_fusion.derived_speed_min_dt_ms));
-  replay_fusion_config.derived_speed_max_dt_ms =
-      static_cast<uint32_t>(std::max(config.stage_e_fusion.derived_speed_min_dt_ms,
-                                     config.stage_e_fusion.derived_speed_max_dt_ms));
-  replay_fusion_config.derived_speed_hold_ms =
-      static_cast<uint32_t>(std::max(1, config.stage_e_fusion.derived_speed_hold_ms));
-  replay_fusion_config.derived_speed_max_abs_mps =
-      config.stage_e_fusion.derived_speed_max_abs_mps;
   replay_fusion_config.ekf_q_z = config.stage_e_fusion.ekf_q_z;
   replay_fusion_config.ekf_q_vz = config.stage_e_fusion.ekf_q_vz;
   replay_fusion_config.ekf_q_theta = config.stage_e_fusion.ekf_q_theta;
   replay_fusion_config.ekf_q_theta_dot = config.stage_e_fusion.ekf_q_theta_dot;
   replay_fusion_config.ekf_r_radar_z = config.stage_e_fusion.ekf_r_radar_z;
   replay_fusion_config.ekf_r_radar_vz = config.stage_e_fusion.ekf_r_radar_vz;
-  replay_fusion_config.ekf_r_radar_vz_derived =
-      config.stage_e_fusion.ekf_r_radar_vz_derived;
   replay_fusion_config.ekf_r_cam_theta = config.stage_e_fusion.ekf_r_cam_theta;
   replay_fusion_config.ekf_r_cam_z_weak =
       config.stage_e_fusion.ekf_r_cam_z_weak;

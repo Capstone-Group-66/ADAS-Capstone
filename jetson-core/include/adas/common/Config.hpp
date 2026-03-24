@@ -84,23 +84,6 @@ struct StageEFusionConfig {
     float normal_angle_gate_deg = 12.5f;
     float aggressive_angle_gate_deg = 18.0f;
     float aggressive_range_scale = 1.5f;
-    int provisional_min_hits = 3;
-    int provisional_track_hold_ms = 1200;
-    float provisional_seed_min_closing_mps = 0.5f;
-    float provisional_seed_max_ttc_s = 6.0f;
-    float provisional_seed_max_range_m = 60.0f;
-    float provisional_alpha = 0.65f;
-    float provisional_beta = 0.18f;
-    float promotion_range_gate_m = 6.0f;
-    float promotion_aggressive_range_gate_m = 8.0f;
-    float promotion_max_abs_theta_deg = 15.0f;
-    int promotion_min_hits = 3;
-    int derived_speed_min_hits = 3;
-    int derived_speed_min_dt_ms = 20;
-    int derived_speed_max_dt_ms = 250;
-    int derived_speed_hold_ms = 200;
-    float derived_speed_max_abs_mps = 25.0f;
-    float ekf_r_radar_vz_derived = 1.8f;
 
     // EKF process noise
     float ekf_q_z = 1.0f;
