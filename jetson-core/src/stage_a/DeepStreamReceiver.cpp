@@ -31,9 +31,9 @@ static_assert(sizeof(LegacyDeepStreamDet) == 40,
 
 void logRoadSignDetection(const Det &det) {
   std::ostringstream ss;
-  ss << std::fixed << std::setprecision(2)
-     << "[RoadSignDet] ID " << det.object_id << " | cls: " << det.cls
-     << " | score: " << det.score << " | sign: ";
+  ss << std::fixed << std::setprecision(2) << "[RoadSignDet] ID "
+     << det.object_id << " | cls: " << det.cls << " | score: " << det.score
+     << " | sign: ";
   if (det.hasSignLabel()) {
     ss << det.signLabelString();
   } else {
@@ -126,7 +126,7 @@ void DeepStreamReceiver::dsThread() {
 
     const size_t payload_size =
         static_cast<size_t>(len) - sizeof(ipc::DeepStreamDetBatchHeader);
-    const size_t modern_det_size = sizeof(ipc::DeepStreamDet); // 72 bytes
+    const size_t modern_det_size = sizeof(ipc::DeepStreamDet);  // 72 bytes
     const size_t legacy_det_size = sizeof(LegacyDeepStreamDet); // 40 bytes
     size_t det_record_size = 0;
 
@@ -158,9 +158,9 @@ void DeepStreamReceiver::dsThread() {
     if (det_record_size != last_logged_det_size) {
       std::cout << "[DeepStreamReceiver] Det record layout detected: "
                 << det_record_size << " bytes"
-                << (det_record_size == modern_det_size ? " (modern)" :
-                    det_record_size == legacy_det_size ? " (legacy)" :
-                                                         " (inferred)")
+                << (det_record_size == modern_det_size   ? " (modern)"
+                    : det_record_size == legacy_det_size ? " (legacy)"
+                                                         : " (inferred)")
                 << "\n";
       last_logged_det_size = det_record_size;
     }

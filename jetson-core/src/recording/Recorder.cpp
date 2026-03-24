@@ -194,8 +194,8 @@ void Recorder::recordFrontDetections(const DetBatch &batch) {
   event.type = RecEventType::FrontDetBatch;
   event.timestamp_ns = batch.h.t_ingest_ns;
 
-  const size_t payload_size = sizeof(RecFrontDetBatchHeader) +
-                              batch.dets.size() * sizeof(RecFrontDet);
+  const size_t payload_size =
+      sizeof(RecFrontDetBatchHeader) + batch.dets.size() * sizeof(RecFrontDet);
   event.payload.resize(payload_size, 0);
 
   RecFrontDetBatchHeader batch_header{};

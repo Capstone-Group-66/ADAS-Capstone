@@ -253,7 +253,8 @@ void ReplayEngine::dispatchCamera(const RecordEvent &event) {
 }
 
 void ReplayEngine::dispatchFrontDetBatch(const RecordEvent &event) {
-  if (event.payload.size() < sizeof(RecFrontDetBatchHeader) || !front_det_queue_) {
+  if (event.payload.size() < sizeof(RecFrontDetBatchHeader) ||
+      !front_det_queue_) {
     return;
   }
 

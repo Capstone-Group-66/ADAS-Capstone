@@ -197,7 +197,8 @@ void NetworkReceiver::rcwThread() {
     last_rcw_seq_ = header.sequence;
 
     if (header.payload_size != sizeof(RcwPayload) ||
-        static_cast<size_t>(len) < sizeof(PiMessageHeader) + sizeof(RcwPayload)) {
+        static_cast<size_t>(len) <
+            sizeof(PiMessageHeader) + sizeof(RcwPayload)) {
       stats_.errors++;
       continue;
     }

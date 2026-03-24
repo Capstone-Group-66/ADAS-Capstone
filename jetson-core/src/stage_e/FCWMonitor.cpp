@@ -366,9 +366,10 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     const bool gate_has_radar = obj.has_radar;
     const bool gate_speed_fresh = obj.speed_fresh;
     const bool gate_class_relevant = isRelevantClass(obj.object_class);
-    const bool gate_range_ok =
-        obj.range_m >= config_.min_range_m && obj.range_m <= config_.max_range_m;
-    const bool gate_quality_ok = obj.fusion_quality >= config_.min_fusion_quality;
+    const bool gate_range_ok = obj.range_m >= config_.min_range_m &&
+                               obj.range_m <= config_.max_range_m;
+    const bool gate_quality_ok =
+        obj.fusion_quality >= config_.min_fusion_quality;
     const float closing_mps = obj.radial_vel_mps; // positive=inward/toward
     const bool gate_closing_ok = closing_mps > config_.min_closing_speed_mps;
     const float lane_half_width_m = pathHalfWidth(obj.range_m);
@@ -551,9 +552,9 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
       continue;
     }
 
-    if (best_alert.obj == nullptr ||
-        active_level > best_alert.active_level ||
-        (active_level == best_alert.active_level && risk_score > best_alert.risk) ||
+    if (best_alert.obj == nullptr || active_level > best_alert.active_level ||
+        (active_level == best_alert.active_level &&
+         risk_score > best_alert.risk) ||
         (active_level == best_alert.active_level &&
          std::abs(risk_score - best_alert.risk) < 1e-4f &&
          minByTtc(obj, *best_alert.obj).object_id == obj.object_id)) {
@@ -572,29 +573,36 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
     }
   }
 
-  auto candidateComparator = [](const CandidateEval &a, const CandidateEval &b) {
+  auto candidateComparator = [](const CandidateEval &a,
+                                const CandidateEval &b) {
     if (a.active_level != b.active_level) {
       return a.active_level > b.active_level;
     }
     if (std::abs(a.risk - b.risk) >= 1e-4f) {
       return a.risk > b.risk;
     }
-    const bool a_ttc_valid = a.obj && std::isfinite(a.obj->ttc_s) && a.obj->ttc_s > 0.0f;
-    const bool b_ttc_valid = b.obj && std::isfinite(b.obj->ttc_s) && b.obj->ttc_s > 0.0f;
+    const bool a_ttc_valid =
+        a.obj && std::isfinite(a.obj->ttc_s) && a.obj->ttc_s > 0.0f;
+    const bool b_ttc_valid =
+        b.obj && std::isfinite(b.obj->ttc_s) && b.obj->ttc_s > 0.0f;
     if (a_ttc_valid != b_ttc_valid) {
       return a_ttc_valid;
     }
-    if (a_ttc_valid && b_ttc_valid && std::abs(a.obj->ttc_s - b.obj->ttc_s) >= 1e-4f) {
+    if (a_ttc_valid && b_ttc_valid &&
+        std::abs(a.obj->ttc_s - b.obj->ttc_s) >= 1e-4f) {
       return a.obj->ttc_s < b.obj->ttc_s;
     }
     return a.obj->object_id < b.obj->object_id;
   };
-  std::sort(candidate_evals.begin(), candidate_evals.end(), candidateComparator);
+  std::sort(candidate_evals.begin(), candidate_evals.end(),
+            candidateComparator);
 
   auto rejectedComparator = [](const FCWDebugRejected &a,
                                const FCWDebugRejected &b) {
-    const float a_ttc = (std::isfinite(a.ttc_s) && a.ttc_s > 0.0f) ? a.ttc_s : 1e6f;
-    const float b_ttc = (std::isfinite(b.ttc_s) && b.ttc_s > 0.0f) ? b.ttc_s : 1e6f;
+    const float a_ttc =
+        (std::isfinite(a.ttc_s) && a.ttc_s > 0.0f) ? a.ttc_s : 1e6f;
+    const float b_ttc =
+        (std::isfinite(b.ttc_s) && b.ttc_s > 0.0f) ? b.ttc_s : 1e6f;
     if (std::abs(a_ttc - b_ttc) >= 1e-4f) {
       return a_ttc < b_ttc;
     }
@@ -645,7 +653,8 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
       min_trigger_object_speed_mps_.load(std::memory_order_relaxed);
   if (best_alert.obj->radial_vel_mps < min_trigger_speed_mps) {
     if (g_verbose_mode.load()) {
-      std::cout << "[FCW] SUPPRESSED by speed gate: id=" << best_alert.obj->object_id
+      std::cout << "[FCW] SUPPRESSED by speed gate: id="
+                << best_alert.obj->object_id
                 << " v=" << best_alert.obj->radial_vel_mps
                 << "m/s gate=" << min_trigger_speed_mps << "m/s\n";
     }

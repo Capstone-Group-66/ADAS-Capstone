@@ -5,8 +5,8 @@
 #include "adas/stage_e/BEVDashboardFlow.hpp"
 #include "adas/stage_e/BEVDashboardMath.hpp"
 
-#include <array>
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iomanip>
 #include <limits>
@@ -253,10 +253,10 @@ std::string fmtFloat(float value, const char *suffix, int precision = 2) {
   return ss.str();
 }
 
-bool snapshotHasDisplayContent(const std::optional<adas::FCWDebugSnapshot> &debug_opt) {
+bool snapshotHasDisplayContent(
+    const std::optional<adas::FCWDebugSnapshot> &debug_opt) {
   return debug_opt.has_value() &&
-         (debug_opt->has_best_candidate ||
-          debug_opt->has_runner_up_candidate ||
+         (debug_opt->has_best_candidate || debug_opt->has_runner_up_candidate ||
           !debug_opt->rejected_candidates.empty());
 }
 
@@ -341,8 +341,8 @@ cv::Point pointOnPolyline(const std::vector<cv::Point> &points, float t) {
 }
 
 void drawPulsedPolyline(cv::Mat &canvas, const std::vector<cv::Point> &points,
-                        const cv::Scalar &color, int thickness,
-                        uint64_t now_ns, bool held, double dim_factor = 0.45) {
+                        const cv::Scalar &color, int thickness, uint64_t now_ns,
+                        bool held, double dim_factor = 0.45) {
   if (points.size() < 2) {
     return;
   }
@@ -411,9 +411,8 @@ void renderFcwThoughtFlowPanel(
                 color, thickness, cv::LINE_AA);
   };
 
-  const auto drawBadge =
-      [&](int x, int y, const std::string &label, bool active,
-          const cv::Scalar &color) -> int {
+  const auto drawBadge = [&](int x, int y, const std::string &label,
+                             bool active, const cv::Scalar &color) -> int {
     int baseline = 0;
     const cv::Size text_size =
         cv::getTextSize(label, cv::FONT_HERSHEY_SIMPLEX, 0.31, 1, &baseline);
@@ -424,16 +423,14 @@ void renderFcwThoughtFlowPanel(
                   active ? color : cv::Scalar(52, 52, 56), cv::FILLED);
     cv::rectangle(panel, cv::Rect(x, y, width, height),
                   active ? color : cv::Scalar(92, 92, 96), 1);
-    drawPanelText(label, x + pad_x, y + 12, 0.31,
-                  active ? cv::Scalar(245, 245, 245)
-                         : cv::Scalar(150, 150, 155),
-                  1);
+    drawPanelText(
+        label, x + pad_x, y + 12, 0.31,
+        active ? cv::Scalar(245, 245, 245) : cv::Scalar(150, 150, 155), 1);
     return width + 6;
   };
 
-  const auto drawBar =
-      [&](int x, int y, int width, const std::string &label, float value,
-          float weight, const cv::Scalar &color) {
+  const auto drawBar = [&](int x, int y, int width, const std::string &label,
+                           float value, float weight, const cv::Scalar &color) {
     const float clamped = std::clamp(value, 0.0f, 1.0f);
     cv::rectangle(panel, cv::Rect(x, y, width, 10), cv::Scalar(42, 42, 46),
                   cv::FILLED);
@@ -456,15 +453,13 @@ void renderFcwThoughtFlowPanel(
     cv::rectangle(panel, rect, live ? accent : cv::Scalar(82, 82, 86),
                   live ? 2 : 1);
     cv::circle(panel, cv::Point(rect.x + rect.width - 14, rect.y + 14), 5,
-               live ? accent : cv::Scalar(60, 60, 70), cv::FILLED,
-               cv::LINE_AA);
+               live ? accent : cv::Scalar(60, 60, 70), cv::FILLED, cv::LINE_AA);
     drawPanelText(title, rect.x + 10, rect.y + 18, 0.34,
                   cv::Scalar(235, 235, 240), 1);
     drawPanelText(line1, rect.x + 10, rect.y + 40, 0.32,
                   cv::Scalar(220, 220, 225), 1);
     drawPanelText(line2, rect.x + 10, rect.y + 58, 0.29,
-                  live ? cv::Scalar(185, 205, 225)
-                       : cv::Scalar(145, 145, 150),
+                  live ? cv::Scalar(185, 205, 225) : cv::Scalar(145, 145, 150),
                   1);
   };
 
@@ -489,20 +484,17 @@ void renderFcwThoughtFlowPanel(
       cv::circle(panel, cv::Point(chip.x + 10, chip.y + chip.height / 2), 4,
                  accent, cv::FILLED, cv::LINE_AA);
     }
-    drawPanelText(label, chip.x + 20, chip.y + 15, 0.31,
-                  active ? cv::Scalar(240, 240, 244)
-                         : cv::Scalar(155, 155, 160),
-                  1);
+    drawPanelText(
+        label, chip.x + 20, chip.y + 15, 0.31,
+        active ? cv::Scalar(240, 240, 244) : cv::Scalar(155, 155, 160), 1);
   };
 
   cv::rectangle(panel, cv::Rect(10, 10, kPanelWidth - 20, 54),
                 cv::Scalar(31, 31, 35), cv::FILLED);
   cv::rectangle(panel, cv::Rect(10, 10, kPanelWidth - 20, 54),
                 cv::Scalar(74, 74, 80), 1);
-  drawPanelText("FCW Thought Flow", 20, 30, 0.52,
-                cv::Scalar(245, 245, 248), 1);
-  drawPanelText(snapshot_is_held ? "HELD" : "LIVE", kPanelWidth - 84, 30,
-                0.38,
+  drawPanelText("FCW Thought Flow", 20, 30, 0.52, cv::Scalar(245, 245, 248), 1);
+  drawPanelText(snapshot_is_held ? "HELD" : "LIVE", kPanelWidth - 84, 30, 0.38,
                 snapshot_is_held ? cv::Scalar(255, 220, 140)
                                  : cv::Scalar(110, 235, 180),
                 1);
@@ -517,21 +509,18 @@ void renderFcwThoughtFlowPanel(
   std::ostringstream cam_line2;
   cam_line2 << "fresh " << ageLabel(now_ns, camera_ts_ns);
   drawCard("CAMERA", cam_line1.str(), cam_line2.str(),
-           cv::Rect(18, 76, 182, 68), camera_live,
-           cv::Scalar(255, 190, 90));
+           cv::Rect(18, 76, 182, 68), camera_live, cv::Scalar(255, 190, 90));
 
   std::ostringstream radar_line1;
   radar_line1 << radar_count << " targets";
   std::ostringstream radar_line2;
   radar_line2 << "fresh " << ageLabel(now_ns, radar_ts_ns);
   drawCard("RADAR", radar_line1.str(), radar_line2.str(),
-           cv::Rect(219, 76, 182, 68), radar_live,
-           cv::Scalar(80, 180, 255));
+           cv::Rect(219, 76, 182, 68), radar_live, cv::Scalar(80, 180, 255));
 
   std::ostringstream ego_line1;
   if (ego_debug_opt.has_value() && ego_debug_opt->valid) {
-    ego_line1 << fmtFloat(ego_debug_opt->ego_speed_mps, "m/s", 1)
-              << "  pitch "
+    ego_line1 << fmtFloat(ego_debug_opt->ego_speed_mps, "m/s", 1) << "  pitch "
               << fmtFloat(ego_debug_opt->pitch_rad * 57.2957795f, "deg", 1);
   } else {
     ego_line1 << "waiting for ego state";
@@ -542,8 +531,7 @@ void renderFcwThoughtFlowPanel(
                                     ? ego_debug_opt->timestamp_ns
                                     : 0ULL);
   drawCard("EGO / IMU", ego_line1.str(), ego_line2.str(),
-           cv::Rect(420, 76, 182, 68), ego_live,
-           cv::Scalar(110, 230, 170));
+           cv::Rect(420, 76, 182, 68), ego_live, cv::Scalar(110, 230, 170));
 
   const cv::Rect fusion_rect(54, 148, kPanelWidth - 108, 74);
   const cv::Rect gates_rect(36, 236, kPanelWidth - 72, 140);
@@ -553,8 +541,7 @@ void renderFcwThoughtFlowPanel(
   drawStageBox("Fusion / Track Merge", fusion_rect, cv::Scalar(86, 86, 94));
   drawStageBox("FCW Gates / Eligibility", gates_rect, cv::Scalar(86, 86, 94));
   drawStageBox("Risk Mix", risk_rect, cv::Scalar(86, 86, 94));
-  drawStageBox("TTC / Escalation / Dwell", state_rect,
-               cv::Scalar(86, 86, 94));
+  drawStageBox("TTC / Escalation / Dwell", state_rect, cv::Scalar(86, 86, 94));
   drawStageBox("FCW Output", output_rect, cv::Scalar(86, 86, 94));
 
   const cv::Point camera_point(109, 144);
@@ -597,9 +584,9 @@ void renderFcwThoughtFlowPanel(
   if (best) {
     std::ostringstream summary_line;
     summary_line << "Obj " << best->object_id << "  "
-                 << adas::fcwRiskLevelName(best->active_level)
-                 << "  risk " << std::fixed << std::setprecision(2)
-                 << best->risk_score << "  TTC " << fmtFloat(best->ttc_s, "s", 1);
+                 << adas::fcwRiskLevelName(best->active_level) << "  risk "
+                 << std::fixed << std::setprecision(2) << best->risk_score
+                 << "  TTC " << fmtFloat(best->ttc_s, "s", 1);
     drawPanelText(summary_line.str(), 20, 48, 0.34, winner_color, 1);
   } else if (snapshot_is_held && hold_remaining_s > 0.0f) {
     std::ostringstream ss;
@@ -613,9 +600,9 @@ void renderFcwThoughtFlowPanel(
 
   std::ostringstream fusion_summary;
   if (best) {
-    fusion_summary << "Winner ID " << best->object_id
-                   << "  fused cam+radar  Q " << std::fixed
-                   << std::setprecision(2) << best->fusion_quality;
+    fusion_summary << "Winner ID " << best->object_id << "  fused cam+radar  Q "
+                   << std::fixed << std::setprecision(2)
+                   << best->fusion_quality;
   } else {
     fusion_summary << "No object survived to the FCW path";
   }
@@ -662,8 +649,7 @@ void renderFcwThoughtFlowPanel(
         flowStagePoint(adas::bev::FlowStage::StateMachine),
         flowStagePoint(adas::bev::FlowStage::Output)};
     drawPulsedPolyline(panel, winner_lane, winner_color, 3, now_ns,
-                       snapshot_is_held,
-                       snapshot_is_held ? 0.34 : 0.52);
+                       snapshot_is_held, snapshot_is_held ? 0.34 : 0.52);
   }
 
   if (runner && best) {
@@ -671,10 +657,8 @@ void renderFcwThoughtFlowPanel(
         adas::bev::makeRunnerUpFlowLane(*best, *runner);
     const cv::Point stage_point = flowStagePoint(runner_lane.terminal_stage);
     const std::vector<cv::Point> rival_path = {
-        fusion_point,
-        cv::Point(540, fusion_point.y + 24),
-        cv::Point(540, stage_point.y),
-        stage_point,
+        fusion_point, cv::Point(540, fusion_point.y + 24),
+        cv::Point(540, stage_point.y), stage_point,
         cv::Point(580, stage_point.y)};
     drawPulsedPolyline(panel, rival_path, cv::Scalar(0, 190, 255), 2, now_ns,
                        snapshot_is_held, 0.28);
@@ -691,25 +675,22 @@ void renderFcwThoughtFlowPanel(
 
   for (size_t i = 0; i < std::min<size_t>(2, debug.rejected_candidates.size());
        ++i) {
-    const auto lane = adas::bev::makeRejectedFlowLane(debug.rejected_candidates[i]);
+    const auto lane =
+        adas::bev::makeRejectedFlowLane(debug.rejected_candidates[i]);
     const cv::Point stage_point = flowStagePoint(lane.terminal_stage);
     const int gutter_x = (i % 2 == 0) ? 46 : 574;
     const std::vector<cv::Point> reject_path = {
-        fusion_point,
-        cv::Point(stage_point.x, fusion_point.y + 18),
-        stage_point,
-        cv::Point(gutter_x, stage_point.y)};
+        fusion_point, cv::Point(stage_point.x, fusion_point.y + 18),
+        stage_point, cv::Point(gutter_x, stage_point.y)};
     drawPulsedPolyline(panel, reject_path, cv::Scalar(80, 100, 255), 2, now_ns,
                        snapshot_is_held, 0.22);
 
     const int label_width = 150;
     const int label_x =
         (gutter_x < stage_point.x) ? 18 : (kPanelWidth - 18 - label_width);
-    cv::rectangle(panel,
-                  cv::Rect(label_x, stage_point.y - 15, label_width, 30),
+    cv::rectangle(panel, cv::Rect(label_x, stage_point.y - 15, label_width, 30),
                   cv::Scalar(38, 28, 34), cv::FILLED);
-    cv::rectangle(panel,
-                  cv::Rect(label_x, stage_point.y - 15, label_width, 30),
+    cv::rectangle(panel, cv::Rect(label_x, stage_point.y - 15, label_width, 30),
                   cv::Scalar(90, 110, 255), 1);
     std::ostringstream reject_line;
     reject_line << "ID " << debug.rejected_candidates[i].object_id;
@@ -720,21 +701,18 @@ void renderFcwThoughtFlowPanel(
   }
 
   if (best) {
-    drawBar(risk_rect.x + 16, risk_rect.y + 27, risk_rect.width - 32,
-            "Closing", best->closing_score, 0.40f,
-            cv::Scalar(70, 140, 255));
-    drawBar(risk_rect.x + 16, risk_rect.y + 43, risk_rect.width - 32,
-            "Range", best->range_score, 0.24f, cv::Scalar(70, 200, 255));
-    drawBar(risk_rect.x + 16, risk_rect.y + 59, risk_rect.width - 32,
-            "Quality", best->quality_score, 0.21f,
-            cv::Scalar(120, 220, 120));
+    drawBar(risk_rect.x + 16, risk_rect.y + 27, risk_rect.width - 32, "Closing",
+            best->closing_score, 0.40f, cv::Scalar(70, 140, 255));
+    drawBar(risk_rect.x + 16, risk_rect.y + 43, risk_rect.width - 32, "Range",
+            best->range_score, 0.24f, cv::Scalar(70, 200, 255));
+    drawBar(risk_rect.x + 16, risk_rect.y + 59, risk_rect.width - 32, "Quality",
+            best->quality_score, 0.21f, cv::Scalar(120, 220, 120));
     drawBar(risk_rect.x + 16, risk_rect.y + 75, risk_rect.width - 32, "TTC",
             best->ttc_score, 0.10f, cv::Scalar(0, 215, 235));
-    drawBar(risk_rect.x + 16, risk_rect.y + 91, risk_rect.width - 32,
-            "Physics", best->physics_score, 0.05f,
-            cv::Scalar(120, 120, 255));
-    drawBar(risk_rect.x + 16, risk_rect.y + 107, risk_rect.width - 32,
-            "Final", best->risk_score, 1.00f, winner_color);
+    drawBar(risk_rect.x + 16, risk_rect.y + 91, risk_rect.width - 32, "Physics",
+            best->physics_score, 0.05f, cv::Scalar(120, 120, 255));
+    drawBar(risk_rect.x + 16, risk_rect.y + 107, risk_rect.width - 32, "Final",
+            best->risk_score, 1.00f, winner_color);
   }
 
   if (best) {
@@ -746,19 +724,19 @@ void renderFcwThoughtFlowPanel(
                          true, fcwLevelColor(best->base_level));
     badge_x += drawBadge(badge_x, badge_y, "TTC caution",
                          best->ttc_caution_floor, cv::Scalar(0, 215, 235));
-    badge_x += drawBadge(badge_x, badge_y, "Warn floor",
-                         best->ttc_warn_floor, cv::Scalar(0, 165, 255));
+    badge_x += drawBadge(badge_x, badge_y, "Warn floor", best->ttc_warn_floor,
+                         cv::Scalar(0, 165, 255));
     badge_x = state_rect.x + 14;
     badge_y += 22;
-    badge_x += drawBadge(badge_x, badge_y, "Last ditch",
-                         best->ttc_last_ditch, cv::Scalar(0, 125, 255));
-    badge_x += drawBadge(badge_x, badge_y, "Imm warn",
-                         best->ttc_immediate_warn, cv::Scalar(0, 165, 255));
+    badge_x += drawBadge(badge_x, badge_y, "Last ditch", best->ttc_last_ditch,
+                         cv::Scalar(0, 125, 255));
+    badge_x += drawBadge(badge_x, badge_y, "Imm warn", best->ttc_immediate_warn,
+                         cv::Scalar(0, 165, 255));
     badge_x += drawBadge(badge_x, badge_y, "Imm crit",
                          best->ttc_immediate_critical, cv::Scalar(0, 0, 255));
-    badge_x += drawBadge(badge_x, badge_y, "Cam grace",
-                         best->camera_drop_grace_used,
-                         cv::Scalar(180, 110, 255));
+    badge_x +=
+        drawBadge(badge_x, badge_y, "Cam grace", best->camera_drop_grace_used,
+                  cv::Scalar(180, 110, 255));
 
     std::ostringstream geo_line;
     geo_line << "Path X " << std::fixed << std::setprecision(2)
@@ -776,8 +754,8 @@ void renderFcwThoughtFlowPanel(
   if (best) {
     std::ostringstream output_line;
     output_line << adas::fcwRiskLevelName(best->active_level) << "   Obj "
-                << best->object_id << "   TTC "
-                << fmtFloat(best->ttc_s, "s", 1) << "   BLE ";
+                << best->object_id << "   TTC " << fmtFloat(best->ttc_s, "s", 1)
+                << "   BLE ";
     if (ble_send_active) {
       output_line << "YES";
     } else if (snapshot_is_held) {
@@ -830,19 +808,20 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
   const uint64_t now_ns = frame.now_ns == 0 ? Clock::now_ns() : frame.now_ns;
 
   if (frame.has_camera_batch) {
-    latest_camera_source_.count = static_cast<int>(frame.camera_batch.dets.size());
-    latest_camera_source_.timestamp_ns =
-        frame.camera_batch.h.t_ingest_ns != 0 ? frame.camera_batch.h.t_ingest_ns
-                                              : now_ns;
+    latest_camera_source_.count =
+        static_cast<int>(frame.camera_batch.dets.size());
+    latest_camera_source_.timestamp_ns = frame.camera_batch.h.t_ingest_ns != 0
+                                             ? frame.camera_batch.h.t_ingest_ns
+                                             : now_ns;
     latest_camera_source_.healthy = frame.camera_batch.h.healthy;
   }
 
   if (frame.has_radar_targets) {
     latest_radar_source_.count =
         static_cast<int>(frame.radar_targets.targets.size());
-    latest_radar_source_.timestamp_ns =
-        frame.radar_targets.h.t_ingest_ns != 0 ? frame.radar_targets.h.t_ingest_ns
-                                               : now_ns;
+    latest_radar_source_.timestamp_ns = frame.radar_targets.h.t_ingest_ns != 0
+                                            ? frame.radar_targets.h.t_ingest_ns
+                                            : now_ns;
     latest_radar_source_.healthy = frame.radar_targets.h.healthy;
   }
 
@@ -990,8 +969,7 @@ void BEVDashboard::renderLoop() {
   uint64_t last_processed_seq = 0;
 
   while (running_.load()) {
-    cv::Mat world(kCanvasHeight, kCanvasWidth, CV_8UC3,
-                  cv::Scalar(28, 28, 28));
+    cv::Mat world(kCanvasHeight, kCanvasWidth, CV_8UC3, cv::Scalar(28, 28, 28));
 
     BEVInputFrame frame;
     uint64_t frame_seq = 0;
@@ -1015,19 +993,18 @@ void BEVDashboard::renderLoop() {
     if (incoming_has_display_content) {
       const bool have_latched = latched_fcw_debug_snapshot_.has_value();
       const bool same_best_object =
-          have_latched &&
-          snapshotBestId(*latched_fcw_debug_snapshot_) ==
-              snapshotBestId(*frame.fcw_debug_context);
+          have_latched && snapshotBestId(*latched_fcw_debug_snapshot_) ==
+                              snapshotBestId(*frame.fcw_debug_context);
       const bool escalated_level =
           have_latched && frame.fcw_debug_context->has_best_candidate &&
           (!latched_fcw_debug_snapshot_->has_best_candidate ||
-           static_cast<int>(frame.fcw_debug_context->best_candidate.active_level) >
+           static_cast<int>(
+               frame.fcw_debug_context->best_candidate.active_level) >
                static_cast<int>(
                    latched_fcw_debug_snapshot_->best_candidate.active_level));
       const bool refresh_allowed =
-          !have_latched ||
-          (now_ns - latched_fcw_debug_last_update_ns_) >=
-              kPanelSnapshotMinRefreshNs;
+          !have_latched || (now_ns - latched_fcw_debug_last_update_ns_) >=
+                               kPanelSnapshotMinRefreshNs;
 
       if (same_best_object || escalated_level || refresh_allowed) {
         latched_fcw_debug_snapshot_ = frame.fcw_debug_context;
@@ -1042,8 +1019,7 @@ void BEVDashboard::renderLoop() {
                                       latched_fcw_debug_until_ns_ > now_ns;
     const float held_remaining_s =
         use_latched_snapshot
-            ? static_cast<float>(latched_fcw_debug_until_ns_ - now_ns) /
-                  1.0e9f
+            ? static_cast<float>(latched_fcw_debug_until_ns_ - now_ns) / 1.0e9f
             : 0.0f;
 
     bool left_bsd = false;
@@ -1332,15 +1308,16 @@ void BEVDashboard::renderLoop() {
         latest_camera_source_.count, latest_camera_source_.timestamp_ns,
         latest_camera_source_.healthy, latest_radar_source_.count,
         latest_radar_source_.timestamp_ns, latest_radar_source_.healthy,
-        latest_ego_debug_snapshot_, static_cast<int>(frame.fused_objects.size()),
+        latest_ego_debug_snapshot_,
+        static_cast<int>(frame.fused_objects.size()),
         frame.fcw_alert_context.has_value(), now_ns);
 
     cv::Mat canvas;
     cv::hconcat(std::vector<cv::Mat>{world, panel}, canvas);
 
     cv::Mat display_canvas = canvas;
-    const double scale_x =
-        static_cast<double>(kDisplayMaxWidth) / static_cast<double>(canvas.cols);
+    const double scale_x = static_cast<double>(kDisplayMaxWidth) /
+                           static_cast<double>(canvas.cols);
     const double scale_y = static_cast<double>(kDisplayMaxHeight) /
                            static_cast<double>(canvas.rows);
     const double display_scale = std::min({1.0, scale_x, scale_y});
