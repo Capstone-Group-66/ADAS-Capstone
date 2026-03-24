@@ -691,9 +691,11 @@ void visualizationThread() {
     if (g_bev_dashboard && have_sensor_tick) {
       adas::BEVInputFrame bev_frame;
       if (got_camera_update) {
+        bev_frame.has_camera_batch = true;
         bev_frame.camera_batch = batch;
       }
       if (got_radar_update) {
+        bev_frame.has_radar_targets = true;
         bev_frame.radar_targets = radar;
       }
       bev_frame.fused_objects = fused;
@@ -708,6 +710,14 @@ void visualizationThread() {
         if (fcw_alert->object_id != UINT64_MAX) {
           bev_frame.fcw_focus_object_id = fcw_alert->object_id;
         }
+      }
+      if (g_fcw_monitor && g_sensor_fusion && g_ego_frame) {
+        adas::EgoDebugSnapshot ego_debug;
+        ego_debug.valid = g_ego_frame->previous_time_ns != 0;
+        ego_debug.ego_speed_mps = g_fcw_monitor->getEgoVelocity();
+        ego_debug.pitch_rad = g_sensor_fusion->getPitch();
+        ego_debug.timestamp_ns = g_ego_frame->previous_time_ns;
+        bev_frame.ego_debug_context = ego_debug;
       }
       bev_frame.now_ns = adas::Clock::now_ns();
       g_bev_dashboard->update(bev_frame);
