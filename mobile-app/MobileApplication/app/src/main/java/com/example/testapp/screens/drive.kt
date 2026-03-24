@@ -63,8 +63,10 @@ fun Drive(
     onDebugClear: () -> Unit,
 ) {
     val state by vehicleStatusViewModel.driveState.collectAsState()
+    val connectionStatus by vehicleStatusViewModel.connectionStatus.collectAsState()
     DriveContent(
         state = state,
+        bleConnected = connectionStatus.isConnected,
         developerModeEnabled = developerModeEnabled,
         showBottomBar = showBottomBar,
         onUserInteraction = onUserInteraction,
@@ -76,6 +78,7 @@ fun Drive(
 @Composable
 fun DriveContent(
     state: UpdateUIstate,
+    bleConnected: Boolean,
     developerModeEnabled: Boolean,
     showBottomBar: Boolean,
     onUserInteraction: () -> Unit,
@@ -159,7 +162,7 @@ fun DriveContent(
         StatusRow(
             rearRcwOk = state.rearRcwOk,
             radarOk = state.radarOk,
-            bleConnected = state.bleConnected,
+            bleConnected = bleConnected,
             frontCameraOk = state.frontCameraOk,
             modifier =
                 Modifier

@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.runningFold
 import kotlinx.coroutines.flow.stateIn
@@ -27,7 +28,7 @@ open class BleTickRepository(
 
     open val dashboardState: StateFlow<VehicleAlert> =
         merge(
-            blePackets.map { TickDecoder.decode(it) },
+            blePackets.mapNotNull { bytes -> runCatching { TickDecoder.decode(bytes) }.getOrNull() },
             debugFlow,
         ).runningFold(VehicleAlertReducer.initial()) { state, tick ->
             VehicleAlertReducer.reduce(state, tick) ?: state
