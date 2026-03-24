@@ -668,6 +668,7 @@ FCWMonitor::check(const std::vector<FusedObject> &objects,
   alert.object_class = best_alert.obj->object_class;
   alert.object_id = best_alert.obj->object_id;
   alert.timestamp_ns = current_time_ns;
+  alert.active_level = static_cast<uint8_t>(best_alert.active_level);
   alert.physics_triggered = best_alert.physics_contrib;
 
   if (g_verbose_mode.load()) {

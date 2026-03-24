@@ -1,8 +1,11 @@
 package com.example.testapp.model
 
+import com.example.testapp.BleConnectionStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
@@ -14,13 +17,13 @@ import kotlinx.coroutines.launch
 open class BleTickRepository(
     blePackets: Flow<ByteArray>,
     scope: CoroutineScope,
-    logs: StateFlow<List<String>>? = null,
-    connectionState: StateFlow<String>? = null,
+    logs: StateFlow<List<String>> = MutableStateFlow(emptyList()),
+    connectionStatus: StateFlow<BleConnectionStatus> = MutableStateFlow(BleConnectionStatus.disconnected()),
 ) {
-    private val debugFlow = kotlinx.coroutines.flow.MutableSharedFlow<TickPayload>()
+    private val debugFlow = MutableSharedFlow<TickPayload>()
 
-    val bleLogs: StateFlow<List<String>>? = logs
-    val bleConnectionState: StateFlow<String>? = connectionState
+    val bleLogs: StateFlow<List<String>> = logs
+    val bleConnectionStatus: StateFlow<BleConnectionStatus> = connectionStatus
 
     open val dashboardState: StateFlow<VehicleAlert> =
         merge(
@@ -57,8 +60,8 @@ open class BleTickRepository(
             TickPayload(
                 tickId = -2,
                 speed = 88,
-                healthMask = 7,
-                bsdMask = 3,
+                healthMask = 0,
+                bsdMask = 0,
                 alerts = listOf(alert),
             )
         debugFlow.emit(tick)
@@ -69,7 +72,7 @@ open class BleTickRepository(
             TickPayload(
                 tickId = -2,
                 speed = 50,
-                healthMask = 7,
+                healthMask = 0,
                 bsdMask = 0,
                 alerts = emptyList(),
             )

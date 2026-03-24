@@ -1,20 +1,16 @@
 package com.example.testapp.model
 
 object TickPayloadMapper {
-    fun healthFromMask(mask: Int): Pair<CameraHealth, RadarHealth> {
-        val frontCamBroken = mask.isBitSet(0)
-        val rearCamBroken = mask.isBitSet(1)
+    fun healthFromMask(mask: Int): SystemHealth {
+        val frontCameraBroken = mask.isBitSet(0)
+        val rearRcwBroken = mask.isBitSet(1)
         val radarBroken = mask.isBitSet(2)
 
-        val cameras =
-            CameraHealth(
-                frontOk = !frontCamBroken,
-                rearOk = !rearCamBroken,
-            )
-
-        val radar = RadarHealth(ok = !radarBroken)
-
-        return cameras to radar
+        return SystemHealth(
+            frontCameraOk = !frontCameraBroken,
+            rearRcwOk = !rearRcwBroken,
+            radarOk = !radarBroken,
+        )
     }
 
     fun bsdFromMask(mask: Int): BlindSpotStatus =

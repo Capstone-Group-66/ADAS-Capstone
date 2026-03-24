@@ -2,7 +2,6 @@ package com.example.testapp.model
 
 import android.annotation.SuppressLint
 import android.content.Context
-import android.location.Location
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
@@ -11,10 +10,8 @@ import com.google.android.gms.location.Priority
 
 class GpsTracker(
     context: Context,
-    private val onLocation: (Location) -> Unit,
-) {
-    private val client =
-        LocationServices.getFusedLocationProviderClient(context)
+) : LocationSource {
+    private val client = LocationServices.getFusedLocationProviderClient(context)
 
     private val request =
         LocationRequest.Builder(
@@ -22,19 +19,26 @@ class GpsTracker(
             1000L,
         ).build()
 
+    @Volatile
+    private var onFix: ((GpsData) -> Unit)? = null
+
     private val callback =
         object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
-                result.lastLocation?.let(onLocation)
+                result.lastLocation?.toGpsData()?.let { fix ->
+                    onFix?.invoke(fix)
+                }
             }
         }
 
     @SuppressLint("MissingPermission")
-    fun start() {
+    override fun start(onFix: (GpsData) -> Unit) {
+        this.onFix = onFix
         client.requestLocationUpdates(request, callback, null)
     }
 
-    fun stop() {
+    override fun stop() {
+        onFix = null
         client.removeLocationUpdates(callback)
     }
 }

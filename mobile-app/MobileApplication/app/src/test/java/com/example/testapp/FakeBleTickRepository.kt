@@ -10,9 +10,13 @@ import kotlinx.coroutines.flow.emptyFlow
 
 class FakeBleTickRepository(
     initial: VehicleAlert,
+    logs: StateFlow<List<String>> = MutableStateFlow(emptyList()),
+    connectionStatus: StateFlow<BleConnectionStatus> = MutableStateFlow(BleConnectionStatus.disconnected()),
 ) : BleTickRepository(
         blePackets = emptyFlow(),
         scope = CoroutineScope(Dispatchers.Unconfined),
+        logs = logs,
+        connectionStatus = connectionStatus,
     ) {
     private val stateFlow = MutableStateFlow(initial)
     override val dashboardState: StateFlow<VehicleAlert> = stateFlow

@@ -5,25 +5,22 @@ import java.util.UUID
 
 data class VehicleAlert(
     val id: String = UUID.randomUUID().toString(),
-    val cameras: CameraHealth,
-    val radar: RadarHealth,
+    val health: SystemHealth,
     val sonar: SonarColors,
     val telemetry: VehicleTelemetry,
     val detection: ObjectDetection,
     val bsd: BlindSpotStatus,
     val lastTickId: Int = -1,
     val timestampMs: Long = System.currentTimeMillis(),
-    val activeAlerts: List<com.example.testapp.model.AlertDto> = emptyList(),
+    val activeAlerts: List<AlertDto> = emptyList(),
     val fcwExpiry: Long = 0,
+    val fcwSeverity: Int? = null,
 )
 
-data class CameraHealth(
-    val frontOk: Boolean,
-    val rearOk: Boolean,
-)
-
-data class RadarHealth(
-    val ok: Boolean,
+data class SystemHealth(
+    val frontCameraOk: Boolean,
+    val rearRcwOk: Boolean,
+    val radarOk: Boolean,
 )
 
 data class VehicleTelemetry(

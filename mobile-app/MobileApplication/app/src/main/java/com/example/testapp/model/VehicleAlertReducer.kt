@@ -1,10 +1,19 @@
 package com.example.testapp.model
 
 object VehicleAlertReducer {
+    private const val FcwType = 0
+    private const val LdwType = 1
+    private const val RcwType = 2
+    private const val FcwLatchMs = 3000L
+
     fun initial(): VehicleAlert =
         VehicleAlert(
-            cameras = CameraHealth(frontOk = true, rearOk = true),
-            radar = RadarHealth(ok = true),
+            health =
+                SystemHealth(
+                    frontCameraOk = false,
+                    rearRcwOk = false,
+                    radarOk = false,
+                ),
             sonar =
                 SonarColors(
                     front = SonarColor.OFF,
@@ -27,64 +36,47 @@ object VehicleAlertReducer {
         prev: VehicleAlert,
         tick: TickPayload,
     ): VehicleAlert? {
-        // Strict ordering for remote ticks (tickId >= 0).
-        // Local heartbeats (-1) and Manual Triggers (-2) bypass check.
         if (tick.tickId >= 0 && tick.tickId <= prev.lastTickId) return null
 
-        val (cameras, radar) = TickPayloadMapper.healthFromMask(tick.healthMask)
+        val health = TickPayloadMapper.healthFromMask(tick.healthMask)
         val bsd = TickPayloadMapper.bsdFromMask(tick.bsdMask)
+        val filteredAlerts = tick.alerts.filterNot { it.type == LdwType }
 
-        // Latch Logic: Extend FCW expiry if FCW alert present
-        val hasIncomingFcw = tick.alerts.any { it.type == 0 }
+        val fcwAlert = filteredAlerts.firstOrNull { it.type == FcwType }
+        val hasIncomingRcw = filteredAlerts.any { it.type == RcwType }
         val now = System.currentTimeMillis()
-        val newFcwExpiry = if (hasIncomingFcw) now + 3000 else prev.fcwExpiry
-
-        // Determine active state based on Latch
-        val isLatched = now < newFcwExpiry
+        val newFcwExpiry = if (fcwAlert != null) now + FcwLatchMs else prev.fcwExpiry
+        val isFcwLatched = now < newFcwExpiry
+        val fcwSeverity = fcwAlert?.severity ?: prev.fcwSeverity
 
         val sonar =
-            if (isLatched) {
-                prev.sonar.copy(front = SonarColor.RED)
-            } else {
-                prev.sonar.copy(front = SonarColor.GREEN)
-            }
+            SonarColors(
+                front = if (isFcwLatched) SonarColor.RED else SonarColor.OFF,
+                rear = if (hasIncomingRcw) SonarColor.RED else SonarColor.OFF,
+                left = if (bsd.leftActive) SonarColor.YELLOW else SonarColor.OFF,
+                right = if (bsd.rightActive) SonarColor.YELLOW else SonarColor.OFF,
+            )
 
         val detection =
-            if (isLatched) {
-                val severity = tick.alerts.find { it.type == 0 }?.severity ?: 2
-                ObjectDetection.Car(confidence = severity * 33)
+            if (isFcwLatched) {
+                ObjectDetection.Car(confidence = ((fcwSeverity ?: 1).coerceAtLeast(1) * 33))
             } else {
                 ObjectDetection.None
             }
 
-        // Don't update lastTickId if it's a local event (< 0)
         val newLastTickId = if (tick.tickId >= 0) tick.tickId else prev.lastTickId
 
         return prev.copy(
-            cameras = cameras,
-            radar = radar,
+            health = health,
             bsd = bsd,
             telemetry = VehicleTelemetry(speedKmh = kotlin.math.abs(tick.speed).coerceIn(0, 300)),
             sonar = sonar,
             detection = detection,
-            activeAlerts = tick.alerts,
+            activeAlerts = filteredAlerts,
             lastTickId = newLastTickId,
             timestampMs = now,
             fcwExpiry = newFcwExpiry,
+            fcwSeverity = if (isFcwLatched) fcwSeverity else null,
         )
-    }
-
-    private fun mapAlertsToSonar(
-        prev: SonarColors,
-        alerts: List<com.example.testapp.model.AlertDto>,
-    ): SonarColors {
-        return prev // Deprecated by inline logic above
-    }
-
-    private fun mapAlertsToDetection(
-        prev: ObjectDetection,
-        alerts: List<com.example.testapp.model.AlertDto>,
-    ): ObjectDetection {
-        return prev // Deprecated by inline logic above
     }
 }

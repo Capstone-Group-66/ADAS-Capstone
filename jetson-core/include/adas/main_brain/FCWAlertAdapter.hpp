@@ -40,10 +40,10 @@ class FCWAlertAdapter {
         // Direction is front
         alert.direction = "front";
 
-        // Severity based on TTC
-        if (fcw.ttc_s < 1.0f) {
+        // Preserve Stage E FCW severity instead of re-inferring it from TTC.
+        if (fcw.active_level >= static_cast<uint8_t>(FCWMonitor::RiskLevel::Critical)) {
             alert.severity = Severity::Critical;
-        } else if (fcw.ttc_s < 2.0f) {
+        } else if (fcw.active_level >= static_cast<uint8_t>(FCWMonitor::RiskLevel::Warn)) {
             alert.severity = Severity::Warning;
         } else {
             alert.severity = Severity::Info;

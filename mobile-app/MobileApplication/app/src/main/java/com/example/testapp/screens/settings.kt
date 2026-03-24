@@ -118,7 +118,7 @@ fun Settings(viewModel: VehicleStatusViewModel) {
                     ) {
                         if (logs.isEmpty()) {
                             Text(
-                                text = "No BLE logs yet…",
+                                text = "No BLE logs yet...",
                                 color = TextSecondary.copy(alpha = 0.55f),
                                 fontSize = 12.sp,
                                 fontStyle = FontStyle.Italic,
@@ -131,7 +131,7 @@ fun Settings(viewModel: VehicleStatusViewModel) {
                                 items(logs) { log ->
                                     Row(verticalAlignment = Alignment.Top) {
                                         Text(
-                                            text = "›",
+                                            text = ">",
                                             color = AccentCyan.copy(alpha = 0.7f),
                                             fontSize = 12.sp,
                                             modifier = Modifier.padding(end = 6.dp),

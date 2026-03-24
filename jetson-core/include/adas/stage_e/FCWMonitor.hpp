@@ -21,12 +21,14 @@ struct FCWAlert {
     int object_class;       // Canonical ObjectClass value
     uint64_t object_id;     // Track ID for the triggering object
     uint64_t timestamp_ns;  // When alert was generated
+    uint8_t active_level;   // FCWMonitor::RiskLevel cast to uint8_t
     bool physics_triggered; // True if physics-based FCW triggered this alert
 
     FCWAlert()
         : ttc_s(0), range_m(0), velocity_mps(0),
           object_class(static_cast<int>(ObjectClass::Unknown)),
-          object_id(UINT64_MAX), timestamp_ns(0), physics_triggered(false) {}
+          object_id(UINT64_MAX), timestamp_ns(0), active_level(0),
+          physics_triggered(false) {}
 };
 
 /// FCW evaluation snapshot for BEV/debug visibility.

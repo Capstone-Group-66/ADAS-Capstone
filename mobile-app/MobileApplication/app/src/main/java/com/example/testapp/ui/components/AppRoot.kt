@@ -20,6 +20,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.compose.rememberNavController
+import com.example.testapp.BleConnectionStatus
 import com.example.testapp.model.BleTickRepository
 import com.example.testapp.ui.theme.AccentCyan
 import com.example.testapp.ui.theme.CardBackground
@@ -32,7 +33,7 @@ import kotlinx.coroutines.flow.StateFlow
 fun TestAppApp(
     repository: BleTickRepository,
     logs: StateFlow<List<String>>,
-    status: StateFlow<String>,
+    status: StateFlow<BleConnectionStatus>,
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
     val navController = rememberNavController()

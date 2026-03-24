@@ -515,6 +515,50 @@ adas::Alert buildRcwAlert(const adas::RcwState &state, uint64_t now_ns) {
   return alert;
 }
 
+int buildHealthMask() {
+  if (!g_ingest_manager) {
+    return 0;
+  }
+
+  const auto health = g_ingest_manager->getHealth();
+  const auto isHealthy = [&](adas::Mount mount, bool default_value) {
+    const auto it = health.sensor_health.find(mount);
+    return it == health.sensor_health.end() ? default_value : it->second;
+  };
+
+  const bool front_cam_ok = isHealthy(adas::Mount::FrontCam, true);
+  const bool rear_rcw_ok =
+      isHealthy(adas::Mount::IMU, true) &&
+      isHealthy(adas::Mount::RearCornerRadarL, true) &&
+      isHealthy(adas::Mount::RearCornerRadarR, true);
+  const bool front_radar_ok = isHealthy(adas::Mount::FrontRadar, true);
+
+  int mask = 0;
+  if (!front_cam_ok) {
+    mask |= (1 << 0);
+  }
+  if (!rear_rcw_ok) {
+    mask |= (1 << 1);
+  }
+  if (!front_radar_ok) {
+    mask |= (1 << 2);
+  }
+  return mask;
+}
+
+int buildBsdMask() {
+  int mask = 0;
+  if (g_bsd_receiver) {
+    if (g_bsd_receiver->getLeftBSDState()) {
+      mask |= (1 << 0);
+    }
+    if (g_bsd_receiver->getRightBSDState()) {
+      mask |= (1 << 1);
+    }
+  }
+  return mask;
+}
+
 // Stage E thread: fusion, alerting, BLE, metrics, and (optionally)
 // visualization
 void visualizationThread() {
@@ -645,6 +689,8 @@ void visualizationThread() {
         if (g_ego_frame) {
           speed_kmh = static_cast<int>(g_ego_frame->getSpeed_mps() * 3.6f);
         }
+        const int health_mask = buildHealthMask();
+        const int bsd_mask = buildBsdMask();
 
         if (fcw_alert.has_value()) {
           auto alert =
@@ -660,8 +706,8 @@ void visualizationThread() {
         uint16_t tickId =
             static_cast<uint16_t>(adas::Clock::now_ns() / 50'000'000);
 
-        auto payload = adas::encodeTickPayloadToCbor(tickId, speed_kmh, 0, 0,
-                                                     alerts_to_send);
+        auto payload = adas::encodeTickPayloadToCbor(
+            tickId, speed_kmh, health_mask, bsd_mask, alerts_to_send);
 
         auto frames = adas::fragmentPayload(tickId, payload, 185);
         for (const auto &frame : frames) {

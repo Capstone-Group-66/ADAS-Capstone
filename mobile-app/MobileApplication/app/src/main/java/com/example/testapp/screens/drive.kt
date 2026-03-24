@@ -1,11 +1,18 @@
 package com.example.testapp.screens
 
-import androidx.annotation.DrawableRes
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -31,20 +38,16 @@ import com.example.testapp.UpdateUIstate
 import com.example.testapp.model.SonarColor
 import com.example.testapp.viewmodel.VehicleStatusViewModel
 
-// ── Palette (mirrors Home.kt / theme) ────────────────────────────────────────
 private val Charcoal = Color(0xFF1C1E22)
 private val CardBackground = Color(0xFF252830)
-private val CharcoalMid = Color(0xFF23262B)
 private val DividerColor = Color(0xFF3A3F47)
 private val AccentCyan = Color(0xFF00D4FF)
-private val AccentCyanDim = Color(0xFF0099BB)
 private val TextPrimary = Color(0xFFECEFF4)
 private val TextSecondary = Color(0xFF8A9BB0)
 private val StatusGreen = Color(0xFF00E676)
 private val StatusRed = Color(0xFFFF5252)
 private val StatusAmber = Color(0xFFFFB300)
 
-// ── Entry ─────────────────────────────────────────────────────────────────────
 @Composable
 fun Drive(
     vehicleStatusViewModel: VehicleStatusViewModel,
@@ -61,62 +64,41 @@ fun DriveContent(
     onDebugTrigger: () -> Unit,
     onDebugClear: () -> Unit,
 ) {
-    val laneActive = laneWarningActive(expiry = state.fcwExpiry, timestamp = state.timestamp)
-
     Box(
         modifier =
             Modifier
                 .fillMaxSize()
                 .background(Charcoal)
                 .drawBehind {
-                    // Dot-grid texture (matches Home)
                     val dotColor = Color(0x18FFFFFF)
                     val spacing = 28.dp.toPx()
-                    val r = 1.2.dp.toPx()
+                    val radius = 1.2.dp.toPx()
                     var x = spacing
                     while (x < size.width) {
                         var y = spacing
                         while (y < size.height) {
-                            drawCircle(color = dotColor, radius = r, center = Offset(x, y))
+                            drawCircle(color = dotColor, radius = radius, center = Offset(x, y))
                             y += spacing
                         }
                         x += spacing
                     }
                 },
     ) {
-        // ── Car + sensor overlays (all original, untouched) ───────────────────
         CenteredCar()
-        FrontDetection(state.sonarValue)
-        RearDetection(state.sonarValue)
+        FrontDetection(state.frontAlertColor)
+        RearDetection(state.rearAlertColor)
         WarningOverlay(state)
-        BsdLeft(state.sonarValue)
-        BsdRight(state.sonarValue)
+        BsdLeft(state.leftBlindspotValue)
+        BsdRight(state.rightBlindspotValue)
 
-        Box(modifier = Modifier.fillMaxSize()) {
-            LaneDepartureDetection(
-                count = 9,
-                modifier = Modifier.offset(x = 85.dp, y = 100.dp),
-                lane = R.drawable.ic_right_lane,
-                detectionLR = laneActive,
-            )
-            LaneDepartureDetection(
-                count = 9,
-                modifier = Modifier.offset(x = 270.dp, y = 100.dp),
-                lane = R.drawable.ic_right_lane,
-                detectionLR = laneActive,
-            )
-        }
-
-        // ── Speed chip (top-end) ──────────────────────────────────────────────
         SpeedDisplay(
-            speedText = "72 km/h",
+            speedText = "${state.speedKmh} km/h",
             modifier =
                 Modifier
                     .align(Alignment.TopEnd)
                     .padding(top = 20.dp, end = 16.dp),
         )
 
-        // ── Debug controls (top-start) ────────────────────────────────────────
         Row(
             modifier =
                 Modifier
@@ -128,12 +110,11 @@ fun DriveContent(
             DebugButton(label = "CLEAR", onClick = onDebugClear, tint = AccentCyan)
         }
 
-        // ── Status bar (bottom) ───────────────────────────────────────────────
         StatusRow(
-            s1 = state.status1,
-            s2 = state.status2,
-            s3 = state.status3,
-            s4 = state.status4,
+            rearRcwOk = state.rearRcwOk,
+            radarOk = state.radarOk,
+            bleConnected = state.bleConnected,
+            frontCameraOk = state.frontCameraOk,
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -142,7 +123,6 @@ fun DriveContent(
     }
 }
 
-// ── Debug button styled to palette ───────────────────────────────────────────
 @Composable
 private fun DebugButton(
     label: String,
@@ -156,7 +136,7 @@ private fun DebugButton(
                 containerColor = tint.copy(alpha = 0.12f),
                 contentColor = tint,
             ),
-        border = androidx.compose.foundation.BorderStroke(1.dp, tint.copy(alpha = 0.4f)),
+        border = BorderStroke(1.dp, tint.copy(alpha = 0.4f)),
         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
         shape = RoundedCornerShape(7.dp),
     ) {
@@ -164,7 +144,6 @@ private fun DebugButton(
     }
 }
 
-// ── Warning overlay (original logic, themed colours) ─────────────────────────
 @Composable
 fun WarningOverlay(state: UpdateUIstate) {
     val startTime = state.fcwExpiry - 3000
@@ -208,13 +187,12 @@ fun WarningOverlay(state: UpdateUIstate) {
     }
 }
 
-// ── Status bar ────────────────────────────────────────────────────────────────
 @Composable
 fun StatusRow(
-    s1: Boolean,
-    s2: Boolean,
-    s3: Boolean,
-    s4: Boolean,
+    rearRcwOk: Boolean,
+    radarOk: Boolean,
+    bleConnected: Boolean,
+    frontCameraOk: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -228,10 +206,10 @@ fun StatusRow(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        StatusItem("Rear Cam", s1)
-        StatusItem("Radar", s2)
-        StatusItem("Blindspot", s3)
-        StatusItem("Front Cam", s4)
+        StatusItem("Rear RCW", rearRcwOk)
+        StatusItem("Radar", radarOk)
+        StatusItem("BLE Link", bleConnected)
+        StatusItem("Front Cam", frontCameraOk)
     }
 }
 
@@ -244,33 +222,20 @@ fun StatusItem(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
-        // Dot with subtle glow via drawBehind
         Box(
             modifier =
                 Modifier
                     .size(9.dp)
                     .drawBehind {
-                        val c = if (isGood) StatusGreen else StatusRed
-                        drawCircle(color = c.copy(alpha = 0.35f), radius = size.minDimension)
-                        drawCircle(color = c, radius = size.minDimension / 2f)
+                        val color = if (isGood) StatusGreen else StatusRed
+                        drawCircle(color = color.copy(alpha = 0.35f), radius = size.minDimension)
+                        drawCircle(color = color, radius = size.minDimension / 2f)
                     },
         )
         Text(text = label, fontSize = 11.sp, color = TextSecondary, fontWeight = FontWeight.Medium)
     }
 }
 
-// Kept for backwards compat but StatusItem handles badge rendering now
-@Composable
-fun StatusBadge(isGood: Boolean) {
-    Box(
-        modifier =
-            Modifier
-                .size(10.dp)
-                .background(if (isGood) StatusGreen else StatusRed, CircleShape),
-    )
-}
-
-// ── Speed display ─────────────────────────────────────────────────────────────
 @Composable
 fun SpeedDisplay(
     speedText: String,
@@ -302,7 +267,6 @@ fun SpeedDisplay(
     }
 }
 
-// ── All original sensor/lane composables — untouched ─────────────────────────
 @Composable
 fun CenteredCar() {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -319,7 +283,7 @@ fun FrontDetection(detectionValue: SonarColor) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Image(
             painter = painterResource(R.drawable.ic_detection_re),
-            contentDescription = "detection",
+            contentDescription = "Front detection",
             colorFilter = ColorFilter.tint(detectionValue.color),
             modifier = Modifier.offset(y = -130.dp).size(200.dp).rotate(-90f),
         )
@@ -331,7 +295,7 @@ fun RearDetection(detectionValue: SonarColor) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Image(
             painter = painterResource(R.drawable.ic_rear_detection),
-            contentDescription = "detection",
+            contentDescription = "Rear detection",
             colorFilter = ColorFilter.tint(detectionValue.color),
             modifier = Modifier.offset(x = -5.dp, y = 270.dp).size(200.dp).rotate(-272f),
         )
@@ -360,32 +324,4 @@ fun BsdRight(detectionValue: SonarColor) {
             modifier = Modifier.size(150.dp).offset(x = 110.dp, y = 160.dp).rotate(45f),
         )
     }
-}
-
-@Composable
-fun LaneDepartureDetection(
-    count: Int,
-    modifier: Modifier = Modifier,
-    @DrawableRes lane: Int,
-    detectionLR: Int,
-) {
-    val tintColor = if (detectionLR == 1) StatusRed else Color.Transparent
-    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(30.dp)) {
-        repeat(count) {
-            Image(
-                painter = painterResource(lane),
-                contentDescription = null,
-                colorFilter = ColorFilter.tint(tintColor),
-                modifier = Modifier.size(50.dp).rotate(90f),
-            )
-        }
-    }
-}
-
-fun laneWarningActive(
-    expiry: Long,
-    timestamp: Long,
-): Int {
-    val elapsed = timestamp - (expiry - 3000)
-    return if (timestamp < expiry && elapsed < 2000) 1 else 0
 }

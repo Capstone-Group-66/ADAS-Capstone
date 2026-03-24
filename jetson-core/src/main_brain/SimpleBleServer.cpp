@@ -175,7 +175,7 @@ public:
         float speed = 0;
         uint64_t ts = 0;
         if (parseGpsJson(buf, speed, ts)) {
-          std::cout << "[BLE] GPS received: speed_mps=" << speed << "\n";
+          std::cout << "[GPS] speed_mps=" << speed << " ts_ms=" << ts << "\n";
           cb(speed, ts);
         }
       }

@@ -1,4 +1,5 @@
 package com.example.testapp.nav
+
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -6,6 +7,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import com.example.testapp.BleConnectionStatus
 import com.example.testapp.model.BleTickRepository
 import com.example.testapp.screens.Drive
 import com.example.testapp.screens.Home
@@ -19,7 +21,7 @@ fun Navigation(
     navController: NavHostController,
     repository: BleTickRepository,
     logs: kotlinx.coroutines.flow.StateFlow<List<String>>,
-    status: kotlinx.coroutines.flow.StateFlow<String>,
+    status: kotlinx.coroutines.flow.StateFlow<BleConnectionStatus>,
 ) {
     val factory =
         remember {
@@ -35,7 +37,7 @@ fun Navigation(
         composable("home") {
             Home(logs, status)
         }
-        composable("drive") { backStackEntry ->
+        composable("drive") {
             val vm: VehicleStatusViewModel =
                 viewModel(factory = factory)
 
@@ -46,7 +48,7 @@ fun Navigation(
             )
         }
 
-        composable("settings") { backStackEntry ->
+        composable("settings") {
             val vm: VehicleStatusViewModel =
                 viewModel(factory = factory)
 

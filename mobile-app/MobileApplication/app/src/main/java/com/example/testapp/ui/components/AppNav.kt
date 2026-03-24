@@ -12,6 +12,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
+import com.example.testapp.BleConnectionStatus
 import com.example.testapp.model.BleTickRepository
 import com.example.testapp.nav.Navigation
 import com.example.testapp.ui.theme.Charcoal
@@ -22,7 +23,7 @@ fun AppNavigationUI(
     navController: NavHostController,
     repository: BleTickRepository,
     logs: StateFlow<List<String>>,
-    status: StateFlow<String>,
+    status: StateFlow<BleConnectionStatus>,
     currentDestination: AppDestinations,
     onDestinationChange: (AppDestinations) -> Unit,
     navColors: NavigationSuiteColors,

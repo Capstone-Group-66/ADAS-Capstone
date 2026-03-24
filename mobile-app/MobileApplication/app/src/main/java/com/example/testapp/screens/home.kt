@@ -1,16 +1,46 @@
 package com.example.testapp.screens
 
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.*
-import androidx.compose.foundation.layout.*
+import androidx.compose.animation.core.EaseInOutSine
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.BluetoothSearching
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Sensors
+import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.Terminal
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -18,19 +48,18 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.testapp.BleConnectionStatus
 import kotlinx.coroutines.flow.StateFlow
 
-// ── Colour Palette ────────────────────────────────────────────────────────────
 private val Charcoal = Color(0xFF1C1E22)
-private val CharcoalLight = Color(0xFF2A2D32)
-private val CharcoalMid = Color(0xFF23262B)
 private val AccentCyan = Color(0xFF00D4FF)
 private val AccentCyanDim = Color(0xFF0099BB)
-private val AccentAmber = Color(0xFFFFB300)
 private val TextPrimary = Color(0xFFECEFF4)
 private val TextSecondary = Color(0xFF8A9BB0)
 private val DividerColor = Color(0xFF3A3F47)
@@ -38,16 +67,13 @@ private val CardBackground = Color(0xFF252830)
 private val StatusGreen = Color(0xFF00E676)
 private val StatusRed = Color(0xFFFF5252)
 
-// ── Entry Point ───────────────────────────────────────────────────────────────
 @Composable
 fun Home(
     logs: StateFlow<List<String>>,
-    status: StateFlow<String>,
+    status: StateFlow<BleConnectionStatus>,
 ) {
     val logList by logs.collectAsState()
-    val connectionStatus by status.collectAsState()
-
-    val isConnected = connectionStatus.contains("connected", ignoreCase = true)
+    val bleStatus by status.collectAsState()
 
     Box(
         modifier =
@@ -55,7 +81,6 @@ fun Home(
                 .fillMaxSize()
                 .background(Charcoal),
     ) {
-        // Subtle grid-line background texture
         GridBackground()
 
         Column(
@@ -66,25 +91,17 @@ fun Home(
                     .padding(horizontal = 20.dp, vertical = 24.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            // ── Title ─────────────────────────────────────────────────────────
             TitleSection()
-
-            // ── How To Use ────────────────────────────────────────────────────
             HowToUseSection()
-
-            // ── Status ────────────────────────────────────────────────────────
             StatusSection(
-                connectionStatus = connectionStatus,
-                isConnected = isConnected,
+                connectionStatus = bleStatus,
                 logList = logList,
             )
-
             Spacer(modifier = Modifier.height(8.dp))
         }
     }
 }
 
-// ── Subtle dot-grid background ────────────────────────────────────────────────
 @Composable
 private fun GridBackground() {
     Box(
@@ -104,7 +121,6 @@ private fun GridBackground() {
                         }
                         x += spacing
                     }
-                    // Subtle top cyan glow strip
                     drawLine(
                         brush =
                             Brush.horizontalGradient(
@@ -118,24 +134,19 @@ private fun GridBackground() {
     )
 }
 
-// ── Title Section ─────────────────────────────────────────────────────────────
 @Composable
 private fun TitleSection() {
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Cyan accent line above title
         Box(
             modifier =
                 Modifier
                     .width(48.dp)
                     .height(3.dp)
                     .background(
-                        brush =
-                            Brush.horizontalGradient(
-                                listOf(AccentCyanDim, AccentCyan, AccentCyanDim),
-                            ),
+                        brush = Brush.horizontalGradient(listOf(AccentCyanDim, AccentCyan, AccentCyanDim)),
                         shape = RoundedCornerShape(2.dp),
                     ),
         )
@@ -159,7 +170,6 @@ private fun TitleSection() {
             letterSpacing = 0.3.sp,
         )
         Spacer(modifier = Modifier.height(10.dp))
-        // Decorative divider
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
@@ -186,7 +196,6 @@ private fun TitleSection() {
     }
 }
 
-// ── How To Use Section ────────────────────────────────────────────────────────
 @Composable
 private fun HowToUseSection() {
     SectionCard(
@@ -196,7 +205,7 @@ private fun HowToUseSection() {
         val steps =
             listOf(
                 Triple(
-                    Icons.Default.BluetoothSearching,
+                    Icons.AutoMirrored.Filled.BluetoothSearching,
                     "Connect via BLE",
                     "Enable Bluetooth on your device and tap Connect to pair with the ADAS hardware module.",
                 ),
@@ -208,7 +217,8 @@ private fun HowToUseSection() {
                 Triple(
                     Icons.Default.Speed,
                     "Begin Driving",
-                    "Once connected, the system will automatically begin monitoring speed, proximity, and lane data in real time.",
+                    "Once connected, the system will automatically begin monitoring speed, " +
+                        "forward collision, rear collision, and blind spot activity in real time.",
                 ),
                 Triple(
                     Icons.Default.NotificationsActive,
@@ -223,7 +233,6 @@ private fun HowToUseSection() {
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.Top,
                 ) {
-                    // Step number badge
                     Box(
                         contentAlignment = Alignment.Center,
                         modifier =
@@ -273,18 +282,17 @@ private fun HowToUseSection() {
     }
 }
 
-// ── Status Section ────────────────────────────────────────────────────────────
 @Composable
 private fun StatusSection(
-    connectionStatus: String,
-    isConnected: Boolean,
+    connectionStatus: BleConnectionStatus,
     logList: List<String>,
 ) {
+    val isConnected = connectionStatus.isConnected
+
     SectionCard(
         icon = Icons.Default.Wifi,
         title = "SYSTEM STATUS",
     ) {
-        // Connection status indicator
         Row(
             modifier =
                 Modifier
@@ -313,13 +321,13 @@ private fun StatusSection(
             Spacer(modifier = Modifier.width(10.dp))
             Column {
                 Text(
-                    text = if (isConnected) "Connected" else "Disconnected",
+                    text = if (isConnected) "Connected" else "Not Connected",
                     color = if (isConnected) StatusGreen else StatusRed,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    text = connectionStatus,
+                    text = connectionStatus.label,
                     color = TextSecondary,
                     fontSize = 11.sp,
                 )
@@ -328,7 +336,6 @@ private fun StatusSection(
 
         Spacer(modifier = Modifier.height(14.dp))
 
-        // BLE Log section
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 8.dp),
@@ -361,10 +368,10 @@ private fun StatusSection(
         ) {
             if (logList.isEmpty()) {
                 Text(
-                    text = "No events recorded yet…",
+                    text = "No events recorded yet...",
                     color = TextSecondary.copy(alpha = 0.5f),
                     fontSize = 12.sp,
-                    fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+                    fontStyle = FontStyle.Italic,
                     modifier = Modifier.align(Alignment.Center),
                 )
             } else {
@@ -374,7 +381,7 @@ private fun StatusSection(
                     items(logList) { log ->
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = "›",
+                                text = ">",
                                 color = AccentCyan.copy(alpha = 0.6f),
                                 fontSize = 12.sp,
                                 modifier = Modifier.padding(end = 6.dp),
@@ -384,7 +391,7 @@ private fun StatusSection(
                                 color = TextPrimary.copy(alpha = 0.85f),
                                 fontSize = 11.sp,
                                 lineHeight = 15.sp,
-                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                fontFamily = FontFamily.Monospace,
                             )
                         }
                     }
@@ -394,7 +401,6 @@ private fun StatusSection(
     }
 }
 
-// ── Pulsing dot animation ──────────────────────────────────────────────────────
 @Composable
 private fun PulsingDot(color: Color) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -416,7 +422,6 @@ private fun PulsingDot(color: Color) {
     )
 }
 
-// ── Reusable Section Card ─────────────────────────────────────────────────────
 @Composable
 private fun SectionCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
@@ -432,7 +437,6 @@ private fun SectionCard(
                 .border(1.dp, DividerColor, RoundedCornerShape(14.dp))
                 .padding(16.dp),
     ) {
-        // Card header
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(bottom = 14.dp),
@@ -460,7 +464,6 @@ private fun SectionCard(
                 letterSpacing = 2.sp,
             )
             Spacer(modifier = Modifier.weight(1f))
-            // Decorative right-side accent bar
             Box(
                 modifier =
                     Modifier

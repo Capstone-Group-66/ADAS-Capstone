@@ -7,7 +7,6 @@ import android.bluetooth.BluetoothGattCallback
 import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothProfile
-import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Build
@@ -96,8 +95,8 @@ class BleManager(
     private val _logFlow = MutableStateFlow<List<String>>(emptyList())
     val logFlow: StateFlow<List<String>> = _logFlow
 
-    private val _connectionState = MutableStateFlow("Disconnected")
-    val connectionState: StateFlow<String> = _connectionState
+    private val _connectionStatus = MutableStateFlow(BleConnectionStatus.disconnected())
+    val connectionStatus: StateFlow<BleConnectionStatus> = _connectionStatus
 
     // =======================================================
     // SECTION: ANDROID BLE STATE
@@ -122,6 +121,12 @@ class BleManager(
     private var isScanning = false
     private val SCAN_RETRY_DELAY_MS = 2000L
     private val SCAN_TIMEOUT_MS = 5000L
+    private val ASSEMBLY_TIMEOUT_MS = 1500L
+    private val MAX_FRAGMENTS_PER_TICK = 64
+    private val seenScanDevices = mutableSetOf<String>()
+
+    @Volatile
+    private var activeSession = false
 
     // =======================================================
     // SECTION: LOGGING HELPERS
@@ -185,16 +190,44 @@ class BleManager(
     )
 
     private var activeTick: InProgressTick? = null
+    private val assemblyTimeoutRunnable =
+        Runnable {
+            clearActiveTick("Dropping stale fragment assembly due to timeout")
+        }
 
     @RequiresApi(Build.VERSION_CODES.O)
     private fun handleIncomingFragment(data: ByteArray) {
         val header = BLEHeader.fromBytes(data) ?: return
         if (data.size <= 4) return
+        if (header.seqNo > header.seqMax) {
+            log("Dropping malformed fragment: seqNo=${header.seqNo} > seqMax=${header.seqMax}")
+            clearActiveTick("Clearing fragment assembly after malformed sequence")
+            return
+        }
+        if (header.seqMax + 1 > MAX_FRAGMENTS_PER_TICK) {
+            log("Dropping malformed fragment: seqMax=${header.seqMax} exceeds supported limit")
+            clearActiveTick("Clearing oversized fragment assembly")
+            return
+        }
 
         val slice = data.copyOfRange(4, data.size)
 
         // Reset assembly when tick changes (simple strategy)
-        if (activeTick == null || activeTick?.tickId != header.tickId) {
+        if (activeTick != null && activeTick?.tickId != header.tickId) {
+            clearActiveTick("Dropping incomplete tick ${activeTick?.tickId} due to new tick ${header.tickId}")
+        }
+
+        if (activeTick == null) {
+            activeTick =
+                InProgressTick(
+                    tickId = header.tickId,
+                    seqMax = header.seqMax,
+                )
+        }
+
+        val currentTick = activeTick ?: return
+        if (currentTick.seqMax != header.seqMax) {
+            clearActiveTick("Dropping tick ${currentTick.tickId} due to inconsistent seqMax")
             activeTick =
                 InProgressTick(
                     tickId = header.tickId,
@@ -203,6 +236,7 @@ class BleManager(
         }
 
         val tick = activeTick ?: return
+        resetAssemblyTimeout()
 
         if (!tick.fragments.containsKey(header.seqNo)) {
             tick.fragments[header.seqNo] = slice
@@ -214,8 +248,21 @@ class BleManager(
             if (full != null) {
                 onFullTickPayloadReceived(tick.tickId, full)
             }
-            activeTick = null
+            clearActiveTick()
         }
+    }
+
+    private fun resetAssemblyTimeout() {
+        handler.removeCallbacks(assemblyTimeoutRunnable)
+        handler.postDelayed(assemblyTimeoutRunnable, ASSEMBLY_TIMEOUT_MS)
+    }
+
+    private fun clearActiveTick(logMessage: String? = null) {
+        if (logMessage != null && activeTick != null) {
+            log(logMessage)
+        }
+        handler.removeCallbacks(assemblyTimeoutRunnable)
+        activeTick = null
     }
 
     private fun rebuildFullPayload(tick: InProgressTick): ByteArray? {
@@ -255,6 +302,10 @@ class BleManager(
         }
 
         _packetFlow.tryEmit(cborBuffer)
+    }
+
+    fun setConnectionStatus(status: BleConnectionStatus) {
+        _connectionStatus.value = status
     }
 
     // =======================================================
@@ -336,17 +387,29 @@ class BleManager(
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     fun initialize() {
+        if (activeSession && (isScanning || bluetoothGatt != null)) {
+            return
+        }
+        activeSession = true
         val bluetoothManager =
             context.getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
+        if (bluetoothAdapter == null || bluetoothAdapter?.isEnabled != true) {
+            setConnectionStatus(BleConnectionStatus.bleUnavailable())
+            return
+        }
         bluetoothLeScanner = bluetoothAdapter?.bluetoothLeScanner
+        if (bluetoothLeScanner == null) {
+            setConnectionStatus(BleConnectionStatus.bleUnavailable())
+            return
+        }
         scanForJetson()
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun connectToJetson(device: BluetoothDevice) {
         log("Connecting to ${device.address}...")
-        _connectionState.value = "Connecting..."
+        setConnectionStatus(BleConnectionStatus.connecting())
         bluetoothGatt =
             device.connectGatt(
                 context,
@@ -358,20 +421,38 @@ class BleManager(
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun disconnect() {
+        shutdown()
+    }
+
+    fun shutdown() {
+        activeSession = false
+        handler.removeCallbacksAndMessages(null)
+        seenScanDevices.clear()
+        if (isScanning) {
+            try {
+                bluetoothLeScanner?.stopScan(scanCallback)
+            } catch (_: SecurityException) {
+            } catch (_: Exception) {
+            }
+            isScanning = false
+        }
         try {
             bluetoothGatt?.disconnect()
+        } catch (_: SecurityException) {
         } catch (_: Exception) {
         }
         try {
             bluetoothGatt?.close()
+        } catch (_: SecurityException) {
         } catch (_: Exception) {
         }
         bluetoothGatt = null
         alertStreamChar = null
         commandChar = null
-        activeTick = null
+        clearActiveTick()
         clearTxQueue()
-        _connectionState.value = "Disconnected"
+        currentMtu = 23
+        setConnectionStatus(BleConnectionStatus.disconnected())
     }
 
     // =======================================================
@@ -380,9 +461,11 @@ class BleManager(
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
     private fun scanForJetson() {
-        if (bluetoothLeScanner == null) {
+        if (!activeSession) return
+
+        if (bluetoothLeScanner == null || bluetoothAdapter?.isEnabled != true) {
             log("Bluetooth not supported or disabled")
-            scheduleRetry()
+            setConnectionStatus(BleConnectionStatus.bleUnavailable())
             return
         }
 
@@ -391,24 +474,20 @@ class BleManager(
             return
         }
 
-        log("Starting scan for ${cfg.deviceName}...")
-        _connectionState.value = "Scanning..."
+        seenScanDevices.clear()
+        log("Starting loose scan for ${cfg.deviceName}...")
+        setConnectionStatus(BleConnectionStatus.scanning())
         isScanning = true
-
-        val filter =
-            ScanFilter.Builder()
-                .setServiceUuid(android.os.ParcelUuid(cfg.serviceUuid))
-                .build()
 
         val settings =
             ScanSettings.Builder()
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .build()
 
-        bluetoothLeScanner?.startScan(listOf(filter), settings, scanCallback)
+        bluetoothLeScanner?.startScan(null, settings, scanCallback)
 
         handler.postDelayed({
-            if (isScanning && bluetoothGatt == null) {
+            if (activeSession && isScanning && bluetoothGatt == null) {
                 log("Scan timeout, retrying...")
                 stopScanAndRetry()
             }
@@ -426,14 +505,15 @@ class BleManager(
     }
 
     private fun scheduleRetry() {
-        if (bluetoothGatt != null) return
-        _connectionState.value = "Retrying in ${SCAN_RETRY_DELAY_MS / 1000}s..."
+        if (!activeSession || bluetoothGatt != null) return
+        setConnectionStatus(BleConnectionStatus.retrying("Retrying in ${SCAN_RETRY_DELAY_MS / 1000}s..."))
         handler.postDelayed({
-            if (bluetoothGatt == null) {
+            if (activeSession && bluetoothGatt == null) {
                 try {
                     scanForJetson()
                 } catch (e: SecurityException) {
                     log("Permission error: ${e.message}")
+                    setConnectionStatus(BleConnectionStatus.permissionRequired("Bluetooth permission error"))
                 }
             }
         }, SCAN_RETRY_DELAY_MS)
@@ -446,33 +526,69 @@ class BleManager(
                 callbackType: Int,
                 result: android.bluetooth.le.ScanResult?,
             ) {
-                val device = result?.device ?: return
-                val name = device.name ?: "(no name)"
-                log("Found device: $name (${device.address})")
+                handleScanResult(result)
+            }
 
-                // Contracts: device name should be ADAS-Jetson
-                if (name != cfg.deviceName && cfg.deviceName.isNotBlank()) {
-                    log("Ignoring device because name mismatch (wanted=${cfg.deviceName})")
-                    return
-                }
-
-                if (bluetoothGatt == null) {
-                    try {
-                        bluetoothLeScanner?.stopScan(this)
-                    } catch (_: SecurityException) {
-                    }
-                    isScanning = false
-                    connectToJetson(device)
-                }
+            @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+            override fun onBatchScanResults(results: MutableList<android.bluetooth.le.ScanResult>?) {
+                results?.forEach { handleScanResult(it) }
             }
 
             override fun onScanFailed(errorCode: Int) {
                 log("Scan failed: $errorCode")
                 isScanning = false
-                _connectionState.value = "Scan Failed: $errorCode"
+                setConnectionStatus(BleConnectionStatus.error("Scan failed: $errorCode"))
                 scheduleRetry()
             }
         }
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
+    private fun handleScanResult(result: android.bluetooth.le.ScanResult?) {
+        val device = result?.device ?: return
+        val scanRecord = result.scanRecord
+        val advertisedName = scanRecord?.deviceName
+        val cachedName = device.name
+        val serviceUuids = scanRecord?.serviceUuids?.mapNotNull { it?.uuid }.orEmpty()
+        val hasServiceMatch = serviceUuids.any { it == cfg.serviceUuid }
+        val nameMatches =
+            listOfNotNull(advertisedName, cachedName)
+                .any { it == cfg.deviceName }
+
+        if (seenScanDevices.add(device.address)) {
+            val displayName = advertisedName ?: cachedName ?: "(no name)"
+            val serviceSummary =
+                if (serviceUuids.isEmpty()) {
+                    "(none)"
+                } else {
+                    serviceUuids.joinToString()
+                }
+            log(
+                "Scan hit: $displayName (${device.address}) " +
+                    "advName=${advertisedName ?: "(none)"} " +
+                    "cachedName=${cachedName ?: "(none)"} " +
+                    "serviceMatch=$hasServiceMatch " +
+                    "nameMatch=$nameMatches " +
+                    "uuids=$serviceSummary",
+            )
+        }
+
+        if (!hasServiceMatch && !nameMatches) {
+            return
+        }
+
+        if (bluetoothGatt == null) {
+            log(
+                "Connecting to candidate ${device.address} " +
+                    "(serviceMatch=$hasServiceMatch, nameMatch=$nameMatches)",
+            )
+            try {
+                bluetoothLeScanner?.stopScan(scanCallback)
+            } catch (_: SecurityException) {
+            }
+            isScanning = false
+            connectToJetson(device)
+        }
+    }
 
     // =======================================================
     // SECTION: GATT CALLBACK (CORE BLE STATE MACHINE)
@@ -488,7 +604,7 @@ class BleManager(
             ) {
                 if (newState == BluetoothProfile.STATE_CONNECTED) {
                     log("Connected to GATT server.")
-                    _connectionState.value = "Connected"
+                    setConnectionStatus(BleConnectionStatus.connected())
                     gatt?.discoverServices()
                 } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                     log("Disconnected from GATT server. status=$status")
@@ -498,15 +614,19 @@ class BleManager(
                     } catch (_: Exception) {
                     }
 
-                    _connectionState.value = "Disconnected"
                     bluetoothGatt = null
                     alertStreamChar = null
                     commandChar = null
-                    activeTick = null
+                    clearActiveTick()
                     clearTxQueue()
 
                     // Auto-reconnect
-                    scheduleRetry()
+                    if (activeSession) {
+                        setConnectionStatus(BleConnectionStatus.disconnected("Disconnected; retrying..."))
+                        scheduleRetry()
+                    } else {
+                        setConnectionStatus(BleConnectionStatus.disconnected())
+                    }
                 }
             }
 
@@ -517,6 +637,7 @@ class BleManager(
             ) {
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     log("Service discovery failed: $status")
+                    setConnectionStatus(BleConnectionStatus.error("Service discovery failed: $status"))
                     return
                 }
 
@@ -524,6 +645,7 @@ class BleManager(
                 val service = gatt?.getService(cfg.serviceUuid)
                 if (service == null) {
                     log("ADAS Service not found!")
+                    setConnectionStatus(BleConnectionStatus.error("ADAS service not found"))
                     return
                 }
 
@@ -567,8 +689,10 @@ class BleManager(
                 if (descriptor?.uuid == CCCD_UUID) {
                     if (status == BluetoothGatt.GATT_SUCCESS) {
                         log("Subscribed to AlertStream.")
+                        setConnectionStatus(BleConnectionStatus.connected("Connected and subscribed"))
                     } else {
                         log("Failed to subscribe (CCCD write): $status")
+                        setConnectionStatus(BleConnectionStatus.error("Notification subscribe failed: $status"))
                     }
                 }
             }
