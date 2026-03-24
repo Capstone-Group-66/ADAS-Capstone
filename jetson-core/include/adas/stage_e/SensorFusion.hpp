@@ -16,6 +16,24 @@
 
 namespace adas {
 
+enum class VelocitySource : uint8_t {
+  None = 0,
+  RadarSensor = 1,
+  DerivedRangeRate = 2,
+};
+
+inline const char *velocitySourceToString(VelocitySource source) {
+  switch (source) {
+  case VelocitySource::RadarSensor:
+    return "RADAR";
+  case VelocitySource::DerivedRangeRate:
+    return "RANGE";
+  case VelocitySource::None:
+  default:
+    return "NONE";
+  }
+}
+
 struct FusedObject {
   uint64_t object_id;
   int object_class; // Canonical ObjectClass value
@@ -44,6 +62,7 @@ struct FusedObject {
   uint32_t radar_age_ms;
   bool is_predicted_camera;
   bool is_aggressive_mode;
+  VelocitySource velocity_source;
 
   FusedObject()
       : object_id(UINT64_MAX),
@@ -54,7 +73,8 @@ struct FusedObject {
         fusion_quality(0.0f), speed_fresh(false), speed_age_ms(0),
         ttc_s(std::numeric_limits<float>::infinity()), sources(SRC_NONE),
         theta_rad(0.0f), camera_age_ms(0), radar_age_ms(0),
-        is_predicted_camera(false), is_aggressive_mode(false) {}
+        is_predicted_camera(false), is_aggressive_mode(false),
+        velocity_source(VelocitySource::None) {}
 };
 
 struct FusionConfig {
@@ -110,6 +130,16 @@ struct FusionConfig {
   float ekf_r_radar_vz = 0.55f;
   float ekf_r_cam_theta = 0.018f;
   float ekf_r_cam_z_weak = 30.0f; // weak consistency only
+
+  // Derived closing-speed safety channel from matched radar ranges.
+  uint32_t derived_speed_min_hits = 3;
+  uint32_t derived_speed_min_dt_ms = 10;
+  uint32_t derived_speed_max_dt_ms = 50;
+  uint32_t derived_speed_hold_ms = 120;
+  float derived_speed_max_plausible_mps = 35.0f;
+  float derived_speed_jump_base_m = 0.25f;
+  float derived_speed_jump_slope_mps = 30.0f;
+  float radar_speed_disagreement_gate_mps = 2.5f;
 
   // Fixed radar range tx offset used historically in this project.
   float radar_tx_m = 0.0127f;
@@ -173,6 +203,19 @@ private:
     bool speed_fresh = false;
     uint32_t speed_age_ms = 0;
     bool is_aggressive_mode = false;
+    float last_matched_range_m = 0.0f;
+    uint64_t last_matched_range_ns = 0;
+    float derived_closing_mps = 0.0f;
+    bool derived_closing_valid = false;
+    uint32_t derived_speed_age_ms = std::numeric_limits<uint32_t>::max();
+    uint64_t last_derived_speed_ns = 0;
+    float raw_radar_vel_mps = 0.0f;
+    bool raw_radar_speed_fresh = false;
+    VelocitySource velocity_source = VelocitySource::None;
+    std::array<float, 5> recent_derived_closing_mps{0.0f, 0.0f, 0.0f, 0.0f,
+                                                    0.0f};
+    uint8_t recent_derived_closing_count = 0;
+    uint8_t recent_derived_closing_next = 0;
 
     uint64_t last_predict_ns = 0;
     uint64_t last_camera_ns = 0;
@@ -202,6 +245,12 @@ private:
   void updateTrackCamera(TrackState &track, float theta_rad, float z_cam_m);
   void updateTrackRadar(TrackState &track, float z_rad_m, bool has_speed,
                         float v_rad_mps);
+  void resetDerivedClosing(TrackState &track);
+  void pushDerivedClosingSample(TrackState &track, float closing_mps,
+                                uint64_t now_ns);
+  void updateDerivedClosingFromMatchedRange(TrackState &track,
+                                            float matched_range_m,
+                                            uint64_t now_ns);
   void maybeCleanupTracks(uint64_t now_ns);
 
   FusionConfig config_;

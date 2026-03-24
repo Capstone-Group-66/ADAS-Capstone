@@ -11,6 +11,15 @@ int main() {
                     cfg.stage_e_fusion.camera_hold_ms > 0 &&
                     cfg.stage_e_fusion.radar_hold_ms > 0 &&
                     cfg.stage_e_fusion.track_cleanup_ms > 0 &&
+                    cfg.stage_e_fusion.derived_speed_min_hits >= 1 &&
+                    cfg.stage_e_fusion.derived_speed_min_dt_ms >= 1 &&
+                    cfg.stage_e_fusion.derived_speed_max_dt_ms >=
+                        cfg.stage_e_fusion.derived_speed_min_dt_ms &&
+                    cfg.stage_e_fusion.derived_speed_hold_ms >= 1 &&
+                    cfg.stage_e_fusion.derived_speed_max_plausible_mps > 0.0f &&
+                    cfg.stage_e_fusion.derived_speed_jump_base_m >= 0.0f &&
+                    cfg.stage_e_fusion.derived_speed_jump_slope_mps >= 0.0f &&
+                    cfg.stage_e_fusion.radar_speed_disagreement_gate_mps >= 0.0f &&
                     cfg.stage_e_fusion.gps_correction_gain >= 0.0f &&
                     cfg.stage_e_fusion.gps_correction_gain <= 1.0f;
     if (!ok) {

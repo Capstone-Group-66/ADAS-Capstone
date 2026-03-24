@@ -904,6 +904,7 @@ void BEVDashboard::applyFrameUpdate(const BEVInputFrame &frame) {
     track.speed_fresh = obj.speed_fresh;
     track.speed_age_ms = obj.speed_age_ms;
     track.radial_vel_mps = obj.radial_vel_mps;
+    track.velocity_source = obj.velocity_source;
     track.has_cam_est_range = obj.z_cam_m > 0.1f;
     track.cam_est_range_m = obj.z_cam_m;
     track.dz_cam_radar_m = -1.0f;
@@ -1262,6 +1263,7 @@ void BEVDashboard::renderLoop() {
       dbg2 << "age c:" << ageToText(track.camera_age_ms)
            << " r:" << ageToText(track.radar_age_ms)
            << " sp:" << ageToText(track.speed_age_ms)
+           << " VS:" << adas::velocitySourceToString(track.velocity_source)
            << " P:" << (track.is_predicted_camera ? "1" : "0")
            << " AG:" << (track.is_aggressive_mode ? "1" : "0");
       cv::putText(world, dbg2.str(), cv::Point(anchor_x - 40, anchor_y - 7),

@@ -184,6 +184,25 @@ Config ConfigLoader::loadConfig(const std::string &path) {
         config.stage_e_fusion.ekf_r_cam_theta = std::stof(value);
       } else if (key == "ekf_r_cam_z_weak") {
         config.stage_e_fusion.ekf_r_cam_z_weak = std::stof(value);
+      } else if (key == "derived_speed_min_hits") {
+        config.stage_e_fusion.derived_speed_min_hits = std::stoi(value);
+      } else if (key == "derived_speed_min_dt_ms") {
+        config.stage_e_fusion.derived_speed_min_dt_ms = std::stoi(value);
+      } else if (key == "derived_speed_max_dt_ms") {
+        config.stage_e_fusion.derived_speed_max_dt_ms = std::stoi(value);
+      } else if (key == "derived_speed_hold_ms") {
+        config.stage_e_fusion.derived_speed_hold_ms = std::stoi(value);
+      } else if (key == "derived_speed_max_plausible_mps") {
+        config.stage_e_fusion.derived_speed_max_plausible_mps =
+            std::stof(value);
+      } else if (key == "derived_speed_jump_base_m") {
+        config.stage_e_fusion.derived_speed_jump_base_m = std::stof(value);
+      } else if (key == "derived_speed_jump_slope_mps") {
+        config.stage_e_fusion.derived_speed_jump_slope_mps =
+            std::stof(value);
+      } else if (key == "radar_speed_disagreement_gate_mps") {
+        config.stage_e_fusion.radar_speed_disagreement_gate_mps =
+            std::stof(value);
       }
     }
     // IMU config
@@ -346,6 +365,54 @@ void ConfigLoader::saveConfig(const std::string &path, const Config &config) {
       }
       if (key == "ekf_r_cam_z_weak") {
         emitFloat("ekf_r_cam_z_weak", config.stage_e_fusion.ekf_r_cam_z_weak);
+        continue;
+      }
+      if (key == "derived_speed_min_hits") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "derived_speed_min_hits: "
+           << config.stage_e_fusion.derived_speed_min_hits << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "derived_speed_min_dt_ms") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "derived_speed_min_dt_ms: "
+           << config.stage_e_fusion.derived_speed_min_dt_ms << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "derived_speed_max_dt_ms") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "derived_speed_max_dt_ms: "
+           << config.stage_e_fusion.derived_speed_max_dt_ms << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "derived_speed_hold_ms") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "derived_speed_hold_ms: "
+           << config.stage_e_fusion.derived_speed_hold_ms << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "derived_speed_max_plausible_mps") {
+        emitFloat("derived_speed_max_plausible_mps",
+                  config.stage_e_fusion.derived_speed_max_plausible_mps);
+        continue;
+      }
+      if (key == "derived_speed_jump_base_m") {
+        emitFloat("derived_speed_jump_base_m",
+                  config.stage_e_fusion.derived_speed_jump_base_m);
+        continue;
+      }
+      if (key == "derived_speed_jump_slope_mps") {
+        emitFloat("derived_speed_jump_slope_mps",
+                  config.stage_e_fusion.derived_speed_jump_slope_mps);
+        continue;
+      }
+      if (key == "radar_speed_disagreement_gate_mps") {
+        emitFloat("radar_speed_disagreement_gate_mps",
+                  config.stage_e_fusion.radar_speed_disagreement_gate_mps);
         continue;
       }
     }

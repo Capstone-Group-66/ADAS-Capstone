@@ -96,6 +96,14 @@ struct StageEFusionConfig {
     float ekf_r_radar_vz = 0.55f;
     float ekf_r_cam_theta = 0.018f;
     float ekf_r_cam_z_weak = 30.0f;
+    int derived_speed_min_hits = 3;
+    int derived_speed_min_dt_ms = 10;
+    int derived_speed_max_dt_ms = 50;
+    int derived_speed_hold_ms = 120;
+    float derived_speed_max_plausible_mps = 35.0f;
+    float derived_speed_jump_base_m = 0.25f;
+    float derived_speed_jump_slope_mps = 30.0f;
+    float radar_speed_disagreement_gate_mps = 2.5f;
 };
 
 /// Complete pipeline configuration
