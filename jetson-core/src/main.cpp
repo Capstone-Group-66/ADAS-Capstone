@@ -541,10 +541,9 @@ int buildHealthMask() {
   };
 
   const bool front_cam_ok = isHealthy(adas::Mount::FrontCam, true);
-  const bool rear_rcw_ok =
-      isHealthy(adas::Mount::IMU, true) &&
-      isHealthy(adas::Mount::RearCornerRadarL, true) &&
-      isHealthy(adas::Mount::RearCornerRadarR, true);
+  const bool rear_rcw_ok = isHealthy(adas::Mount::IMU, true) &&
+                           isHealthy(adas::Mount::RearCornerRadarL, true) &&
+                           isHealthy(adas::Mount::RearCornerRadarR, true);
   const bool front_radar_ok = isHealthy(adas::Mount::FrontRadar, true);
 
   int mask = 0;
@@ -1993,8 +1992,7 @@ int main(int argc, char **argv) {
         }
 
         std::string validation_error;
-        if (!validateGpsCorrectionGain(gps_correction_gain,
-                                       validation_error)) {
+        if (!validateGpsCorrectionGain(gps_correction_gain, validation_error)) {
           std::cout << "[Main] Invalid GPS correction gain: "
                     << validation_error << "\n";
           break;
@@ -2004,8 +2002,8 @@ int main(int argc, char **argv) {
         try {
           adas::ConfigLoader::saveConfig(config_path, config);
         } catch (const std::exception &e) {
-          std::cerr << "[Main] Failed to save GPS correction gain: "
-                    << e.what() << "\n";
+          std::cerr << "[Main] Failed to save GPS correction gain: " << e.what()
+                    << "\n";
           break;
         }
 

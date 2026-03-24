@@ -233,9 +233,9 @@ void EgoFrame::correctWithGpsSpeed(float gps_speed_mps) {
   cached_vy_ = kf.statePost.at<float>(3, 0);
 
   std::cout << "[EgoFrame] GPS correction: IMU=" << imu_speed
-            << " GPS=" << gps_speed_mps << " gain="
-            << gps_correction_gain_.load(std::memory_order_relaxed) << " -> "
-            << getSpeed_mps() << " m/s\n";
+            << " GPS=" << gps_speed_mps
+            << " gain=" << gps_correction_gain_.load(std::memory_order_relaxed)
+            << " -> " << getSpeed_mps() << " m/s\n";
 }
 
 void EgoFrame::setGpsCorrectionGain(float gain) {
