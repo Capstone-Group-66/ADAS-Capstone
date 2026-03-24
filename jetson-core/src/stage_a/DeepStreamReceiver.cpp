@@ -47,6 +47,9 @@ struct RoadSignSummary {
 
 class RoadSignLogAccumulator {
 public:
+  using SummaryMap = std::unordered_map<std::string, RoadSignSummary>;
+  using SummaryConstIterator = SummaryMap::const_iterator;
+
   void observe(const Det &det, uint64_t now_ns) {
     if (!active_) {
       active_ = true;
@@ -90,7 +93,7 @@ public:
   }
 
 private:
-  auto chooseDominantSummary() const {
+  SummaryConstIterator chooseDominantSummary() const {
     auto best_it = summaries_.end();
     for (auto it = summaries_.begin(); it != summaries_.end(); ++it) {
       if (best_it == summaries_.end() || it->second.count > best_it->second.count ||
@@ -104,7 +107,7 @@ private:
 
   bool active_ = false;
   uint64_t window_start_ns_ = 0;
-  std::unordered_map<std::string, RoadSignSummary> summaries_;
+  SummaryMap summaries_;
 };
 
 RoadSignLogAccumulator makeRoadSignLogAccumulator() {
