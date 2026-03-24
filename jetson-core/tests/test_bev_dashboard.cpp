@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <string>
 
 namespace {
 
@@ -92,6 +93,57 @@ int main() {
       ++passed;
     } else {
       std::cout << "[FAIL] track keep/purge state machine\n";
+      ++failed;
+    }
+  }
+
+  // Flow mapping: rejected candidates branch at the correct gate stage.
+  {
+    const bool ok =
+        adas::bev::dropReasonToFlowStage(adas::FCWDropReason::CamAge) ==
+            adas::bev::FlowStage::CameraFresh &&
+        adas::bev::dropReasonToFlowStage(adas::FCWDropReason::NoRadar) ==
+            adas::bev::FlowStage::HasRadar &&
+        adas::bev::dropReasonToFlowStage(adas::FCWDropReason::OutOfPath) ==
+            adas::bev::FlowStage::InPath;
+    if (ok) {
+      std::cout << "[PASS] flow stage drop-reason mapping\n";
+      ++passed;
+    } else {
+      std::cout << "[FAIL] flow stage drop-reason mapping\n";
+      ++failed;
+    }
+  }
+
+  // Flow mapping: runner-up branches at risk or state depending on why it lost.
+  {
+    adas::FCWDebugCandidate best;
+    best.valid = true;
+    best.object_id = 42;
+    best.active_level = 2;
+    best.desired_level = 2;
+    best.risk_score = 0.70f;
+    best.base_risk_score = 0.62f;
+
+    adas::FCWDebugCandidate lower_risk = best;
+    lower_risk.object_id = 17;
+    lower_risk.risk_score = 0.51f;
+
+    adas::FCWDebugCandidate lower_level = best;
+    lower_level.object_id = 8;
+    lower_level.active_level = 1;
+    lower_level.desired_level = 1;
+
+    const bool ok =
+        adas::bev::runnerUpToFlowStage(best, lower_risk) ==
+            adas::bev::FlowStage::RiskMix &&
+        adas::bev::runnerUpToFlowStage(best, lower_level) ==
+            adas::bev::FlowStage::StateMachine;
+    if (ok) {
+      std::cout << "[PASS] flow stage runner-up mapping\n";
+      ++passed;
+    } else {
+      std::cout << "[FAIL] flow stage runner-up mapping\n";
       ++failed;
     }
   }

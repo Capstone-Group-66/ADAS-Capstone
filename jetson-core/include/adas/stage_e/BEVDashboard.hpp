@@ -20,15 +20,25 @@
 
 namespace adas {
 
+struct EgoDebugSnapshot {
+  bool valid = false;
+  float ego_speed_mps = 0.0f;
+  float pitch_rad = 0.0f;
+  uint64_t timestamp_ns = 0;
+};
+
 /// Full payload for one BEV update tick.
 struct BEVInputFrame {
+  bool has_camera_batch = false;
   DetBatch camera_batch;
+  bool has_radar_targets = false;
   RadarTargets radar_targets;
   std::vector<FusedObject> fused_objects;
   std::optional<uint64_t> fcw_focus_object_id;
   std::optional<FCWAlert> fcw_alert_context;
   std::optional<FCWEvaluation> fcw_eval_context;
   std::optional<FCWDebugSnapshot> fcw_debug_context;
+  std::optional<EgoDebugSnapshot> ego_debug_context;
   uint64_t now_ns = 0;
 };
 
@@ -115,6 +125,16 @@ private:
 
   std::thread thread_;
   std::atomic<bool> running_{false};
+
+  struct SourceSnapshot {
+    int count = 0;
+    uint64_t timestamp_ns = 0;
+    bool healthy = false;
+  };
+
+  SourceSnapshot latest_camera_source_;
+  SourceSnapshot latest_radar_source_;
+  std::optional<EgoDebugSnapshot> latest_ego_debug_snapshot_;
 };
 
 } // namespace adas

@@ -2,6 +2,8 @@
 // Pure helper math for BEV geometry and lifecycle timing.
 #pragma once
 
+#include "adas/stage_e/BEVDashboardFlow.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
