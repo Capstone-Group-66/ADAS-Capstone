@@ -499,7 +499,7 @@ void renderFcwThoughtFlowPanel(
                 cv::Scalar(31, 31, 35), cv::FILLED);
   cv::rectangle(panel, cv::Rect(10, 10, kPanelWidth - 20, 54),
                 cv::Scalar(74, 74, 80), 1);
-  drawPanelText("Live Data Decision Flow", 20, 30, 0.52,
+  drawPanelText("Data-Driven Decision Visualization", 20, 30, 0.52,
                 cv::Scalar(245, 245, 248), 1);
   drawPanelText(snapshot_is_held ? "HELD" : "LIVE", kPanelWidth - 84, 30,
                 0.38,

@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <iostream>
 #include <sstream>
+#include <unordered_map>
 
 namespace adas {
 
@@ -29,19 +30,85 @@ struct LegacyDeepStreamDet {
 static_assert(sizeof(LegacyDeepStreamDet) == 40,
               "LegacyDeepStreamDet must be 40 bytes");
 
-void logRoadSignDetection(const Det &det) {
-  std::ostringstream ss;
-  ss << std::fixed << std::setprecision(2) << "[RoadSignDet] ID "
-     << det.object_id << " | cls: " << det.cls << " | score: " << det.score
-     << " | sign: ";
+constexpr uint64_t kRoadSignLogWindowNs = 2000000000ULL;
+
+std::string roadSignLabel(const Det &det) {
   if (det.hasSignLabel()) {
-    ss << det.signLabelString();
-  } else {
-    ss << "<unset>";
+    return det.signLabelString();
   }
-  ss << " | box: [" << det.box_px.x << ", " << det.box_px.y << ", "
-     << det.box_px.width << ", " << det.box_px.height << "]";
-  std::cout << ss.str() << "\n";
+  return "RoadSign";
+}
+
+struct RoadSignSummary {
+  int count = 0;
+  float best_score = -1.0f;
+  Det best_det{};
+};
+
+class RoadSignLogAccumulator {
+public:
+  void observe(const Det &det, uint64_t now_ns) {
+    if (!active_) {
+      active_ = true;
+      window_start_ns_ = now_ns;
+    }
+
+    auto &summary = summaries_[roadSignLabel(det)];
+    summary.count += 1;
+    if (det.score >= summary.best_score) {
+      summary.best_score = det.score;
+      summary.best_det = det;
+    }
+  }
+
+  void flushIfDue(uint64_t now_ns, bool force = false) {
+    if (!active_) {
+      return;
+    }
+    if (!force && now_ns < window_start_ns_ + kRoadSignLogWindowNs) {
+      return;
+    }
+
+    const auto best_it = chooseDominantSummary();
+    if (best_it != summaries_.end()) {
+      const auto &label = best_it->first;
+      const auto &summary = best_it->second;
+      const Det &det = summary.best_det;
+
+      std::ostringstream ss;
+      ss << std::fixed << std::setprecision(2)
+         << "[RoadSignDet] 2s summary | sign: " << label
+         << " | hits: " << summary.count << " | best score: " << det.score
+         << " | box: [" << det.box_px.x << ", " << det.box_px.y << ", "
+         << det.box_px.width << ", " << det.box_px.height << "]";
+      std::cout << ss.str() << "\n";
+    }
+
+    summaries_.clear();
+    active_ = false;
+    window_start_ns_ = 0;
+  }
+
+private:
+  auto chooseDominantSummary() const {
+    auto best_it = summaries_.end();
+    for (auto it = summaries_.begin(); it != summaries_.end(); ++it) {
+      if (best_it == summaries_.end() || it->second.count > best_it->second.count ||
+          (it->second.count == best_it->second.count &&
+           it->second.best_score > best_it->second.best_score)) {
+        best_it = it;
+      }
+    }
+    return best_it;
+  }
+
+  bool active_ = false;
+  uint64_t window_start_ns_ = 0;
+  std::unordered_map<std::string, RoadSignSummary> summaries_;
+};
+
+RoadSignLogAccumulator makeRoadSignLogAccumulator() {
+  return RoadSignLogAccumulator();
 }
 
 } // namespace
@@ -110,9 +177,12 @@ void DeepStreamReceiver::stop() {
 
 void DeepStreamReceiver::dsThread() {
   std::vector<uint8_t> buffer(1024 * 1024); // 1MB buffer
+  auto road_sign_logger = makeRoadSignLogAccumulator();
 
   while (running_.load()) {
     int len = zmq_recv(ds_socket_, buffer.data(), buffer.size(), 0);
+    const uint64_t now_ns = Clock::now_ns();
+    road_sign_logger.flushIfDue(now_ns);
     if (len < 0) {
       continue; // Timeout or error
     }
@@ -190,7 +260,7 @@ void DeepStreamReceiver::dsThread() {
           det.setSignLabel(ds_det.sign_type);
 
           if (det.cls == 3 || det.hasSignLabel()) {
-            logRoadSignDetection(det);
+            road_sign_logger.observe(det, now_ns);
           }
         } else {
           LegacyDeepStreamDet ds_det{};
@@ -219,6 +289,8 @@ void DeepStreamReceiver::dsThread() {
       //           << ids << "]\n";
     }
   }
+
+  road_sign_logger.flushIfDue(Clock::now_ns(), true);
 }
 
 } // namespace adas
