@@ -99,6 +99,13 @@ class NetworkReceiver {
         return latest_roll_rad_.load(std::memory_order_relaxed);
     }
 
+    /// Timestamp of the most recent pitch+roll packet used for Stage E attitude.
+    /// This is the authoritative "IMU attitude is live" heartbeat for the
+    /// camera-mounted Pi IMU path.
+    uint64_t getLatestPitchRollTimeNs() const {
+        return latest_pitch_roll_time_ns_.load(std::memory_order_relaxed);
+    }
+
     /// Static: Discover devices on Pi without starting full receiver
     /// @param pi_ip IP address of Pi4
     /// @param timeout_ms Timeout in milliseconds
@@ -166,6 +173,7 @@ class NetworkReceiver {
     // Written by imuThread; read by the fusion layer via getLatestPitch()/getLatestRoll().
     std::atomic<float> latest_pitch_rad_{0.0f};
     std::atomic<float> latest_roll_rad_{0.0f};
+    std::atomic<uint64_t> latest_pitch_roll_time_ns_{0};
 
     // Optional recorder for data capture
     // Atomic so it is safely visible across the camera/radar/IMU threads

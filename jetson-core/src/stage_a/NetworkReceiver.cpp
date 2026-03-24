@@ -473,6 +473,8 @@ void NetworkReceiver::imuThread() {
 
       latest_pitch_rad_.store(pr.theta_radians, std::memory_order_relaxed);
       latest_roll_rad_.store(pr.phi_radians, std::memory_order_relaxed);
+      latest_pitch_roll_time_ns_.store(Clock::now_ns(),
+                                       std::memory_order_relaxed);
 
       if (g_verbose_mode.load()) {
         std::cout << "[IMU] θ=" << pr.theta_radians

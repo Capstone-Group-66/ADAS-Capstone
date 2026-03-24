@@ -24,6 +24,7 @@ struct EgoDebugSnapshot {
   bool valid = false;
   float ego_speed_mps = 0.0f;
   float pitch_rad = 0.0f;
+  float roll_rad = 0.0f;
   uint64_t timestamp_ns = 0;
 };
 

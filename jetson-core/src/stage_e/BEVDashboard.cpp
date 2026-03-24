@@ -499,7 +499,7 @@ void renderFcwThoughtFlowPanel(
                 cv::Scalar(31, 31, 35), cv::FILLED);
   cv::rectangle(panel, cv::Rect(10, 10, kPanelWidth - 20, 54),
                 cv::Scalar(74, 74, 80), 1);
-  drawPanelText("FCW Thought Flow", 20, 30, 0.52,
+  drawPanelText("Live Data Decision Flow", 20, 30, 0.52,
                 cv::Scalar(245, 245, 248), 1);
   drawPanelText(snapshot_is_held ? "HELD" : "LIVE", kPanelWidth - 84, 30,
                 0.38,
@@ -530,18 +530,21 @@ void renderFcwThoughtFlowPanel(
 
   std::ostringstream ego_line1;
   if (ego_debug_opt.has_value() && ego_debug_opt->valid) {
-    ego_line1 << fmtFloat(ego_debug_opt->ego_speed_mps, "m/s", 1)
-              << "  pitch "
-              << fmtFloat(ego_debug_opt->pitch_rad * 57.2957795f, "deg", 1);
+    ego_line1 << "pitch "
+              << fmtFloat(ego_debug_opt->pitch_rad * 57.2957795f, "deg", 1)
+              << "  roll "
+              << fmtFloat(ego_debug_opt->roll_rad * 57.2957795f, "deg", 1);
   } else {
-    ego_line1 << "waiting for ego state";
+    ego_line1 << "waiting for pitch + roll";
   }
   std::ostringstream ego_line2;
-  ego_line2 << "fresh "
-            << ageLabel(now_ns, ego_debug_opt.has_value()
-                                    ? ego_debug_opt->timestamp_ns
-                                    : 0ULL);
-  drawCard("EGO / IMU", ego_line1.str(), ego_line2.str(),
+  if (ego_debug_opt.has_value() && ego_debug_opt->valid) {
+    ego_line2 << "ego " << fmtFloat(ego_debug_opt->ego_speed_mps, "m/s", 1)
+              << "  fresh " << ageLabel(now_ns, ego_debug_opt->timestamp_ns);
+  } else {
+    ego_line2 << "8-byte Pi IMU attitude not seen yet";
+  }
+  drawCard("IMU ATTITUDE", ego_line1.str(), ego_line2.str(),
            cv::Rect(420, 76, 182, 68), ego_live,
            cv::Scalar(110, 230, 170));
 

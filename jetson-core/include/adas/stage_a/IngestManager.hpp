@@ -106,6 +106,16 @@ class IngestManager {
         return 0.0f;
     }
 
+    /// Timestamp of the most recent pitch+roll packet from the Pi IMU.
+    uint64_t getLatestPitchRollTimeNs() const {
+#ifdef HAS_ZMQ
+        if (zmq_receiver_) {
+            return zmq_receiver_->getLatestPitchRollTimeNs();
+        }
+#endif
+        return 0;
+    }
+
     /// Return the Pi IP address extracted from the hardware map, or "".
     const std::string& getPiIp() const { return pi_ip_; }
 

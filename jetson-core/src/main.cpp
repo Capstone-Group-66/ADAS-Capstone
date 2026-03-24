@@ -783,12 +783,13 @@ void visualizationThread() {
           bev_frame.fcw_focus_object_id = fcw_alert->object_id;
         }
       }
-      if (g_fcw_monitor && g_sensor_fusion && g_ego_frame) {
+      if (g_fcw_monitor && g_sensor_fusion && g_ego_frame && g_ingest_manager) {
         adas::EgoDebugSnapshot ego_debug;
-        ego_debug.valid = g_ego_frame->previous_time_ns != 0;
+        ego_debug.timestamp_ns = g_ingest_manager->getLatestPitchRollTimeNs();
+        ego_debug.valid = ego_debug.timestamp_ns != 0;
         ego_debug.ego_speed_mps = g_fcw_monitor->getEgoVelocity();
         ego_debug.pitch_rad = g_sensor_fusion->getPitch();
-        ego_debug.timestamp_ns = g_ego_frame->previous_time_ns;
+        ego_debug.roll_rad = g_ingest_manager->getLatestRoll();
         bev_frame.ego_debug_context = ego_debug;
       }
       bev_frame.now_ns = adas::Clock::now_ns();
