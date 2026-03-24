@@ -27,6 +27,12 @@ bool isPromotionRelevantClass(int cls) {
          cls == static_cast<int>(ObjectClass::Person);
 }
 
+bool isFrontFusionRelevantClass(int cls) {
+  return cls == static_cast<int>(ObjectClass::Car) ||
+         cls == static_cast<int>(ObjectClass::Bicycle) ||
+         cls == static_cast<int>(ObjectClass::Person);
+}
+
 } // namespace
 
 SensorFusion::SensorFusion(const FusionConfig &config)
@@ -148,6 +154,10 @@ void SensorFusion::ingestCamera(const DetBatch &camera, uint64_t now_ns) {
 
   for (const auto &det : deduped) {
     if (det.object_id == UINT64_MAX) {
+      continue;
+    }
+
+    if (!isFrontFusionRelevantClass(det.cls)) {
       continue;
     }
 

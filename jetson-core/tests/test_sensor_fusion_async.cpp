@@ -25,6 +25,15 @@ adas::Det makeForwardDet(uint64_t id, const adas::FusionConfig &cfg,
   return d;
 }
 
+adas::Det makeForwardDetOfClass(uint64_t id, const adas::FusionConfig &cfg,
+                                int cls, float range_m,
+                                float theta_deg = 0.0f, float w = 110.0f,
+                                float h = 180.0f) {
+  auto d = makeForwardDet(id, cfg, range_m, theta_deg, w, h);
+  d.cls = cls;
+  return d;
+}
+
 adas::RadarTargets makeRadarTick(uint64_t t_ns, float range_m,
                                  float range_tx_m, bool speed_fresh,
                                  float radial_vel_mps = 0.0f,
@@ -176,6 +185,16 @@ int main() {
       freshness_fusion.getFusedObjects(delayed_cam.h.t_ingest_ns);
   assert(!delayed_out.empty());
   assert(delayed_out[0].camera_age_ms >= 450);
+
+  // Step 8: road signs should not enter front FCW fusion tracking.
+  adas::SensorFusion class_gate_fusion(cfg);
+  adas::DetBatch sign_cam;
+  sign_cam.h.t_ingest_ns = t0;
+  sign_cam.dets.push_back(makeForwardDetOfClass(
+      901, cfg, static_cast<int>(adas::ObjectClass::RoadSign), 12.0f));
+  class_gate_fusion.ingestCamera(sign_cam, sign_cam.h.t_ingest_ns);
+  auto sign_out = class_gate_fusion.getFusedObjects(sign_cam.h.t_ingest_ns);
+  assert(sign_out.empty());
 
   std::cout << "[PASS] test_sensor_fusion_async\n";
   return 0;
