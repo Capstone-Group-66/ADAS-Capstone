@@ -8,6 +8,7 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import com.example.testapp.BleConnectionStatus
+import com.example.testapp.audio.AlertSoundObserver
 import com.example.testapp.model.BleTickRepository
 import com.example.testapp.screens.Drive
 import com.example.testapp.screens.Home
@@ -27,8 +28,11 @@ fun Navigation(
         remember {
             VehicleStatusViewModelFactory(repository)
         }
+    val vm: VehicleStatusViewModel = viewModel(factory = factory)
 
     val scope = rememberCoroutineScope()
+
+    AlertSoundObserver(viewModel = vm)
 
     NavHost(
         navController = navController,
@@ -38,9 +42,6 @@ fun Navigation(
             Home(logs, status)
         }
         composable("drive") {
-            val vm: VehicleStatusViewModel =
-                viewModel(factory = factory)
-
             Drive(
                 vehicleStatusViewModel = vm,
                 onDebugTrigger = { scope.launch { repository.simulateFcwAlert() } },
@@ -49,9 +50,6 @@ fun Navigation(
         }
 
         composable("settings") {
-            val vm: VehicleStatusViewModel =
-                viewModel(factory = factory)
-
             Settings(vm)
         }
     }

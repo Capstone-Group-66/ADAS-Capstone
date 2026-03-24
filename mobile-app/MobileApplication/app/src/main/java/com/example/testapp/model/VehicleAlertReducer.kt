@@ -5,6 +5,7 @@ object VehicleAlertReducer {
     private const val LdwType = 1
     private const val RcwType = 2
     private const val FcwLatchMs = 3000L
+    private const val BsdLatchMs = 1000L
 
     fun initial(): VehicleAlert =
         VehicleAlert(
@@ -48,13 +49,17 @@ object VehicleAlertReducer {
         val newFcwExpiry = if (fcwAlert != null) now + FcwLatchMs else prev.fcwExpiry
         val isFcwLatched = now < newFcwExpiry
         val fcwSeverity = fcwAlert?.severity ?: prev.fcwSeverity
+        val newBsdLeftExpiry = if (bsd.leftActive) now + BsdLatchMs else prev.bsdLeftExpiry
+        val newBsdRightExpiry = if (bsd.rightActive) now + BsdLatchMs else prev.bsdRightExpiry
+        val isLeftBsdLatched = now < newBsdLeftExpiry
+        val isRightBsdLatched = now < newBsdRightExpiry
 
         val sonar =
             SonarColors(
                 front = if (isFcwLatched) SonarColor.RED else SonarColor.OFF,
                 rear = if (hasIncomingRcw) SonarColor.RED else SonarColor.OFF,
-                left = if (bsd.leftActive) SonarColor.YELLOW else SonarColor.OFF,
-                right = if (bsd.rightActive) SonarColor.YELLOW else SonarColor.OFF,
+                left = if (isLeftBsdLatched) SonarColor.YELLOW else SonarColor.OFF,
+                right = if (isRightBsdLatched) SonarColor.YELLOW else SonarColor.OFF,
             )
 
         val detection =
@@ -68,7 +73,7 @@ object VehicleAlertReducer {
 
         return prev.copy(
             health = health,
-            bsd = bsd,
+            bsd = BlindSpotStatus(leftActive = isLeftBsdLatched, rightActive = isRightBsdLatched),
             telemetry = VehicleTelemetry(speedKmh = kotlin.math.abs(tick.speed).coerceIn(0, 300)),
             sonar = sonar,
             detection = detection,
@@ -76,6 +81,8 @@ object VehicleAlertReducer {
             lastTickId = newLastTickId,
             timestampMs = now,
             fcwExpiry = newFcwExpiry,
+            bsdLeftExpiry = newBsdLeftExpiry,
+            bsdRightExpiry = newBsdRightExpiry,
             fcwSeverity = if (isFcwLatched) fcwSeverity else null,
         )
     }

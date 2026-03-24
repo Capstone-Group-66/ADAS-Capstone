@@ -14,6 +14,8 @@ data class VehicleAlert(
     val timestampMs: Long = System.currentTimeMillis(),
     val activeAlerts: List<AlertDto> = emptyList(),
     val fcwExpiry: Long = 0,
+    val bsdLeftExpiry: Long = 0,
+    val bsdRightExpiry: Long = 0,
     val fcwSeverity: Int? = null,
 )
 

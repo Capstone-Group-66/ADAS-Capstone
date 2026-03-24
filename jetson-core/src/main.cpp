@@ -119,6 +119,8 @@ std::unique_ptr<adas::EgoFrame> g_ego_frame;
 std::atomic<bool> g_fcw_alert_active{false};
 std::atomic<int> g_fcw_ttc_ms{
     0}; // TTC in milliseconds (avoids float atomic availability issues)
+std::atomic<float> g_latest_phone_gps_speed_mps{0.0f};
+std::atomic<uint64_t> g_latest_phone_gps_rx_ns{0};
 
 // Stage A: BSD Receiver
 std::unique_ptr<adas::BSDReceiver> g_bsd_receiver;
@@ -559,6 +561,21 @@ int buildBsdMask() {
   return mask;
 }
 
+int currentBleSpeedKmh() {
+  constexpr uint64_t kGpsSpeedFreshNs = 3ULL * 1000ULL * 1000ULL * 1000ULL;
+
+  const uint64_t now_ns = adas::Clock::now_ns();
+  const uint64_t gps_rx_ns =
+      g_latest_phone_gps_rx_ns.load(std::memory_order_relaxed);
+  if (gps_rx_ns == 0 || (now_ns - gps_rx_ns) > kGpsSpeedFreshNs) {
+    return 0;
+  }
+
+  const float speed_mps =
+      g_latest_phone_gps_speed_mps.load(std::memory_order_relaxed);
+  return static_cast<int>(std::round(std::fabs(speed_mps) * 3.6f));
+}
+
 // Stage E thread: fusion, alerting, BLE, metrics, and (optionally)
 // visualization
 void visualizationThread() {
@@ -685,10 +702,7 @@ void visualizationThread() {
       if (is_alerting || time_since.count() > 1000) {
         std::vector<adas::Alert> alerts_to_send;
 
-        int speed_kmh = 0;
-        if (g_ego_frame) {
-          speed_kmh = static_cast<int>(g_ego_frame->getSpeed_mps() * 3.6f);
-        }
+        const int speed_kmh = currentBleSpeedKmh();
         const int health_mask = buildHealthMask();
         const int bsd_mask = buildBsdMask();
 
@@ -1119,6 +1133,9 @@ void startPipeline(const adas::Config &config,
   if (g_ble_server->initialize()) {
     // Wire GPS callback: phone GPS -> EgoFrame drift correction
     g_ble_server->setOnGpsData([](float speed_mps, uint64_t ts_ms) {
+      g_latest_phone_gps_speed_mps.store(speed_mps, std::memory_order_relaxed);
+      g_latest_phone_gps_rx_ns.store(adas::Clock::now_ns(),
+                                     std::memory_order_relaxed);
       if (g_ego_frame) {
         g_ego_frame->correctWithGpsSpeed(speed_mps);
       }

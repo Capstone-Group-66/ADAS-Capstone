@@ -2,6 +2,7 @@ package com.example.testapp.model
 
 import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Looper
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
@@ -34,7 +35,7 @@ class GpsTracker(
     @SuppressLint("MissingPermission")
     override fun start(onFix: (GpsData) -> Unit) {
         this.onFix = onFix
-        client.requestLocationUpdates(request, callback, null)
+        client.requestLocationUpdates(request, callback, Looper.getMainLooper())
     }
 
     override fun stop() {

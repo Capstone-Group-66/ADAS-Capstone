@@ -123,10 +123,45 @@ class VehicleAlertReducerTest {
     }
 
     @Test
+    fun `bsd latch keeps side active for one second across empty tick`() {
+        val initial =
+            VehicleAlertReducer.reduce(
+                VehicleAlertReducer.initial(),
+                TickPayload(
+                    tickId = 5,
+                    speed = 0,
+                    healthMask = 0,
+                    bsdMask = 0b01,
+                    alerts = emptyList(),
+                ),
+            )
+
+        assertNotNull(initial)
+
+        val reduced =
+            VehicleAlertReducer.reduce(
+                initial,
+                TickPayload(
+                    tickId = 6,
+                    speed = 0,
+                    healthMask = 0,
+                    bsdMask = 0,
+                    alerts = emptyList(),
+                ),
+            )
+
+        assertNotNull(reduced)
+        assertEquals(SonarColor.YELLOW, reduced.sonar.left)
+        assertEquals(SonarColor.OFF, reduced.sonar.right)
+        assertTrue(reduced.bsd.leftActive)
+        assertTrue(reduced.bsdLeftExpiry >= reduced.timestampMs)
+    }
+
+    @Test
     fun `ldw tick is ignored for active alerts`() {
         val tick =
             TickPayload(
-                tickId = 5,
+                tickId = 7,
                 speed = 22,
                 healthMask = 0,
                 bsdMask = 0,
