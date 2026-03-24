@@ -136,6 +136,7 @@ fun DriveContent(
 
         SpeedDisplay(
             speedText = "${state.speedKmh} km/h",
+            debugHint = state.speedDebugHint,
             modifier =
                 Modifier
                     .align(Alignment.TopEnd)
@@ -284,6 +285,7 @@ fun StatusItem(
 @Composable
 fun SpeedDisplay(
     speedText: String,
+    debugHint: String? = null,
     modifier: Modifier = Modifier,
 ) {
     Box(
@@ -308,6 +310,14 @@ fun SpeedDisplay(
                 fontSize = 28.sp,
                 fontWeight = FontWeight.ExtraBold,
             )
+            if (debugHint != null) {
+                Text(
+                    text = debugHint,
+                    color = TextSecondary,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+            }
         }
     }
 }

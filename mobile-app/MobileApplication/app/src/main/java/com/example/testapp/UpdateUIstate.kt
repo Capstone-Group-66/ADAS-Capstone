@@ -8,6 +8,7 @@ data class UpdateUIstate(
     val bleConnected: Boolean,
     val frontCameraOk: Boolean,
     val speedKmh: Int,
+    val speedDebugHint: String? = null,
     val frontAlertColor: SonarColor,
     val rearAlertColor: SonarColor,
     val leftBlindspotValue: SonarColor,

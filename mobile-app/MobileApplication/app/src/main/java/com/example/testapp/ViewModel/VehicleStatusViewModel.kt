@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.example.testapp.BleConnectionStatus
 import com.example.testapp.UpdateUIstate
 import com.example.testapp.model.BleTickRepository
+import com.example.testapp.model.GpsData
 import com.example.testapp.model.SonarColor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,9 +14,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class VehicleStatusViewModel(
     repository: BleTickRepository,
+    phoneGpsData: StateFlow<GpsData?> = MutableStateFlow(null),
     scope: CoroutineScope? = null,
 ) : ViewModel() {
     private val vmScope = scope ?: viewModelScope
@@ -41,13 +45,25 @@ class VehicleStatusViewModel(
         combine(
             repository.dashboardState,
             connectionStatus,
-        ) { vehicleAlert, bleStatus ->
+            phoneGpsData,
+        ) { vehicleAlert, bleStatus, gpsFix ->
+            val localPhoneSpeedKmh =
+                gpsFix
+                    ?.speedMps
+                    ?.let { speedMps -> abs(speedMps * 3.6f).roundToInt().coerceIn(0, 300) }
+            val speedDebugHint =
+                if (localPhoneSpeedKmh == null) {
+                    "GPS waiting"
+                } else {
+                    null
+                }
             UpdateUIstate(
                 rearRcwOk = vehicleAlert.health.rearRcwOk,
                 radarOk = vehicleAlert.health.radarOk,
                 bleConnected = bleStatus.isConnected,
                 frontCameraOk = vehicleAlert.health.frontCameraOk,
-                speedKmh = vehicleAlert.telemetry.speedKmh,
+                speedKmh = localPhoneSpeedKmh ?: vehicleAlert.telemetry.speedKmh,
+                speedDebugHint = speedDebugHint,
                 frontAlertColor = vehicleAlert.sonar.front,
                 rearAlertColor = vehicleAlert.sonar.rear,
                 leftBlindspotValue = vehicleAlert.sonar.left,
@@ -66,6 +82,7 @@ class VehicleStatusViewModel(
                     bleConnected = false,
                     frontCameraOk = false,
                     speedKmh = 0,
+                    speedDebugHint = "GPS waiting",
                     frontAlertColor = SonarColor.OFF,
                     rearAlertColor = SonarColor.OFF,
                     leftBlindspotValue = SonarColor.OFF,

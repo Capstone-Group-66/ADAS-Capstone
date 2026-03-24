@@ -2,6 +2,7 @@ package com.example.testapp
 
 import app.cash.turbine.test
 import com.example.testapp.model.BlindSpotStatus
+import com.example.testapp.model.GpsData
 import com.example.testapp.model.ObjectDetection
 import com.example.testapp.model.SonarColor
 import com.example.testapp.model.SonarColors
@@ -79,6 +80,7 @@ class VehicleStatusViewModelTest {
                 assertEquals(true, item.radarOk)
                 assertEquals(true, item.frontCameraOk)
                 assertEquals(50, item.speedKmh)
+                assertEquals("GPS waiting", item.speedDebugHint)
                 assertEquals(SonarColor.RED, item.frontAlertColor)
                 assertEquals(SonarColor.GREEN, item.rearAlertColor)
                 assertEquals(SonarColor.OFF, item.leftBlindspotValue)
@@ -138,5 +140,41 @@ class VehicleStatusViewModelTest {
             assertTrue(viewModel.developerModeEnabled.value)
             viewModel.setDeveloperModeEnabled(false)
             assertFalse(viewModel.developerModeEnabled.value)
+        }
+
+    @Test
+    fun `driveState prefers local phone gps speed over jetson round trip speed`() =
+        runTest {
+            val vehicleAlert =
+                VehicleAlert(
+                    health = SystemHealth(frontCameraOk = true, rearRcwOk = true, radarOk = true),
+                    sonar =
+                        SonarColors(
+                            front = SonarColor.OFF,
+                            rear = SonarColor.OFF,
+                            left = SonarColor.OFF,
+                            right = SonarColor.OFF,
+                        ),
+                    telemetry = VehicleTelemetry(speedKmh = 42),
+                    detection = ObjectDetection.None,
+                    bsd = BlindSpotStatus(leftActive = false, rightActive = false),
+                )
+            val repository = FakeBleTickRepository(vehicleAlert)
+            val phoneGps = MutableStateFlow(GpsData(tsMs = 1234L, speedMps = 20.0f))
+
+            val viewModel =
+                VehicleStatusViewModel(
+                    repository = repository,
+                    phoneGpsData = phoneGps,
+                    scope = backgroundScope,
+                )
+
+            viewModel.driveState.test {
+                skipItems(1)
+                val item = awaitItem()
+                assertEquals(72, item.speedKmh)
+                assertEquals(null, item.speedDebugHint)
+                cancelAndIgnoreRemainingEvents()
+            }
         }
 }

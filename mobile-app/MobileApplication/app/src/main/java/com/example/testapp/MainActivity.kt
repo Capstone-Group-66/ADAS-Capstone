@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import com.example.testapp.model.BleTickRepository
+import com.example.testapp.model.GpsData
 import com.example.testapp.model.GpsTracker
 import com.example.testapp.model.GpsTrackingRepository
 import com.example.testapp.ui.components.TestAppApp
@@ -19,8 +20,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
@@ -33,15 +37,19 @@ class MainActivity : ComponentActivity() {
     private lateinit var bleManager: BleManager
     private lateinit var repository: BleTickRepository
     private lateinit var gpsRepository: GpsTrackingRepository
+    private val phoneGpsData = MutableStateFlow<GpsData?>(null)
     private var permissionRequestInFlight = false
+    private var gpsMonitoringJob: Job? = null
     private var gpsForwardingJob: Job? = null
 
     private val permissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { _ ->
             permissionRequestInFlight = false
             if (hasRequiredAppPermissions()) {
+                startGpsMonitoring()
                 maybeStartBle()
             } else {
+                stopGpsMonitoring()
                 bleManager.setConnectionStatus(
                     BleConnectionStatus.permissionRequired(permissionBlockedLabel()),
                 )
@@ -68,6 +76,7 @@ class MainActivity : ComponentActivity() {
             TestAppTheme {
                 TestAppApp(
                     repository,
+                    gpsData = phoneGpsData.asStateFlow(),
                     logs = bleManager.logFlow,
                     status = bleManager.connectionStatus,
                 )
@@ -77,17 +86,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        startGpsMonitoring()
         startGpsForwarding()
         maybeStartBle()
     }
 
     override fun onStop() {
+        stopGpsMonitoring()
         stopGpsForwarding()
         bleManager.shutdown()
         super.onStop()
     }
 
     override fun onDestroy() {
+        stopGpsMonitoring()
         stopGpsForwarding()
         bleManager.shutdown()
         appScope.cancel()
@@ -96,6 +108,7 @@ class MainActivity : ComponentActivity() {
 
     private fun maybeStartBle() {
         if (hasRequiredAppPermissions()) {
+            startGpsMonitoring()
             try {
                 bleManager.initialize()
             } catch (_: SecurityException) {
@@ -117,6 +130,36 @@ class MainActivity : ComponentActivity() {
     }
 
     @SuppressLint("MissingPermission")
+    private fun startGpsMonitoring() {
+        if (gpsMonitoringJob != null || !hasLocationPermission()) {
+            if (!hasLocationPermission()) {
+                phoneGpsData.value = null
+            }
+            return
+        }
+
+        gpsMonitoringJob =
+            appScope.launch {
+                try {
+                    gpsRepository.gpsDataFlow().collect { gpsFix ->
+                        phoneGpsData.value = gpsFix
+                    }
+                } catch (_: SecurityException) {
+                    phoneGpsData.value = null
+                    bleManager.setConnectionStatus(
+                        BleConnectionStatus.permissionRequired(permissionBlockedLabel()),
+                    )
+                }
+            }
+    }
+
+    private fun stopGpsMonitoring() {
+        gpsMonitoringJob?.cancel()
+        gpsMonitoringJob = null
+        phoneGpsData.value = null
+    }
+
+    @SuppressLint("MissingPermission")
     private fun startGpsForwarding() {
         if (gpsForwardingJob != null) {
             return
@@ -132,7 +175,7 @@ class MainActivity : ComponentActivity() {
                             return@collectLatest
                         }
 
-                        gpsRepository.gpsDataFlow().collect { gpsFix ->
+                        phoneGpsData.filterNotNull().collect { gpsFix ->
                             if (gpsFix.speedMps == null) {
                                 return@collect
                             }

@@ -17,6 +17,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
 import com.example.testapp.BleConnectionStatus
 import com.example.testapp.model.BleTickRepository
+import com.example.testapp.model.GpsData
 import com.example.testapp.viewmodel.VehicleStatusViewModel
 import com.example.testapp.viewmodel.VehicleStatusViewModelFactory
 import kotlinx.coroutines.delay
@@ -27,12 +28,13 @@ private const val DriveNavHideDelayMs = 5000L
 @Composable
 fun TestAppApp(
     repository: BleTickRepository,
+    gpsData: StateFlow<GpsData?>,
     logs: StateFlow<List<String>>,
     status: StateFlow<BleConnectionStatus>,
 ) {
     var currentDestination by rememberSaveable { mutableStateOf(AppDestinations.HOME) }
     val navController = rememberNavController()
-    val factory = remember { VehicleStatusViewModelFactory(repository) }
+    val factory = remember { VehicleStatusViewModelFactory(repository, gpsData) }
     val viewModel: VehicleStatusViewModel = viewModel(factory = factory)
     val developerModeEnabled by viewModel.developerModeEnabled.collectAsState()
 

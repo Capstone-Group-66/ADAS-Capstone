@@ -18,15 +18,23 @@ class GpsTracker(
         LocationRequest.Builder(
             Priority.PRIORITY_HIGH_ACCURACY,
             1000L,
-        ).build()
+        ).setMinUpdateIntervalMillis(500L)
+            .setMinUpdateDistanceMeters(1f)
+            .setWaitForAccurateLocation(true)
+            .build()
 
     @Volatile
     private var onFix: ((GpsData) -> Unit)? = null
 
+    @Volatile
+    private var lastLocation: android.location.Location? = null
+
     private val callback =
         object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
-                result.lastLocation?.toGpsData()?.let { fix ->
+                result.lastLocation?.let { location ->
+                    val fix = location.toGpsData(lastLocation)
+                    lastLocation = location
                     onFix?.invoke(fix)
                 }
             }
@@ -35,11 +43,13 @@ class GpsTracker(
     @SuppressLint("MissingPermission")
     override fun start(onFix: (GpsData) -> Unit) {
         this.onFix = onFix
+        lastLocation = null
         client.requestLocationUpdates(request, callback, Looper.getMainLooper())
     }
 
     override fun stop() {
         onFix = null
+        lastLocation = null
         client.removeLocationUpdates(callback)
     }
 }
