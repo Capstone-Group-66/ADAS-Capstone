@@ -170,8 +170,7 @@ public:
              "radar_range_raw_m,range_error_m,v_bottom_px,box_x,box_y,box_w,"
              "box_h,centroid_x,centroid_y,pitch_rad,cam_height_m,"
              "camera_age_ms,radar_age_ms,speed_fresh,speed_age_ms,"
-             "radial_vel_mps,velocity_source,is_predicted_camera,"
-             "is_aggressive_mode\n";
+             "radial_vel_mps,is_predicted_camera,is_aggressive_mode\n";
     file_.flush();
     sample_count_.store(0, std::memory_order_relaxed);
     enabled_.store(true, std::memory_order_release);
@@ -232,7 +231,6 @@ public:
            << ',' << cam_height_m << ',' << obj.camera_age_ms << ','
            << obj.radar_age_ms << ',' << (obj.speed_fresh ? 1 : 0) << ','
            << obj.speed_age_ms << ',' << obj.radial_vel_mps << ','
-           << adas::velocitySourceToString(obj.velocity_source) << ','
            << (obj.is_predicted_camera ? 1 : 0) << ','
            << (obj.is_aggressive_mode ? 1 : 0) << '\n';
       ++accepted;
@@ -664,11 +662,9 @@ void visualizationThread() {
         g_sensor_fusion->setPitch(g_ingest_manager->getLatestPitch());
       }
       if (got_camera_update) {
-        const uint64_t cam_now_ns =
-            (batch.h.t_device_ns > 0)
-                ? batch.h.t_device_ns
-                : ((batch.h.t_ingest_ns > 0) ? batch.h.t_ingest_ns
-                                             : adas::Clock::now_ns());
+        const uint64_t cam_now_ns = (batch.h.t_ingest_ns > 0)
+                                        ? batch.h.t_ingest_ns
+                                        : adas::Clock::now_ns();
         g_sensor_fusion->ingestCamera(batch, cam_now_ns);
       }
     }
@@ -1105,23 +1101,6 @@ void startPipeline(const adas::Config &config,
   fusion_config.ekf_r_radar_vz = config.stage_e_fusion.ekf_r_radar_vz;
   fusion_config.ekf_r_cam_theta = config.stage_e_fusion.ekf_r_cam_theta;
   fusion_config.ekf_r_cam_z_weak = config.stage_e_fusion.ekf_r_cam_z_weak;
-  fusion_config.derived_speed_min_hits = static_cast<uint32_t>(
-      std::max(1, config.stage_e_fusion.derived_speed_min_hits));
-  fusion_config.derived_speed_min_dt_ms = static_cast<uint32_t>(
-      std::max(1, config.stage_e_fusion.derived_speed_min_dt_ms));
-  fusion_config.derived_speed_max_dt_ms = static_cast<uint32_t>(std::max(
-      std::max(1, config.stage_e_fusion.derived_speed_min_dt_ms),
-      config.stage_e_fusion.derived_speed_max_dt_ms));
-  fusion_config.derived_speed_hold_ms = static_cast<uint32_t>(
-      std::max(1, config.stage_e_fusion.derived_speed_hold_ms));
-  fusion_config.derived_speed_max_plausible_mps =
-      std::max(0.1f, config.stage_e_fusion.derived_speed_max_plausible_mps);
-  fusion_config.derived_speed_jump_base_m =
-      std::max(0.0f, config.stage_e_fusion.derived_speed_jump_base_m);
-  fusion_config.derived_speed_jump_slope_mps =
-      std::max(0.0f, config.stage_e_fusion.derived_speed_jump_slope_mps);
-  fusion_config.radar_speed_disagreement_gate_mps = std::max(
-      0.0f, config.stage_e_fusion.radar_speed_disagreement_gate_mps);
   g_active_radar_tx_offset_m.store(fusion_config.radar_tx_m,
                                    std::memory_order_relaxed);
 
@@ -1257,23 +1236,6 @@ void startReplayPipeline(const std::string &replay_file, float speed,
   replay_fusion_config.ekf_r_cam_theta = config.stage_e_fusion.ekf_r_cam_theta;
   replay_fusion_config.ekf_r_cam_z_weak =
       config.stage_e_fusion.ekf_r_cam_z_weak;
-  replay_fusion_config.derived_speed_min_hits = static_cast<uint32_t>(
-      std::max(1, config.stage_e_fusion.derived_speed_min_hits));
-  replay_fusion_config.derived_speed_min_dt_ms = static_cast<uint32_t>(
-      std::max(1, config.stage_e_fusion.derived_speed_min_dt_ms));
-  replay_fusion_config.derived_speed_max_dt_ms = static_cast<uint32_t>(
-      std::max(std::max(1, config.stage_e_fusion.derived_speed_min_dt_ms),
-               config.stage_e_fusion.derived_speed_max_dt_ms));
-  replay_fusion_config.derived_speed_hold_ms = static_cast<uint32_t>(
-      std::max(1, config.stage_e_fusion.derived_speed_hold_ms));
-  replay_fusion_config.derived_speed_max_plausible_mps =
-      std::max(0.1f, config.stage_e_fusion.derived_speed_max_plausible_mps);
-  replay_fusion_config.derived_speed_jump_base_m =
-      std::max(0.0f, config.stage_e_fusion.derived_speed_jump_base_m);
-  replay_fusion_config.derived_speed_jump_slope_mps =
-      std::max(0.0f, config.stage_e_fusion.derived_speed_jump_slope_mps);
-  replay_fusion_config.radar_speed_disagreement_gate_mps = std::max(
-      0.0f, config.stage_e_fusion.radar_speed_disagreement_gate_mps);
   g_active_radar_tx_offset_m.store(replay_fusion_config.radar_tx_m,
                                    std::memory_order_relaxed);
 

@@ -81,11 +81,8 @@ cv::Rect2f SensorFusion::computeRadarROI(float frame_width,
 
 std::vector<FusedObject> SensorFusion::fuse(const DetBatch &camera,
                                             const RadarTargets &radar) {
-  const uint64_t now_ns = (camera.h.t_device_ns > 0)
-                              ? camera.h.t_device_ns
-                              : ((camera.h.t_ingest_ns > 0)
-                                     ? camera.h.t_ingest_ns
-                                     : Clock::now_ns());
+  const uint64_t now_ns =
+      (camera.h.t_ingest_ns > 0) ? camera.h.t_ingest_ns : Clock::now_ns();
   ingestCamera(camera, now_ns);
   ingestRadar(radar, now_ns);
   return getFusedObjects(now_ns);
@@ -97,10 +94,8 @@ void SensorFusion::ingestCamera(const DetBatch &camera, uint64_t now_ns) {
   }
 
   if (now_ns == 0) {
-    now_ns = (camera.h.t_device_ns > 0)
-                 ? camera.h.t_device_ns
-                 : ((camera.h.t_ingest_ns > 0) ? camera.h.t_ingest_ns
-                                               : Clock::now_ns());
+    now_ns =
+        (camera.h.t_ingest_ns > 0) ? camera.h.t_ingest_ns : Clock::now_ns();
   }
 
   std::lock_guard<std::mutex> lock(mutex_);
@@ -343,10 +338,7 @@ void SensorFusion::ingestRadar(const RadarTargets &radar, uint64_t now_ns) {
     track.last_fused_ns = now_ns;
     track.speed_fresh = best.speed_fresh;
     track.speed_age_ms = best.speed_age_ms;
-    track.raw_radar_vel_mps = best.radial_vel_mps;
-    track.raw_radar_speed_fresh = best.speed_fresh;
     track.fusion_quality = clamp01(1.0f / (1.0f + best_nis));
-    updateDerivedClosingFromMatchedRange(track, best.range_m, now_ns);
 
     if (g_verbose_mode.load()) {
       const float d_cam = (track.z_cam_m > 0.1f)
@@ -428,50 +420,15 @@ std::vector<FusedObject> SensorFusion::getFusedObjects(uint64_t now_ns) {
     if (radar_recent) {
       obj.has_radar = true;
       obj.range_m = std::max(track.x[0], 0.0f);
+      obj.radial_vel_mps = track.x[1];
       obj.x_lateral_m = obj.range_m * std::tan(obj.theta_rad);
       obj.fusion_quality = track.fusion_quality;
-      const uint32_t raw_speed_age_ms =
+      obj.speed_age_ms =
           (radar_age_ms == std::numeric_limits<uint32_t>::max())
               ? track.speed_age_ms
               : static_cast<uint32_t>(track.speed_age_ms + radar_age_ms);
-      const uint32_t derived_speed_age_ms =
-          (track.last_derived_speed_ns > 0 && now_ns >= track.last_derived_speed_ns)
-              ? static_cast<uint32_t>((now_ns - track.last_derived_speed_ns) /
-                                      1000000ULL)
-              : std::numeric_limits<uint32_t>::max();
-      track.derived_speed_age_ms = derived_speed_age_ms;
-
-      const bool derived_valid =
-          track.derived_closing_valid &&
-          (derived_speed_age_ms <= config_.derived_speed_hold_ms);
-      bool raw_speed_sane =
-          track.raw_radar_speed_fresh &&
-          (raw_speed_age_ms <= config_.radar_hold_ms) &&
-          track.raw_radar_vel_mps >= 0.0f &&
-          track.raw_radar_vel_mps <= config_.derived_speed_max_plausible_mps;
-      if (raw_speed_sane && derived_valid &&
-          std::abs(track.raw_radar_vel_mps - track.derived_closing_mps) >
-              config_.radar_speed_disagreement_gate_mps) {
-        raw_speed_sane = false;
-      }
-
-      if (raw_speed_sane) {
-        obj.radial_vel_mps = track.raw_radar_vel_mps;
-        obj.speed_fresh = true;
-        obj.speed_age_ms = raw_speed_age_ms;
-        obj.velocity_source = VelocitySource::RadarSensor;
-      } else if (derived_valid) {
-        obj.radial_vel_mps = track.derived_closing_mps;
-        obj.speed_fresh = true;
-        obj.speed_age_ms = derived_speed_age_ms;
-        obj.velocity_source = VelocitySource::DerivedRangeRate;
-      } else {
-        obj.radial_vel_mps = 0.0f;
-        obj.speed_fresh = false;
-        obj.speed_age_ms = std::numeric_limits<uint32_t>::max();
-        obj.velocity_source = VelocitySource::None;
-      }
-      track.velocity_source = obj.velocity_source;
+      obj.speed_fresh =
+          track.speed_fresh && (obj.speed_age_ms <= config_.radar_hold_ms);
       obj.ttc_s = computeTTC(obj.range_m, obj.radial_vel_mps);
       obj.sources |= SRC_RAD_F;
     } else {
@@ -485,8 +442,6 @@ std::vector<FusedObject> SensorFusion::getFusedObjects(uint64_t now_ns) {
       obj.speed_fresh = false;
       obj.speed_age_ms = 0;
       obj.ttc_s = std::numeric_limits<float>::infinity();
-      obj.velocity_source = VelocitySource::None;
-      track.velocity_source = VelocitySource::None;
     }
 
     out.push_back(obj);
@@ -732,100 +687,6 @@ void SensorFusion::updateTrackRadar(TrackState &track, float z_rad_m,
                            K1[r] * P_old[1 * 4 + c];
     }
   }
-}
-
-void SensorFusion::resetDerivedClosing(TrackState &track) {
-  track.derived_closing_mps = 0.0f;
-  track.derived_closing_valid = false;
-  track.derived_speed_age_ms = std::numeric_limits<uint32_t>::max();
-  track.last_derived_speed_ns = 0;
-  track.recent_derived_closing_count = 0;
-  track.recent_derived_closing_next = 0;
-  track.recent_derived_closing_mps.fill(0.0f);
-  if (track.velocity_source == VelocitySource::DerivedRangeRate) {
-    track.velocity_source = VelocitySource::None;
-  }
-}
-
-void SensorFusion::pushDerivedClosingSample(TrackState &track,
-                                            float closing_mps,
-                                            uint64_t now_ns) {
-  const size_t sample_slots = track.recent_derived_closing_mps.size();
-  if (sample_slots == 0) {
-    return;
-  }
-
-  const size_t slot = static_cast<size_t>(track.recent_derived_closing_next);
-  track.recent_derived_closing_mps[slot] = closing_mps;
-  track.recent_derived_closing_next =
-      static_cast<uint8_t>((slot + 1) % sample_slots);
-  if (track.recent_derived_closing_count < sample_slots) {
-    ++track.recent_derived_closing_count;
-  }
-
-  std::array<float, 5> sorted = track.recent_derived_closing_mps;
-  const size_t valid_count = track.recent_derived_closing_count;
-  std::sort(sorted.begin(), sorted.begin() + valid_count);
-  float median = 0.0f;
-  if (valid_count > 0) {
-    const size_t mid = valid_count / 2;
-    median = (valid_count % 2 == 0)
-                 ? 0.5f * (sorted[mid - 1] + sorted[mid])
-                 : sorted[mid];
-  }
-
-  track.derived_closing_mps = median;
-  track.last_derived_speed_ns = now_ns;
-  track.derived_speed_age_ms = 0;
-  track.derived_closing_valid =
-      valid_count >= config_.derived_speed_min_hits && median > 0.0f;
-}
-
-void SensorFusion::updateDerivedClosingFromMatchedRange(TrackState &track,
-                                                        float matched_range_m,
-                                                        uint64_t now_ns) {
-  if (!track.has_camera_obs ||
-      !isFrontFusionRelevantClass(track.object_class)) {
-    resetDerivedClosing(track);
-    track.last_matched_range_m = matched_range_m;
-    track.last_matched_range_ns = now_ns;
-    return;
-  }
-
-  if (track.last_matched_range_ns == 0 || now_ns <= track.last_matched_range_ns) {
-    resetDerivedClosing(track);
-    track.last_matched_range_m = matched_range_m;
-    track.last_matched_range_ns = now_ns;
-    return;
-  }
-
-  const uint64_t dt_ns = now_ns - track.last_matched_range_ns;
-  const uint32_t dt_ms = static_cast<uint32_t>(dt_ns / 1000000ULL);
-  const float dt_sec = static_cast<float>(Clock::ns_to_sec(dt_ns));
-  const float delta_range_m = track.last_matched_range_m - matched_range_m;
-  const float max_allowed_jump_m =
-      config_.derived_speed_jump_base_m +
-      config_.derived_speed_jump_slope_mps * dt_sec;
-
-  const bool dt_ok =
-      dt_ms >= config_.derived_speed_min_dt_ms &&
-      dt_ms <= config_.derived_speed_max_dt_ms;
-  const bool jump_ok =
-      std::abs(delta_range_m) <= std::max(max_allowed_jump_m, 0.0f);
-
-  if (!dt_ok || !jump_ok || dt_sec <= 0.0f) {
-    resetDerivedClosing(track);
-    track.last_matched_range_m = matched_range_m;
-    track.last_matched_range_ns = now_ns;
-    return;
-  }
-
-  const float candidate_closing_mps =
-      std::clamp(delta_range_m / dt_sec, 0.0f,
-                 config_.derived_speed_max_plausible_mps);
-  pushDerivedClosingSample(track, candidate_closing_mps, now_ns);
-  track.last_matched_range_m = matched_range_m;
-  track.last_matched_range_ns = now_ns;
 }
 
 void SensorFusion::maybeCleanupTracks(uint64_t now_ns) {

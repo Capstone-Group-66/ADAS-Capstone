@@ -94,7 +94,6 @@ private:
     bool is_aggressive_mode = false;
     bool speed_fresh = false;
     uint32_t speed_age_ms = 0;
-    VelocitySource velocity_source = VelocitySource::None;
     uint64_t last_cam_update_ns = 0;
     uint64_t last_range_update_ns = 0;
     uint64_t ttc_hold_until_ns = 0;
