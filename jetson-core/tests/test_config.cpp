@@ -11,8 +11,16 @@ int main() {
                     cfg.stage_e_fusion.camera_hold_ms > 0 &&
                     cfg.stage_e_fusion.radar_hold_ms > 0 &&
                     cfg.stage_e_fusion.track_cleanup_ms > 0 &&
+                    cfg.stage_e_fusion.provisional_min_hits >= 1 &&
+                    cfg.stage_e_fusion.provisional_track_hold_ms > 0 &&
+                    cfg.stage_e_fusion.promotion_min_hits >= 1 &&
+                    cfg.stage_e_fusion.derived_speed_min_hits >= 2 &&
+                    cfg.stage_e_fusion.derived_speed_max_dt_ms >=
+                        cfg.stage_e_fusion.derived_speed_min_dt_ms &&
                     cfg.stage_e_fusion.gps_correction_gain >= 0.0f &&
-                    cfg.stage_e_fusion.gps_correction_gain <= 1.0f;
+                    cfg.stage_e_fusion.gps_correction_gain <= 1.0f &&
+                    cfg.stage_e_fusion.ekf_r_radar_vz_derived >
+                        cfg.stage_e_fusion.ekf_r_radar_vz;
     if (!ok) {
       std::cerr << "[FAIL] Config fields are invalid\n";
       return 1;

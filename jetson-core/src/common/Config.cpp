@@ -168,6 +168,40 @@ Config ConfigLoader::loadConfig(const std::string &path) {
         config.stage_e_fusion.aggressive_angle_gate_deg = std::stof(value);
       } else if (key == "aggressive_range_scale") {
         config.stage_e_fusion.aggressive_range_scale = std::stof(value);
+      } else if (key == "provisional_min_hits") {
+        config.stage_e_fusion.provisional_min_hits = std::stoi(value);
+      } else if (key == "provisional_track_hold_ms") {
+        config.stage_e_fusion.provisional_track_hold_ms = std::stoi(value);
+      } else if (key == "provisional_seed_min_closing_mps") {
+        config.stage_e_fusion.provisional_seed_min_closing_mps = std::stof(value);
+      } else if (key == "provisional_seed_max_ttc_s") {
+        config.stage_e_fusion.provisional_seed_max_ttc_s = std::stof(value);
+      } else if (key == "provisional_seed_max_range_m") {
+        config.stage_e_fusion.provisional_seed_max_range_m = std::stof(value);
+      } else if (key == "provisional_alpha") {
+        config.stage_e_fusion.provisional_alpha = std::stof(value);
+      } else if (key == "provisional_beta") {
+        config.stage_e_fusion.provisional_beta = std::stof(value);
+      } else if (key == "promotion_range_gate_m") {
+        config.stage_e_fusion.promotion_range_gate_m = std::stof(value);
+      } else if (key == "promotion_aggressive_range_gate_m") {
+        config.stage_e_fusion.promotion_aggressive_range_gate_m = std::stof(value);
+      } else if (key == "promotion_max_abs_theta_deg") {
+        config.stage_e_fusion.promotion_max_abs_theta_deg = std::stof(value);
+      } else if (key == "promotion_min_hits") {
+        config.stage_e_fusion.promotion_min_hits = std::stoi(value);
+      } else if (key == "derived_speed_min_hits") {
+        config.stage_e_fusion.derived_speed_min_hits = std::stoi(value);
+      } else if (key == "derived_speed_min_dt_ms") {
+        config.stage_e_fusion.derived_speed_min_dt_ms = std::stoi(value);
+      } else if (key == "derived_speed_max_dt_ms") {
+        config.stage_e_fusion.derived_speed_max_dt_ms = std::stoi(value);
+      } else if (key == "derived_speed_hold_ms") {
+        config.stage_e_fusion.derived_speed_hold_ms = std::stoi(value);
+      } else if (key == "derived_speed_max_abs_mps") {
+        config.stage_e_fusion.derived_speed_max_abs_mps = std::stof(value);
+      } else if (key == "ekf_r_radar_vz_derived") {
+        config.stage_e_fusion.ekf_r_radar_vz_derived = std::stof(value);
       } else if (key == "ekf_q_z") {
         config.stage_e_fusion.ekf_q_z = std::stof(value);
       } else if (key == "ekf_q_vz") {
@@ -314,6 +348,103 @@ void ConfigLoader::saveConfig(const std::string &path, const Config &config) {
       if (key == "aggressive_range_scale") {
         emitFloat("aggressive_range_scale",
                   config.stage_e_fusion.aggressive_range_scale);
+        continue;
+      }
+      if (key == "provisional_min_hits") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "provisional_min_hits: "
+           << config.stage_e_fusion.provisional_min_hits << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "provisional_track_hold_ms") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "provisional_track_hold_ms: "
+           << config.stage_e_fusion.provisional_track_hold_ms << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "provisional_seed_min_closing_mps") {
+        emitFloat("provisional_seed_min_closing_mps",
+                  config.stage_e_fusion.provisional_seed_min_closing_mps);
+        continue;
+      }
+      if (key == "provisional_seed_max_ttc_s") {
+        emitFloat("provisional_seed_max_ttc_s",
+                  config.stage_e_fusion.provisional_seed_max_ttc_s);
+        continue;
+      }
+      if (key == "provisional_seed_max_range_m") {
+        emitFloat("provisional_seed_max_range_m",
+                  config.stage_e_fusion.provisional_seed_max_range_m);
+        continue;
+      }
+      if (key == "provisional_alpha") {
+        emitFloat("provisional_alpha", config.stage_e_fusion.provisional_alpha);
+        continue;
+      }
+      if (key == "provisional_beta") {
+        emitFloat("provisional_beta", config.stage_e_fusion.provisional_beta);
+        continue;
+      }
+      if (key == "promotion_range_gate_m") {
+        emitFloat("promotion_range_gate_m",
+                  config.stage_e_fusion.promotion_range_gate_m);
+        continue;
+      }
+      if (key == "promotion_aggressive_range_gate_m") {
+        emitFloat("promotion_aggressive_range_gate_m",
+                  config.stage_e_fusion.promotion_aggressive_range_gate_m);
+        continue;
+      }
+      if (key == "promotion_max_abs_theta_deg") {
+        emitFloat("promotion_max_abs_theta_deg",
+                  config.stage_e_fusion.promotion_max_abs_theta_deg);
+        continue;
+      }
+      if (key == "promotion_min_hits") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "promotion_min_hits: "
+           << config.stage_e_fusion.promotion_min_hits << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "derived_speed_min_hits") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "derived_speed_min_hits: "
+           << config.stage_e_fusion.derived_speed_min_hits << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "derived_speed_min_dt_ms") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "derived_speed_min_dt_ms: "
+           << config.stage_e_fusion.derived_speed_min_dt_ms << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "derived_speed_max_dt_ms") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "derived_speed_max_dt_ms: "
+           << config.stage_e_fusion.derived_speed_max_dt_ms << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "derived_speed_hold_ms") {
+        std::stringstream ss;
+        ss << std::string(indent, ' ') << "derived_speed_hold_ms: "
+           << config.stage_e_fusion.derived_speed_hold_ms << "\n";
+        new_content += ss.str();
+        continue;
+      }
+      if (key == "derived_speed_max_abs_mps") {
+        emitFloat("derived_speed_max_abs_mps",
+                  config.stage_e_fusion.derived_speed_max_abs_mps);
+        continue;
+      }
+      if (key == "ekf_r_radar_vz_derived") {
+        emitFloat("ekf_r_radar_vz_derived",
+                  config.stage_e_fusion.ekf_r_radar_vz_derived);
         continue;
       }
       if (key == "ekf_q_z") {

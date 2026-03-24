@@ -6,6 +6,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <unordered_set>
 
 #include "adas/common/Clock.hpp"
 #include "adas/common/Globals.hpp"
@@ -19,6 +20,12 @@ constexpr float kPi = 3.14159265358979323846f;
 float degToRad(float deg) { return deg * kPi / 180.0f; }
 
 float clamp01(float v) { return std::clamp(v, 0.0f, 1.0f); }
+
+bool isPromotionRelevantClass(int cls) {
+  return cls == static_cast<int>(ObjectClass::Car) ||
+         cls == static_cast<int>(ObjectClass::Bicycle) ||
+         cls == static_cast<int>(ObjectClass::Person);
+}
 
 } // namespace
 
@@ -94,6 +101,7 @@ void SensorFusion::ingestCamera(const DetBatch &camera, uint64_t now_ns) {
   }
 
   std::lock_guard<std::mutex> lock(mutex_);
+  const uint64_t camera_obs_ns = resolveCameraTimestampNs(camera.h);
 
   const float fw = config_.calib_width_px;
   const float fh = config_.calib_height_px;
@@ -159,13 +167,33 @@ void SensorFusion::ingestCamera(const DetBatch &camera, uint64_t now_ns) {
                 << " | v_bottom: " << v << " | Z_cam: " << z_cam << "m\n";
     }
 
-    TrackState &track = tracks_[det.object_id];
-    predictTrackTo(track, now_ns);
-    if (!track.initialized) {
-      initializeTrack(track, det, theta, z_cam, now_ns);
-    } else {
-      updateTrackCamera(track, theta, z_cam);
+    auto existing = tracks_.find(det.object_id);
+    if (existing == tracks_.end()) {
+      TrackState &track = tracks_[det.object_id];
+      const int provisional_id =
+          isPromotionRelevantClass(det.cls)
+              ? findBestPromotionTrack(z_cam, theta, now_ns)
+              : -1;
+      if (provisional_id >= 0) {
+        auto provisional_it =
+            provisional_tracks_.find(static_cast<uint64_t>(provisional_id));
+        if (provisional_it != provisional_tracks_.end()) {
+          initializeTrackFromProvisional(track, det, theta, z_cam, now_ns,
+                                         camera_obs_ns,
+                                         provisional_it->second);
+          provisional_tracks_.erase(provisional_it);
+        } else {
+          initializeTrack(track, det, theta, z_cam, now_ns, camera_obs_ns);
+        }
+      } else {
+        initializeTrack(track, det, theta, z_cam, now_ns, camera_obs_ns);
+      }
+      existing = tracks_.find(det.object_id);
     }
+
+    TrackState &track = existing->second;
+    predictTrackTo(track, now_ns);
+    updateTrackCamera(track, theta, z_cam);
 
     track.object_id = det.object_id;
     track.object_class = det.cls;
@@ -175,7 +203,7 @@ void SensorFusion::ingestCamera(const DetBatch &camera, uint64_t now_ns) {
     track.z_cam_m = z_cam;
     track.cam_theta_rad = theta;
     track.has_camera_obs = true;
-    track.last_camera_ns = now_ns;
+    track.last_camera_ns = camera_obs_ns;
     track.last_fused_ns = now_ns;
 
     if (g_verbose_mode.load()) {
@@ -196,7 +224,7 @@ void SensorFusion::ingestRadar(const RadarTargets &radar, uint64_t now_ns) {
 
   latest_radar_ = radar;
 
-  if (tracks_.empty() || radar.targets.empty()) {
+  if (radar.targets.empty()) {
     maybeCleanupTracks(now_ns);
     return;
   }
@@ -321,15 +349,27 @@ void SensorFusion::ingestRadar(const RadarTargets &radar, uint64_t now_ns) {
     claimed[best_idx] = true;
     const RadarObs &best = radar_obs[best_idx];
     const float z_pred_before_update = track.x[0];
+    VelocityEstimate velocity;
+    if (best.speed_fresh) {
+      velocity.valid = true;
+      velocity.radial_vel_mps = best.radial_vel_mps;
+      velocity.age_ms = best.speed_age_ms;
+      velocity.source = RadialVelocitySource::RadarSensor;
+    } else {
+      velocity =
+          deriveVelocityEstimate(track.last_range_m, track.last_range_update_ns,
+                                 track.consecutive_range_hits, best, now_ns);
+    }
 
-    updateTrackRadar(track, best.range_m, best.speed_fresh,
-                     best.radial_vel_mps);
+    updateTrackRadar(track, best.range_m, velocity);
 
     track.last_radar_ns = now_ns;
     track.last_fused_ns = now_ns;
-    track.speed_fresh = best.speed_fresh;
-    track.speed_age_ms = best.speed_age_ms;
+    track.speed_fresh = velocity.valid;
+    track.speed_age_ms = velocity.age_ms;
+    track.radial_velocity_source = velocity.source;
     track.fusion_quality = clamp01(1.0f / (1.0f + best_nis));
+    updateConfirmedTrackRangeHistory(track, best.range_m, now_ns);
 
     if (g_verbose_mode.load()) {
       const float d_cam = (track.z_cam_m > 0.1f)
@@ -340,12 +380,13 @@ void SensorFusion::ingestRadar(const RadarTargets &radar, uint64_t now_ns) {
                 << ", Z_rad_adj: " << best.range_m << "m"
                 << ", dZ_cam: " << d_cam << "m"
                 << " | Z_pred: " << z_pred_before_update << "m"
-                << " | V: " << best.radial_vel_mps << "m/s"
+                << " | V: " << track.x[1] << "m/s"
                 << " | score(NIS): " << best_nis
                 << (aggressive ? " [AGGR]" : "") << "\n";
     }
   }
 
+  ingestUnclaimedRadarObs(radar_obs, claimed, now_ns);
   maybeCleanupTracks(now_ns);
 }
 
@@ -414,12 +455,28 @@ std::vector<FusedObject> SensorFusion::getFusedObjects(uint64_t now_ns) {
       obj.radial_vel_mps = track.x[1];
       obj.x_lateral_m = obj.range_m * std::tan(obj.theta_rad);
       obj.fusion_quality = track.fusion_quality;
-      obj.speed_age_ms =
-          (radar_age_ms == std::numeric_limits<uint32_t>::max())
-              ? track.speed_age_ms
-              : static_cast<uint32_t>(track.speed_age_ms + radar_age_ms);
-      obj.speed_fresh =
-          track.speed_fresh && (obj.speed_age_ms <= config_.radar_hold_ms);
+      obj.radial_velocity_source = track.radial_velocity_source;
+      if (track.radial_velocity_source == RadialVelocitySource::RadarSensor) {
+        obj.speed_age_ms =
+            (radar_age_ms == std::numeric_limits<uint32_t>::max())
+                ? track.speed_age_ms
+                : static_cast<uint32_t>(track.speed_age_ms + radar_age_ms);
+        obj.speed_fresh =
+            track.speed_fresh && (obj.speed_age_ms <= config_.radar_hold_ms);
+      } else if (track.radial_velocity_source ==
+                 RadialVelocitySource::DerivedRangeRate) {
+        obj.speed_age_ms =
+            (track.last_range_update_ns > 0 && now_ns >= track.last_range_update_ns)
+                ? static_cast<uint32_t>((now_ns - track.last_range_update_ns) /
+                                        1000000ULL)
+                : std::numeric_limits<uint32_t>::max();
+        obj.speed_fresh =
+            track.speed_fresh &&
+            (obj.speed_age_ms <= config_.derived_speed_hold_ms);
+      } else {
+        obj.speed_age_ms = std::numeric_limits<uint32_t>::max();
+        obj.speed_fresh = false;
+      }
       obj.ttc_s = computeTTC(obj.range_m, obj.radial_vel_mps);
       obj.sources |= SRC_RAD_F;
     } else {
@@ -433,6 +490,7 @@ std::vector<FusedObject> SensorFusion::getFusedObjects(uint64_t now_ns) {
       obj.speed_fresh = false;
       obj.speed_age_ms = 0;
       obj.ttc_s = std::numeric_limits<float>::infinity();
+      obj.radial_velocity_source = RadialVelocitySource::None;
     }
 
     out.push_back(obj);
@@ -453,7 +511,7 @@ float SensorFusion::normalizeAngle(float rad) {
 
 void SensorFusion::initializeTrack(TrackState &track, const Det &det,
                                    float theta_rad, float z_cam_m,
-                                   uint64_t now_ns) {
+                                   uint64_t now_ns, uint64_t camera_ns) {
   track.object_id = det.object_id;
   track.object_class = det.cls;
   track.score = det.score;
@@ -477,7 +535,44 @@ void SensorFusion::initializeTrack(TrackState &track, const Det &det,
 
   track.initialized = true;
   track.last_predict_ns = now_ns;
-  track.last_camera_ns = now_ns;
+  track.last_camera_ns = camera_ns;
+  track.last_fused_ns = now_ns;
+}
+
+void SensorFusion::initializeTrackFromProvisional(
+    TrackState &track, const Det &det, float theta_rad, float z_cam_m,
+    uint64_t now_ns, uint64_t camera_ns,
+    const ProvisionalRadarTrack &provisional) {
+  track.object_id = det.object_id;
+  track.object_class = det.cls;
+  track.score = det.score;
+  track.box_px = det.box_px;
+  track.centroid_px = det.centroid;
+  track.z_cam_m = z_cam_m;
+  track.cam_theta_rad = theta_rad;
+  track.has_camera_obs = true;
+
+  track.x = {std::clamp(provisional.z_m, config_.z_min_m, config_.z_max_m),
+             provisional.vz_mps_est, theta_rad, 0.0f};
+
+  track.P.fill(0.0f);
+  track.P[0] = 6.0f;
+  track.P[5] = 4.0f;
+  track.P[10] = 0.24f;
+  track.P[15] = 0.18f;
+
+  track.initialized = true;
+  track.fusion_quality =
+      clamp01(0.25f + 0.10f * static_cast<float>(provisional.consecutive_hits));
+  track.speed_fresh = provisional.speed_fresh;
+  track.speed_age_ms = provisional.speed_age_ms;
+  track.radial_velocity_source = provisional.radial_velocity_source;
+  track.last_range_m = provisional.last_range_m;
+  track.last_range_update_ns = provisional.last_update_ns;
+  track.consecutive_range_hits = provisional.consecutive_hits;
+  track.last_predict_ns = now_ns;
+  track.last_camera_ns = camera_ns;
+  track.last_radar_ns = provisional.last_update_ns;
   track.last_fused_ns = now_ns;
 }
 
@@ -603,12 +698,12 @@ void SensorFusion::updateTrackCamera(TrackState &track, float theta_rad,
 }
 
 void SensorFusion::updateTrackRadar(TrackState &track, float z_rad_m,
-                                    bool has_speed, float v_rad_mps) {
+                                    const VelocityEstimate &velocity) {
   if (!track.initialized) {
     return;
   }
 
-  if (!has_speed) {
+  if (!velocity.valid) {
     const int idx = 0;
     const float y = z_rad_m - track.x[idx];
     const float s =
@@ -636,12 +731,16 @@ void SensorFusion::updateTrackRadar(TrackState &track, float z_rad_m,
 
   // 2D radar update on [z, vz].
   const float y0 = z_rad_m - track.x[0];
-  const float y1 = v_rad_mps - track.x[1];
+  const float y1 = velocity.radial_vel_mps - track.x[1];
 
   const float s00 = track.P[0] + config_.ekf_r_radar_z;
   const float s01 = track.P[1];
   const float s10 = track.P[4];
-  const float s11 = track.P[5] + config_.ekf_r_radar_vz;
+  const float velocity_noise =
+      (velocity.source == RadialVelocitySource::DerivedRangeRate)
+          ? config_.ekf_r_radar_vz_derived
+          : config_.ekf_r_radar_vz;
+  const float s11 = track.P[5] + velocity_noise;
 
   float det = s00 * s11 - s01 * s10;
   if (std::abs(det) < 1e-6f) {
@@ -680,6 +779,258 @@ void SensorFusion::updateTrackRadar(TrackState &track, float z_rad_m,
   }
 }
 
+void SensorFusion::updateConfirmedTrackRangeHistory(TrackState &track,
+                                                    float range_m,
+                                                    uint64_t now_ns) {
+  if (track.last_range_update_ns > 0 && now_ns > track.last_range_update_ns &&
+      (now_ns - track.last_range_update_ns) <=
+          static_cast<uint64_t>(config_.derived_speed_max_dt_ms) *
+              1000000ULL * 2ULL) {
+    ++track.consecutive_range_hits;
+  } else {
+    track.consecutive_range_hits = 1;
+  }
+
+  track.last_range_m = range_m;
+  track.last_range_update_ns = now_ns;
+}
+
+void SensorFusion::ingestUnclaimedRadarObs(const std::vector<RadarObs> &radar_obs,
+                                           const std::vector<bool> &claimed,
+                                           uint64_t now_ns) {
+  const float assoc_gate_m = config_.normal_range_gate_m;
+  std::unordered_set<uint64_t> claimed_provisional;
+
+  for (size_t i = 0; i < radar_obs.size(); ++i) {
+    if (claimed[i]) {
+      continue;
+    }
+
+    const auto &obs = radar_obs[i];
+    uint64_t best_track_id = 0;
+    float best_dz = std::numeric_limits<float>::max();
+
+    for (auto &[fusion_id, provisional] : provisional_tracks_) {
+      if (claimed_provisional.count(fusion_id) > 0) {
+        continue;
+      }
+      const float dt = (provisional.last_update_ns > 0 && now_ns > provisional.last_update_ns)
+                           ? static_cast<float>(
+                                 Clock::ns_to_sec(now_ns - provisional.last_update_ns))
+                           : 0.0f;
+      const float z_pred = provisional.z_m + dt * provisional.vz_mps_est;
+      const float dz = std::abs(obs.range_m - z_pred);
+      if (dz <= assoc_gate_m && dz < best_dz) {
+        best_dz = dz;
+        best_track_id = fusion_id;
+      }
+    }
+
+    if (best_track_id != 0) {
+      updateProvisionalTrack(provisional_tracks_[best_track_id], obs, now_ns);
+      claimed_provisional.insert(best_track_id);
+      continue;
+    }
+
+    bool should_seed = obs.range_m <= config_.provisional_seed_max_range_m;
+    if (should_seed && obs.speed_fresh) {
+      const bool closing_ok =
+          obs.radial_vel_mps >= config_.provisional_seed_min_closing_mps;
+      const float ttc_s = computeTTC(obs.range_m, obs.radial_vel_mps);
+      const bool ttc_ok =
+          std::isfinite(ttc_s) && ttc_s <= config_.provisional_seed_max_ttc_s;
+      should_seed = closing_ok || ttc_ok;
+    }
+
+    if (!should_seed) {
+      continue;
+    }
+
+    ProvisionalRadarTrack provisional;
+    provisional.fusion_id = next_provisional_track_id_++;
+    provisional.z_m = obs.range_m;
+    provisional.vz_mps_est = obs.speed_fresh ? obs.radial_vel_mps : 0.0f;
+    provisional.last_range_m = obs.range_m;
+    provisional.last_update_ns = now_ns;
+    provisional.consecutive_hits = 1;
+    provisional.speed_fresh = obs.speed_fresh;
+    provisional.speed_age_ms = obs.speed_fresh ? obs.speed_age_ms : 0;
+    provisional.radial_velocity_source = obs.speed_fresh
+                                             ? RadialVelocitySource::RadarSensor
+                                             : RadialVelocitySource::None;
+    provisional.last_real_speed_ns = obs.speed_fresh ? now_ns : 0;
+    provisional.last_real_speed_mps = obs.speed_fresh ? obs.radial_vel_mps : 0.0f;
+    provisional_tracks_.emplace(provisional.fusion_id, provisional);
+  }
+}
+
+void SensorFusion::updateProvisionalTrack(ProvisionalRadarTrack &track,
+                                          const RadarObs &obs,
+                                          uint64_t now_ns) {
+  const VelocityEstimate derived =
+      deriveVelocityEstimate(track.last_range_m, track.last_update_ns,
+                             track.consecutive_hits, obs, now_ns);
+
+  if (track.last_update_ns > 0 && now_ns > track.last_update_ns) {
+    const float dt =
+        static_cast<float>(Clock::ns_to_sec(now_ns - track.last_update_ns));
+    if (dt > 0.0f) {
+      const float z_pred = track.z_m + dt * track.vz_mps_est;
+      const float residual = obs.range_m - z_pred;
+      track.z_m = z_pred + config_.provisional_alpha * residual;
+      track.vz_mps_est =
+          track.vz_mps_est + (config_.provisional_beta / dt) * residual;
+    } else {
+      track.z_m = obs.range_m;
+    }
+  } else {
+    track.z_m = obs.range_m;
+  }
+
+  if (obs.speed_fresh) {
+    track.vz_mps_est = 0.5f * track.vz_mps_est + 0.5f * obs.radial_vel_mps;
+    track.last_real_speed_ns = now_ns;
+    track.last_real_speed_mps = obs.radial_vel_mps;
+    track.speed_fresh = true;
+    track.speed_age_ms = obs.speed_age_ms;
+    track.radial_velocity_source = RadialVelocitySource::RadarSensor;
+    track.range_rate_valid = false;
+  } else if (derived.valid) {
+    track.vz_mps_est = derived.radial_vel_mps;
+    track.speed_fresh = true;
+    track.speed_age_ms = 0;
+    track.radial_velocity_source = RadialVelocitySource::DerivedRangeRate;
+    track.range_rate_valid = true;
+  } else {
+    track.speed_fresh = false;
+    track.speed_age_ms = 0;
+    track.radial_velocity_source = RadialVelocitySource::None;
+    track.range_rate_valid = false;
+  }
+
+  if (track.last_update_ns > 0 && now_ns > track.last_update_ns &&
+      (now_ns - track.last_update_ns) <=
+          static_cast<uint64_t>(config_.derived_speed_max_dt_ms) *
+              1000000ULL * 2ULL) {
+    ++track.consecutive_hits;
+  } else {
+    track.consecutive_hits = 1;
+  }
+
+  track.last_range_m = obs.range_m;
+  track.last_update_ns = now_ns;
+}
+
+int SensorFusion::findBestPromotionTrack(float z_cam_m, float theta_rad,
+                                         uint64_t now_ns) const {
+  const float max_abs_theta_rad = degToRad(config_.promotion_max_abs_theta_deg);
+  if (std::abs(theta_rad) > max_abs_theta_rad) {
+    return -1;
+  }
+
+  int best_track_id = -1;
+  float best_score = std::numeric_limits<float>::max();
+
+  for (const auto &[fusion_id, provisional] : provisional_tracks_) {
+    if (provisional.consecutive_hits < config_.promotion_min_hits) {
+      continue;
+    }
+    if (!provisional.speed_fresh ||
+        provisional.vz_mps_est < config_.provisional_seed_min_closing_mps) {
+      continue;
+    }
+
+    const float dt =
+        (provisional.last_update_ns > 0 && now_ns > provisional.last_update_ns)
+            ? static_cast<float>(
+                  Clock::ns_to_sec(now_ns - provisional.last_update_ns))
+            : 0.0f;
+    const float z_pred = provisional.z_m + dt * provisional.vz_mps_est;
+    const float ttc_s = computeTTC(z_pred, provisional.vz_mps_est);
+    const float gate_m =
+        (std::isfinite(ttc_s) && ttc_s < config_.ttc_aggressive_s)
+            ? config_.promotion_aggressive_range_gate_m
+            : config_.promotion_range_gate_m;
+    const float dz = std::abs(z_cam_m - z_pred);
+    if (dz > gate_m) {
+      continue;
+    }
+
+    if (dz < best_score) {
+      best_score = dz;
+      best_track_id = static_cast<int>(fusion_id);
+    }
+  }
+
+  return best_track_id;
+}
+
+float SensorFusion::rangeRateFromRangeDelta(float previous_range_m,
+                                            uint64_t previous_ns,
+                                            float current_range_m,
+                                            uint64_t current_ns) {
+  if (current_ns <= previous_ns) {
+    return 0.0f;
+  }
+
+  const float dt =
+      static_cast<float>(Clock::ns_to_sec(current_ns - previous_ns));
+  if (dt <= 1e-4f) {
+    return 0.0f;
+  }
+
+  return (previous_range_m - current_range_m) / dt;
+}
+
+SensorFusion::VelocityEstimate SensorFusion::deriveVelocityEstimate(
+    float previous_range_m, uint64_t previous_range_ns,
+    uint32_t previous_hit_count, const RadarObs &obs, uint64_t now_ns) const {
+  VelocityEstimate velocity;
+  if (previous_range_ns == 0 || now_ns <= previous_range_ns) {
+    return velocity;
+  }
+  if (previous_hit_count + 1 < config_.derived_speed_min_hits) {
+    return velocity;
+  }
+
+  const uint64_t dt_ns = now_ns - previous_range_ns;
+  const uint32_t dt_ms = static_cast<uint32_t>(dt_ns / 1000000ULL);
+  if (dt_ms < config_.derived_speed_min_dt_ms ||
+      dt_ms > config_.derived_speed_max_dt_ms) {
+    return velocity;
+  }
+
+  float derived_v =
+      rangeRateFromRangeDelta(previous_range_m, previous_range_ns, obs.range_m,
+                              now_ns);
+  if (!std::isfinite(derived_v)) {
+    return velocity;
+  }
+
+  derived_v = std::clamp(derived_v, -config_.derived_speed_max_abs_mps,
+                         config_.derived_speed_max_abs_mps);
+  velocity.valid = true;
+  velocity.radial_vel_mps = derived_v;
+  velocity.age_ms = 0;
+  velocity.source = RadialVelocitySource::DerivedRangeRate;
+  return velocity;
+}
+
+uint64_t SensorFusion::resolveCameraTimestampNs(const Header &header) const {
+  if (header.t_device_ns > 0 && header.t_ingest_ns > 0 &&
+      header.t_ingest_ns >= header.t_device_ns &&
+      (header.t_ingest_ns - header.t_device_ns) <= 5000000000ULL) {
+    return header.t_device_ns;
+  }
+  if (header.t_device_ns > 0 && header.t_ingest_ns == 0) {
+    return header.t_device_ns;
+  }
+  if (header.t_ingest_ns > 0) {
+    return header.t_ingest_ns;
+  }
+  return Clock::now_ns();
+}
+
 void SensorFusion::maybeCleanupTracks(uint64_t now_ns) {
   for (auto it = tracks_.begin(); it != tracks_.end();) {
     const TrackState &track = it->second;
@@ -695,6 +1046,19 @@ void SensorFusion::maybeCleanupTracks(uint64_t now_ns) {
     if (cam_age_ms > config_.track_cleanup_ms &&
         radar_age_ms > config_.track_cleanup_ms) {
       it = tracks_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  for (auto it = provisional_tracks_.begin(); it != provisional_tracks_.end();) {
+    const bool stale =
+        it->second.last_update_ns == 0 ||
+        (now_ns > it->second.last_update_ns &&
+         ((now_ns - it->second.last_update_ns) / 1000000ULL) >
+             config_.provisional_track_hold_ms);
+    if (stale) {
+      it = provisional_tracks_.erase(it);
     } else {
       ++it;
     }
