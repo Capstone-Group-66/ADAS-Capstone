@@ -12,6 +12,7 @@ import com.example.testapp.model.VehicleTelemetry
 import com.example.testapp.viewmodel.VehicleStatusViewModel
 import junit.framework.TestCase.assertEquals
 import junit.framework.TestCase.assertFalse
+import junit.framework.TestCase.assertTrue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -122,5 +123,20 @@ class VehicleStatusViewModelTest {
                 assertEquals(true, effectiveState.bleConnected)
                 cancelAndIgnoreRemainingEvents()
             }
+        }
+
+    @Test
+    fun `developer mode is on by default and can be disabled`() =
+        runTest {
+            val repository = FakeBleTickRepository(VehicleAlertReducer.initial())
+            val viewModel =
+                VehicleStatusViewModel(
+                    repository = repository,
+                    scope = backgroundScope,
+                )
+
+            assertTrue(viewModel.developerModeEnabled.value)
+            viewModel.setDeveloperModeEnabled(false)
+            assertFalse(viewModel.developerModeEnabled.value)
         }
 }

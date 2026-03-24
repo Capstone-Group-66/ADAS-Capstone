@@ -22,9 +22,15 @@ class VehicleStatusViewModel(
 
     private val _alertSoundsEnabled = MutableStateFlow(true)
     val alertSoundsEnabled: StateFlow<Boolean> = _alertSoundsEnabled.asStateFlow()
+    private val _developerModeEnabled = MutableStateFlow(true)
+    val developerModeEnabled: StateFlow<Boolean> = _developerModeEnabled.asStateFlow()
 
     fun setAlertSoundsEnabled(enabled: Boolean) {
         _alertSoundsEnabled.value = enabled
+    }
+
+    fun setDeveloperModeEnabled(enabled: Boolean) {
+        _developerModeEnabled.value = enabled
     }
 
     val bleLogs: StateFlow<List<String>> = repository.bleLogs

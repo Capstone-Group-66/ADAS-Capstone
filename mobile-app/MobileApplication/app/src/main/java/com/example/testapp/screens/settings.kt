@@ -11,16 +11,13 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
@@ -39,8 +36,6 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -59,8 +54,8 @@ private val StatusRed = Color(0xFFFF5252)
 
 @Composable
 fun Settings(viewModel: VehicleStatusViewModel) {
-    val logs by viewModel.bleLogs.collectAsState()
     val alertSoundsEnabled by viewModel.alertSoundsEnabled.collectAsState()
+    val developerModeEnabled by viewModel.developerModeEnabled.collectAsState()
 
     Box(
         modifier =
@@ -98,59 +93,22 @@ fun Settings(viewModel: VehicleStatusViewModel) {
                         thickness = 0.6.dp,
                         modifier = Modifier.padding(vertical = 2.dp),
                     )
+
+                    SettingsSwitchRowStyled(
+                        title = "Developer Mode",
+                        description =
+                            "Show BLE console, debug buttons, and keep Drive navigation visible.",
+                        checked = developerModeEnabled,
+                        onCheckedChange = viewModel::setDeveloperModeEnabled,
+                    )
+
+                    HorizontalDivider(
+                        color = DividerColor,
+                        thickness = 0.6.dp,
+                        modifier = Modifier.padding(vertical = 2.dp),
+                    )
                 }
             }
-
-            item {
-                SettingsSectionCard(
-                    icon = Icons.Default.Bluetooth,
-                    title = "BLE EVENT LOG",
-                ) {
-                    Box(
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 100.dp, max = 220.dp)
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Color(0xFF181A1E))
-                                .border(1.dp, DividerColor, RoundedCornerShape(10.dp))
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                    ) {
-                        if (logs.isEmpty()) {
-                            Text(
-                                text = "No BLE logs yet...",
-                                color = TextSecondary.copy(alpha = 0.55f),
-                                fontSize = 12.sp,
-                                fontStyle = FontStyle.Italic,
-                                modifier = Modifier.align(Alignment.Center),
-                            )
-                        } else {
-                            LazyColumn(
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                items(logs) { log ->
-                                    Row(verticalAlignment = Alignment.Top) {
-                                        Text(
-                                            text = ">",
-                                            color = AccentCyan.copy(alpha = 0.7f),
-                                            fontSize = 12.sp,
-                                            modifier = Modifier.padding(end = 6.dp),
-                                        )
-                                        Text(
-                                            text = log,
-                                            color = TextPrimary.copy(alpha = 0.9f),
-                                            fontSize = 11.sp,
-                                            lineHeight = 15.sp,
-                                            fontFamily = FontFamily.Monospace,
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
             item {
                 SettingsSectionCard(
                     icon = Icons.Default.Groups,
@@ -291,7 +249,7 @@ private fun SettingsTitleSection() {
         Spacer(modifier = Modifier.height(6.dp))
 
         Text(
-            text = "Settings &\nLogs",
+            text = "Settings",
             color = TextPrimary,
             fontSize = 26.sp,
             fontWeight = FontWeight.ExtraBold,

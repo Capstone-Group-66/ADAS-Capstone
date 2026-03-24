@@ -48,6 +48,7 @@ stage_e_fusion:
   radar_hold_ms: 1100
   track_cleanup_ms: 1600
   predicted_camera_threshold_ms: 80
+  gps_correction_gain: 0.8
   normal_angle_gate_deg: 12.5
   aggressive_angle_gate_deg: 18.0
   aggressive_range_scale: 1.5

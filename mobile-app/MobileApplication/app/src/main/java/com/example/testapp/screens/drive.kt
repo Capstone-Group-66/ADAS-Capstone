@@ -1,11 +1,15 @@
 package com.example.testapp.screens
 
+import android.view.MotionEvent
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -29,6 +33,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.input.pointer.pointerInteropFilter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -51,23 +56,42 @@ private val StatusAmber = Color(0xFFFFB300)
 @Composable
 fun Drive(
     vehicleStatusViewModel: VehicleStatusViewModel,
+    developerModeEnabled: Boolean,
+    showBottomBar: Boolean,
+    onUserInteraction: () -> Unit,
     onDebugTrigger: () -> Unit,
     onDebugClear: () -> Unit,
 ) {
     val state by vehicleStatusViewModel.driveState.collectAsState()
-    DriveContent(state = state, onDebugTrigger = onDebugTrigger, onDebugClear = onDebugClear)
+    DriveContent(
+        state = state,
+        developerModeEnabled = developerModeEnabled,
+        showBottomBar = showBottomBar,
+        onUserInteraction = onUserInteraction,
+        onDebugTrigger = onDebugTrigger,
+        onDebugClear = onDebugClear,
+    )
 }
 
 @Composable
 fun DriveContent(
     state: UpdateUIstate,
+    developerModeEnabled: Boolean,
+    showBottomBar: Boolean,
+    onUserInteraction: () -> Unit,
     onDebugTrigger: () -> Unit,
     onDebugClear: () -> Unit,
 ) {
-    Box(
+    BoxWithConstraints(
         modifier =
             Modifier
                 .fillMaxSize()
+                .pointerInteropFilter {
+                    if (it.actionMasked == MotionEvent.ACTION_DOWN) {
+                        onUserInteraction()
+                    }
+                    false
+                }
                 .background(Charcoal)
                 .drawBehind {
                     val dotColor = Color(0x18FFFFFF)
@@ -84,12 +108,31 @@ fun DriveContent(
                     }
                 },
     ) {
-        CenteredCar()
-        FrontDetection(state.frontAlertColor)
-        RearDetection(state.rearAlertColor)
+        val sceneVerticalShift = -(maxHeight * 0.13f)
+        val statusRowBottomPadding by animateDpAsState(
+            targetValue = if (showBottomBar) 88.dp else 12.dp,
+            animationSpec = tween(durationMillis = 220),
+            label = "statusRowBottomPadding",
+        )
+
+        CenteredCar(sceneVerticalShift = sceneVerticalShift)
+        FrontDetection(
+            detectionValue = state.frontAlertColor,
+            sceneVerticalShift = sceneVerticalShift,
+        )
+        RearDetection(
+            detectionValue = state.rearAlertColor,
+            sceneVerticalShift = sceneVerticalShift,
+        )
         WarningOverlay(state)
-        BsdLeft(state.leftBlindspotValue)
-        BsdRight(state.rightBlindspotValue)
+        BsdLeft(
+            detectionValue = state.leftBlindspotValue,
+            sceneVerticalShift = sceneVerticalShift,
+        )
+        BsdRight(
+            detectionValue = state.rightBlindspotValue,
+            sceneVerticalShift = sceneVerticalShift,
+        )
 
         SpeedDisplay(
             speedText = "${state.speedKmh} km/h",
@@ -99,15 +142,17 @@ fun DriveContent(
                     .padding(top = 20.dp, end = 16.dp),
         )
 
-        Row(
-            modifier =
-                Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 16.dp, top = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            DebugButton(label = "TRIGGER", onClick = onDebugTrigger, tint = StatusAmber)
-            DebugButton(label = "CLEAR", onClick = onDebugClear, tint = AccentCyan)
+        if (developerModeEnabled) {
+            Row(
+                modifier =
+                    Modifier
+                        .align(Alignment.TopStart)
+                        .padding(start = 16.dp, top = 20.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                DebugButton(label = "TRIGGER", onClick = onDebugTrigger, tint = StatusAmber)
+                DebugButton(label = "CLEAR", onClick = onDebugClear, tint = AccentCyan)
+            }
         }
 
         StatusRow(
@@ -118,7 +163,7 @@ fun DriveContent(
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = 3.dp),
+                    .padding(bottom = statusRowBottomPadding),
         )
     }
 }
@@ -268,60 +313,84 @@ fun SpeedDisplay(
 }
 
 @Composable
-fun CenteredCar() {
+fun CenteredCar(sceneVerticalShift: androidx.compose.ui.unit.Dp) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Image(
             painter = painterResource(R.drawable.image),
             contentDescription = "Car",
-            modifier = Modifier.size(320.dp).offset(x = -5.dp, y = 70.dp),
+            modifier = Modifier.size(320.dp).offset(x = -5.dp, y = 70.dp + sceneVerticalShift),
         )
     }
 }
 
 @Composable
-fun FrontDetection(detectionValue: SonarColor) {
+fun FrontDetection(
+    detectionValue: SonarColor,
+    sceneVerticalShift: androidx.compose.ui.unit.Dp,
+) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Image(
             painter = painterResource(R.drawable.ic_detection_re),
             contentDescription = "Front detection",
             colorFilter = ColorFilter.tint(detectionValue.color),
-            modifier = Modifier.offset(y = -130.dp).size(200.dp).rotate(-90f),
+            modifier = Modifier.offset(y = -130.dp + sceneVerticalShift).size(200.dp).rotate(-90f),
         )
     }
 }
 
 @Composable
-fun RearDetection(detectionValue: SonarColor) {
+fun RearDetection(
+    detectionValue: SonarColor,
+    sceneVerticalShift: androidx.compose.ui.unit.Dp,
+) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Image(
             painter = painterResource(R.drawable.ic_rear_detection),
             contentDescription = "Rear detection",
             colorFilter = ColorFilter.tint(detectionValue.color),
-            modifier = Modifier.offset(x = -5.dp, y = 270.dp).size(200.dp).rotate(-272f),
+            modifier =
+                Modifier
+                    .offset(x = -5.dp, y = 270.dp + sceneVerticalShift)
+                    .size(200.dp)
+                    .rotate(-272f),
         )
     }
 }
 
 @Composable
-fun BsdLeft(detectionValue: SonarColor) {
+fun BsdLeft(
+    detectionValue: SonarColor,
+    sceneVerticalShift: androidx.compose.ui.unit.Dp,
+) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Image(
             painter = painterResource(R.drawable.ic_detection_re),
             contentDescription = "Blindspot left",
             colorFilter = ColorFilter.tint(detectionValue.color),
-            modifier = Modifier.size(150.dp).offset(x = -110.dp, y = 160.dp).rotate(135f),
+            modifier =
+                Modifier
+                    .size(150.dp)
+                    .offset(x = -110.dp, y = 160.dp + sceneVerticalShift)
+                    .rotate(135f),
         )
     }
 }
 
 @Composable
-fun BsdRight(detectionValue: SonarColor) {
+fun BsdRight(
+    detectionValue: SonarColor,
+    sceneVerticalShift: androidx.compose.ui.unit.Dp,
+) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Image(
             painter = painterResource(R.drawable.ic_detection_re),
             contentDescription = "Blindspot right",
             colorFilter = ColorFilter.tint(detectionValue.color),
-            modifier = Modifier.size(150.dp).offset(x = 110.dp, y = 160.dp).rotate(45f),
+            modifier =
+                Modifier
+                    .size(150.dp)
+                    .offset(x = 110.dp, y = 160.dp + sceneVerticalShift)
+                    .rotate(45f),
         )
     }
 }

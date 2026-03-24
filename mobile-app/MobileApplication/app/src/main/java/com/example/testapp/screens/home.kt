@@ -71,6 +71,7 @@ private val StatusRed = Color(0xFFFF5252)
 fun Home(
     logs: StateFlow<List<String>>,
     status: StateFlow<BleConnectionStatus>,
+    developerModeEnabled: Boolean,
 ) {
     val logList by logs.collectAsState()
     val bleStatus by status.collectAsState()
@@ -96,6 +97,7 @@ fun Home(
             StatusSection(
                 connectionStatus = bleStatus,
                 logList = logList,
+                developerModeEnabled = developerModeEnabled,
             )
             Spacer(modifier = Modifier.height(8.dp))
         }
@@ -286,6 +288,7 @@ private fun HowToUseSection() {
 private fun StatusSection(
     connectionStatus: BleConnectionStatus,
     logList: List<String>,
+    developerModeEnabled: Boolean,
 ) {
     val isConnected = connectionStatus.isConnected
 
@@ -334,65 +337,67 @@ private fun StatusSection(
             }
         }
 
-        Spacer(modifier = Modifier.height(14.dp))
+        if (developerModeEnabled) {
+            Spacer(modifier = Modifier.height(14.dp))
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(bottom = 8.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Default.Terminal,
-                contentDescription = null,
-                tint = AccentCyan,
-                modifier = Modifier.size(14.dp),
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = "BLE EVENT LOG",
-                color = AccentCyan,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 2.sp,
-            )
-        }
-
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 80.dp, max = 220.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Color(0xFF181A1E))
-                    .border(1.dp, DividerColor, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-        ) {
-            if (logList.isEmpty()) {
-                Text(
-                    text = "No events recorded yet...",
-                    color = TextSecondary.copy(alpha = 0.5f),
-                    fontSize = 12.sp,
-                    fontStyle = FontStyle.Italic,
-                    modifier = Modifier.align(Alignment.Center),
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(bottom = 8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Terminal,
+                    contentDescription = null,
+                    tint = AccentCyan,
+                    modifier = Modifier.size(14.dp),
                 )
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    items(logList) { log ->
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                text = ">",
-                                color = AccentCyan.copy(alpha = 0.6f),
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(end = 6.dp),
-                            )
-                            Text(
-                                text = log,
-                                color = TextPrimary.copy(alpha = 0.85f),
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp,
-                                fontFamily = FontFamily.Monospace,
-                            )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "BLE EVENT LOG",
+                    color = AccentCyan,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 2.sp,
+                )
+            }
+
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 80.dp, max = 220.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color(0xFF181A1E))
+                        .border(1.dp, DividerColor, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+            ) {
+                if (logList.isEmpty()) {
+                    Text(
+                        text = "No events recorded yet...",
+                        color = TextSecondary.copy(alpha = 0.5f),
+                        fontSize = 12.sp,
+                        fontStyle = FontStyle.Italic,
+                        modifier = Modifier.align(Alignment.Center),
+                    )
+                } else {
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        items(logList) { log ->
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = ">",
+                                    color = AccentCyan.copy(alpha = 0.6f),
+                                    fontSize = 12.sp,
+                                    modifier = Modifier.padding(end = 6.dp),
+                                )
+                                Text(
+                                    text = log,
+                                    color = TextPrimary.copy(alpha = 0.85f),
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                            }
                         }
                     }
                 }

@@ -425,6 +425,18 @@ bool validateFusionHoldTimings(int camera_hold_ms, int radar_hold_ms,
   return true;
 }
 
+bool validateGpsCorrectionGain(float gain, std::string &error) {
+  if (!std::isfinite(gain)) {
+    error = "GPS correction gain must be a finite number.";
+    return false;
+  }
+  if (gain < 0.0f || gain > 1.0f) {
+    error = "GPS correction gain must be between 0.0 and 1.0.";
+    return false;
+  }
+  return true;
+}
+
 void applyStageESensitivity(adas::FusionConfig &fusion_config,
                             adas::FCWMonitor::Config &fcw_config, int level) {
   const int clamped_level = clampSensitivityLevel(level);
@@ -1014,6 +1026,11 @@ void printMenu(const adas::Config &config) {
             << " cleanup=" << config.stage_e_fusion.track_cleanup_ms
             << " pred=" << config.stage_e_fusion.predicted_camera_threshold_ms
             << "]\n";
+  std::ostringstream gps_gain_ss;
+  gps_gain_ss << std::fixed << std::setprecision(2)
+              << config.stage_e_fusion.gps_correction_gain;
+  std::cout << " 21) Set GPS Speed Correction Gain [" << gps_gain_ss.str()
+            << "]\n";
   std::cout << "  h) Set Camera Height On-The-Fly\n";
   std::cout << "  0) Exit\n";
   std::cout
@@ -1110,6 +1127,7 @@ void startPipeline(const adas::Config &config,
   // Initialize EgoFrame for ego vehicle state from IMU
   g_ego_frame = std::make_unique<adas::EgoFrame>();
   g_ego_frame->init();
+  g_ego_frame->setGpsCorrectionGain(config.stage_e_fusion.gps_correction_gain);
 
   // Initialize BEVDashboard
   g_bev_dashboard = std::make_unique<adas::BEVDashboard>(
@@ -1241,6 +1259,7 @@ void startReplayPipeline(const std::string &replay_file, float speed,
 
   g_ego_frame = std::make_unique<adas::EgoFrame>();
   g_ego_frame->init();
+  g_ego_frame->setGpsCorrectionGain(config.stage_e_fusion.gps_correction_gain);
 
   std::ostringstream sens_replay_ss;
   sens_replay_ss << std::fixed << std::setprecision(2)
@@ -1957,6 +1976,51 @@ int main(int argc, char **argv) {
                   << ", track_cleanup_ms=" << track_cleanup_ms
                   << ", predicted_camera_threshold_ms="
                   << predicted_camera_threshold_ms << "\n";
+      } break;
+
+      case 21: // Set GPS Speed Correction Gain
+      {
+        float gps_correction_gain = config.stage_e_fusion.gps_correction_gain;
+        std::cout << "  Enter GPS speed correction gain [0.0-1.0] [current "
+                  << gps_correction_gain << "]: ";
+        std::cin >> gps_correction_gain;
+
+        if (std::cin.fail()) {
+          std::cin.clear();
+          std::cin.ignore(10000, '\n');
+          std::cout << "[Main] Invalid GPS correction gain input.\n";
+          break;
+        }
+
+        std::string validation_error;
+        if (!validateGpsCorrectionGain(gps_correction_gain,
+                                       validation_error)) {
+          std::cout << "[Main] Invalid GPS correction gain: "
+                    << validation_error << "\n";
+          break;
+        }
+
+        config.stage_e_fusion.gps_correction_gain = gps_correction_gain;
+        try {
+          adas::ConfigLoader::saveConfig(config_path, config);
+        } catch (const std::exception &e) {
+          std::cerr << "[Main] Failed to save GPS correction gain: "
+                    << e.what() << "\n";
+          break;
+        }
+
+        if (g_ego_frame) {
+          g_ego_frame->setGpsCorrectionGain(gps_correction_gain);
+        }
+
+        std::cout << "[Main] GPS speed correction gain set to "
+                  << gps_correction_gain;
+        if (g_pipeline_running.load() && g_ego_frame) {
+          std::cout << " (applied on-the-fly and saved).";
+        } else {
+          std::cout << " (saved for next pipeline start).";
+        }
+        std::cout << "\n";
       } break;
 
       case 14: // Toggle RTSP Server

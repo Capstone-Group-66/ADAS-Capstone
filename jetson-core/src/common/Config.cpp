@@ -160,6 +160,8 @@ Config ConfigLoader::loadConfig(const std::string &path) {
         config.stage_e_fusion.track_cleanup_ms = std::stoi(value);
       } else if (key == "predicted_camera_threshold_ms") {
         config.stage_e_fusion.predicted_camera_threshold_ms = std::stoi(value);
+      } else if (key == "gps_correction_gain") {
+        config.stage_e_fusion.gps_correction_gain = std::stof(value);
       } else if (key == "normal_angle_gate_deg") {
         config.stage_e_fusion.normal_angle_gate_deg = std::stof(value);
       } else if (key == "aggressive_angle_gate_deg") {
@@ -292,6 +294,11 @@ void ConfigLoader::saveConfig(const std::string &path, const Config &config) {
         ss << std::string(indent, ' ') << "predicted_camera_threshold_ms: "
            << config.stage_e_fusion.predicted_camera_threshold_ms << "\n";
         new_content += ss.str();
+        continue;
+      }
+      if (key == "gps_correction_gain") {
+        emitFloat("gps_correction_gain",
+                  config.stage_e_fusion.gps_correction_gain);
         continue;
       }
       if (key == "normal_angle_gate_deg") {

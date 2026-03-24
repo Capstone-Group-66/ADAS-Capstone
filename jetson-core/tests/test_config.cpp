@@ -10,7 +10,9 @@ int main() {
                     cfg.cameras.height > 0 &&
                     cfg.stage_e_fusion.camera_hold_ms > 0 &&
                     cfg.stage_e_fusion.radar_hold_ms > 0 &&
-                    cfg.stage_e_fusion.track_cleanup_ms > 0;
+                    cfg.stage_e_fusion.track_cleanup_ms > 0 &&
+                    cfg.stage_e_fusion.gps_correction_gain >= 0.0f &&
+                    cfg.stage_e_fusion.gps_correction_gain <= 1.0f;
     if (!ok) {
       std::cerr << "[FAIL] Config fields are invalid\n";
       return 1;

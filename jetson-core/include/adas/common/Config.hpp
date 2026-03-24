@@ -80,6 +80,7 @@ struct StageEFusionConfig {
     int radar_hold_ms = 1100;
     int track_cleanup_ms = 1600;
     int predicted_camera_threshold_ms = 80;
+    float gps_correction_gain = 0.8f;
     float normal_angle_gate_deg = 12.5f;
     float aggressive_angle_gate_deg = 18.0f;
     float aggressive_range_scale = 1.5f;

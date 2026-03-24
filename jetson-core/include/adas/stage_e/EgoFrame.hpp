@@ -2,6 +2,7 @@
 // Kalman Filter for ego vehicle state estimation from IMU data
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 #include <mutex>
 #include <opencv2/video/tracking.hpp>
@@ -83,6 +84,13 @@ class EgoFrame {
     /// @param gps_speed_mps GPS ground speed (no drift, ~0.1 m/s accuracy)
     void correctWithGpsSpeed(float gps_speed_mps);
 
+    /// Set how strongly GPS speed magnitude corrects the IMU velocity estimate.
+    /// 0.0 = ignore GPS, 1.0 = snap fully to GPS magnitude.
+    void setGpsCorrectionGain(float gain);
+
+    /// Get current GPS correction gain.
+    float getGpsCorrectionGain() const;
+
     /// Check if GPS corrections are being received (not stale)
     bool hasRecentGps() const;
 
@@ -118,7 +126,7 @@ class EgoFrame {
     // GPS correction state
     float last_gps_speed_mps_ = 0.0f;
     uint64_t last_gps_time_ns_ = 0;
-    static constexpr float GPS_CORRECTION_GAIN = 0.5f;
+    std::atomic<float> gps_correction_gain_{0.8f};
     static constexpr uint64_t GPS_STALE_NS = 3'000'000'000ULL;  // 3 seconds
 };
 

@@ -2,6 +2,7 @@
 // Kalman Filter implementation for ego vehicle state from IMU
 #include "adas/stage_e/EgoFrame.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 
@@ -221,7 +222,8 @@ void EgoFrame::correctWithGpsSpeed(float gps_speed_mps) {
     // Scale IMU velocity vector to match GPS speed magnitude.
     // Preserves IMU direction, corrects magnitude with gain.
     float scale = gps_speed_mps / imu_speed;
-    float blended_scale = 1.0f + GPS_CORRECTION_GAIN * (scale - 1.0f);
+    const float gain = gps_correction_gain_.load(std::memory_order_relaxed);
+    float blended_scale = 1.0f + gain * (scale - 1.0f);
 
     kf.statePost.at<float>(2, 0) *= blended_scale;
     kf.statePost.at<float>(3, 0) *= blended_scale;
@@ -231,7 +233,21 @@ void EgoFrame::correctWithGpsSpeed(float gps_speed_mps) {
   cached_vy_ = kf.statePost.at<float>(3, 0);
 
   std::cout << "[EgoFrame] GPS correction: IMU=" << imu_speed
-            << " GPS=" << gps_speed_mps << " -> " << getSpeed_mps() << " m/s\n";
+            << " GPS=" << gps_speed_mps << " gain="
+            << gps_correction_gain_.load(std::memory_order_relaxed) << " -> "
+            << getSpeed_mps() << " m/s\n";
+}
+
+void EgoFrame::setGpsCorrectionGain(float gain) {
+  if (!std::isfinite(gain)) {
+    gain = 0.8f;
+  }
+  gain = std::clamp(gain, 0.0f, 1.0f);
+  gps_correction_gain_.store(gain, std::memory_order_relaxed);
+}
+
+float EgoFrame::getGpsCorrectionGain() const {
+  return gps_correction_gain_.load(std::memory_order_relaxed);
 }
 
 bool EgoFrame::hasRecentGps() const {
