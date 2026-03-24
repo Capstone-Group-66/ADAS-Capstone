@@ -96,7 +96,8 @@ private:
   SummaryConstIterator chooseDominantSummary() const {
     auto best_it = summaries_.end();
     for (auto it = summaries_.begin(); it != summaries_.end(); ++it) {
-      if (best_it == summaries_.end() || it->second.count > best_it->second.count ||
+      if (best_it == summaries_.end() ||
+          it->second.count > best_it->second.count ||
           (it->second.count == best_it->second.count &&
            it->second.best_score > best_it->second.best_score)) {
         best_it = it;

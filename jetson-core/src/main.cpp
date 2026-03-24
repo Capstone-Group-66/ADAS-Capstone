@@ -706,7 +706,8 @@ void visualizationThread() {
           have_rcw_state && static_cast<int>(latest_rcw_state.alert) != 0;
       const int bsd_mask = buildBsdMask();
       const bool bsd_active = bsd_mask != 0;
-      const bool is_alerting = fcw_alert.has_value() || rcw_active || bsd_active;
+      const bool is_alerting =
+          fcw_alert.has_value() || rcw_active || bsd_active;
       const auto now_time = std::chrono::steady_clock::now();
       const auto time_since =
           std::chrono::duration_cast<std::chrono::milliseconds>(now_time -
