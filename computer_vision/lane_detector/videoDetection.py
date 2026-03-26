@@ -28,7 +28,7 @@ MODEL_MAP = {
 # Args
 
 parser = argparse.ArgumentParser(description="Lane detection on a video.")
-parser.add_argument("--video",      type=str, default="./temp/dashcam6.mp4")
+parser.add_argument("--video",      type=str, default="./data/dashcam6.mp4")
 parser.add_argument("--model",      type=str, default="culane", choices=MODEL_MAP.keys())
 parser.add_argument("--no-display", action="store_true",
                     help="Skip the live preview window (useful on headless servers)")
